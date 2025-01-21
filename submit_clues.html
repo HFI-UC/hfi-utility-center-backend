@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Submit Clue Test Form</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #eef;
+            padding: 20px;
+        }
+        .form-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .form-field {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #2196F3;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0b7dda;
+        }
+        .response {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 3px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+
+<div class="form-container">
+    <h2>Submit Clue Test Form</h2>
+    <form id="clueForm">
+        <div class="form-field">
+            <label for="campus">Campus:</label>
+            <input type="text" id="campus" name="campus" required>
+        </div>
+        <div class="form-field">
+            <label for="detail">Detail:</label>
+            <textarea id="detail" name="detail" rows="4" required></textarea>
+        </div>
+        <div class="form-field">
+            <label for="location">Location:</label>
+            <input type="text" id="location" name="location" required>
+        </div>
+        <div class="form-field">
+            <label for="filePath">File Path:</label>
+            <input type="text" id="filePath" name="filePath" required>
+        </div>
+        <div class="form-field">
+            <label for="contact">Contact:</label>
+            <input type="text" id="contact" name="contact" required>
+        </div>
+        <div class="form-field">
+            <label for="lost_info_id">Lost Info ID:</label>
+            <input type="text" id="lost_info_id" name="lost_info_id" required>
+        </div>
+        <button type="submit">Submit Clue</button>
+    </form>
+
+    <div id="response" class="response" style="display: none;"></div>
+</div>
+
+<script>
+document.getElementById('clueForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const form = e.target;
+    const formData = new FormData(form);
+
+    fetch('submit_clue.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        const responseDiv = document.getElementById('response');
+        responseDiv.style.display = 'block';
+        if (data.success) {
+            responseDiv.className = 'response success';
+            responseDiv.textContent = data.message;
+            form.reset();
+        } else {
+            responseDiv.className = 'response error';
+            responseDiv.textContent = data.message || 'An error occurred.';
+        }
+    })
+    .catch(error => {
+        const responseDiv = document.getElementById('response');
+        responseDiv.style.display = 'block';
+        responseDiv.className = 'response error';
+        responseDiv.textContent = 'An unexpected error occurred.';
+        console.error('Error:', error);
+    });
+});
+</script>
+
+</body>
+</html>

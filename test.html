@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>失物招领接口测试</title>
+    <style>
+        /* 简单的样式 */
+        body {
+            font-family: Arial, sans-serif;
+        }
+        nav {
+            margin-bottom: 20px;
+        }
+        nav a {
+            margin-right: 15px;
+            text-decoration: none;
+            color: blue;
+        }
+        nav a.active {
+            font-weight: bold;
+            color: darkblue;
+        }
+        .form-section {
+            display: none;
+        }
+        .form-section.active {
+            display: block;
+        }
+        #response {
+            margin-top: 20px;
+        }
+    </style>
+    <script>
+        function showSection(sectionId) {
+            // 隐藏所有的表单部分
+            const sections = document.querySelectorAll('.form-section');
+            sections.forEach(section => {
+                section.classList.remove('active');
+            });
+
+            // 移除所有导航链接的 active 类
+            const navLinks = document.querySelectorAll('nav a');
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+            });
+
+            // 显示选中的表单部分
+            document.getElementById(sectionId).classList.add('active');
+
+            // 为选中的导航链接添加 active 类
+            document.querySelector(`nav a[href="#${sectionId}"]`).classList.add('active');
+
+            // 清空响应区域
+            document.getElementById('response').innerHTML = '';
+        }
+
+        function submitForm(event, formId, apiEndpoint) {
+            event.preventDefault(); // 阻止表单的默认提交行为
+
+            // 获取表单数据
+            const formData = new FormData(document.getElementById(formId));
+
+            // 创建 XMLHttpRequest 对象
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', apiEndpoint, true);
+            xhr.onload = function () {
+                const responseDiv = document.getElementById('response');
+                try {
+                    const jsonResponse = JSON.parse(xhr.responseText);
+                    if (xhr.status === 200 || xhr.status === 201) {
+                        responseDiv.innerHTML = '<p style="color: green;">' + jsonResponse.success + '</p>';
+                        if (jsonResponse.id) {
+                            responseDiv.innerHTML += '<p>您的请求 ID 是：' + jsonResponse.id + '</p>';
+                        }
+                    } else {
+                        responseDiv.innerHTML = '<p style="color: red;">错误：' + jsonResponse.message + '</p>';
+                    }
+                } catch (e) {
+                    responseDiv.innerHTML = '<p style="color: red;">无法解析服务器响应。</p>'+xhr.responseText;
+                }
+            };
+            xhr.send(formData);
+        }
+    </script>
+</head>
+<body>
+    <h1>失物招领接口测试</h1>
+    <nav>
+        <a href="#submitLF" onclick="showSection('submitLF'); return false;" class="active">提交失物招领信息</a>
+        <a href="#updateRequest" onclick="showSection('updateRequest'); return false;">更新请求状态</a>
+        <a href="#submitClue" onclick="showSection('submitClue'); return false;">提交线索</a>
+    </nav>
+
+    <!-- 提交失物招领信息 -->
+    <div id="submitLF" class="form-section active">
+        <h2>提交失物招领信息</h2>
+        <form id="lfForm" onsubmit="submitForm(event, 'lfForm', 'submit_lnf.php')">
+            <label for="email">类型：</label><br>
+            <input type="text" id="type" name="type" required><br><br>
+            
+            <label for="studentName">学生姓名：</label><br>
+            <input type="text" id="student_name" name="studentName" required><br><br>
+
+            <label for="detail">详细信息：</label><br>
+            <textarea id="detail" name="detail" rows="4" cols="50" required></textarea><br><br>
+
+            <label for="location">地点：</label><br>
+            <input type="text" id="location" name="location" required><br><br>
+
+            <label for="email">邮箱：</label><br>
+            <input type="email" id="email" name="email" required><br><br>
+
+            <label for="campus">校区：</label><br>
+            <input type="text" id="campus" name="campus" required><br><br>
+
+            <label for="filePath">文件路径：</label><br>
+            <input type="text" id="file_path" name="filePath"><br><br>
+
+            <label for="password">口令：</label><br>
+            <input type="password" id="password" name="password" required><br><br>
+
+            <label for="reward">悬赏信息（可选）：</label><br>
+            <input type="text" id="reward" name="reward"><br><br>
+
+            <label for="alt_contact">备用联系方式（可选）：</label><br>
+            <input type="text" id="alt_contact" name="alt_contact"><br><br>
+
+            <input type="submit" value="提交失物招领信息">
+        </form>
+    </div>
+
+    <!-- 更新请求状态 -->
+    <div id="updateRequest" class="form-section">
+        <h2>更新请求状态</h2>
+        <form id="updateForm" onsubmit="submitForm(event, 'updateForm', 'update_lnf_status.php')">
+            <label for="id">请求 ID：</label><br>
+            <input type="number" id="id" name="id" required><br><br>
+
+            <label for="password">口令：</label><br>
+            <input type="password" id="password" name="password" required><br><br>
+
+            <label for="action">操作：</label><br>
+            <select id="action" name="action" required>
+                <option value="found">已找到</option>
+                <option value="not_found">未找到</option>
+                <option value="hide">隐藏</option>
+            </select><br><br>
+
+            <input type="submit" value="更新状态">
+        </form>
+    </div>
+
+    <!-- 提交线索 -->
+    <div id="submitClue" class="form-section">
+        <h2>提交线索</h2>
+        <form id="clueForm" onsubmit="submitForm(event, 'clueForm', 'submit_clue.php')">
+            <label for="campus">校区：</label><br>
+            <input type="text" id="campus" name="campus" required><br><br>
+
+            <label for="detail">详细信息：</label><br>
+            <textarea id="detail" name="detail" rows="4" cols="50" required></textarea><br><br>
+
+            <label for="location">地点：</label><br>
+            <input type="text" id="location" name="location" required><br><br>
+
+            <label for="filePath">文件路径：</label><br>
+            <input type="text" id="filePath" name="filePath"><br><br>
+
+            <label for="contact">联系方式：</label><br>
+            <input type="text" id="contact" name="contact" required><br><br>
+
+            <label for="lost_info_id">失物信息 ID：</label><br>
+            <input type="number" id="lost_info_id" name="lost_info_id" required><br><br>
+
+            <input type="submit" value="提交线索">
+        </form>
+    </div>
+
+    <div id="response"></div>
+</body>
+</html>
