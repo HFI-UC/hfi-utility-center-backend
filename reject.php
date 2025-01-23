@@ -10,13 +10,6 @@ require_once 'src/SMTP.php';
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-function sanitizeInput($data) {
-    $data = trim($data);
-    $data = stripslashes($data);
-    $data = htmlspecialchars($data);
-    return $data;
-}
-
 function update_request($pdo, $id, $op_email,$reason) {
     global $email_server, $email_account, $email_passwd, $domain_emaddr;
     switch($reason){

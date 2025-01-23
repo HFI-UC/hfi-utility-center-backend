@@ -8,14 +8,14 @@ header('Content-Type: application/json');
 // 确保请求方法为 POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
+    echo json_encode(['success' => false, 'message' => 'Method Not Allowed.']);
     exit;
 }
 
 // 检查是否提供了令牌
 if (!isset($_POST['token'])) {
     http_response_code(401);
-    echo json_encode(['success' => false, 'message' => 'Token is required']);
+    echo json_encode(['success' => false, 'message' => 'Token is required.']);
     exit;
 }
 
@@ -26,7 +26,7 @@ $email = opensslDecrypt($token, $key);
 
 if ($email === false) {
     http_response_code(401);
-    echo json_encode(['success' => false, 'message' => 'Invalid token']);
+    echo json_encode(['success' => false, 'message' => 'Invalid token.']);
     exit;
 }
 
@@ -53,14 +53,14 @@ $end_time = isset($_POST['end_time']) ? sanitizeInput($_POST['end_time']) : null
 // 检查必填字段
 if (empty($classroom) || empty($days) || empty($start_time) || empty($end_time)) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Missing required fields']);
+    echo json_encode(['success' => false, 'message' => 'Missing required fields.']);
     exit;
 }
 
 // 验证 $days 是否为数组
 if (!is_array($days) || empty($days)) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Invalid or missing days']);
+    echo json_encode(['success' => false, 'message' => 'Invalid or missing days.']);
     exit;
 }
 
