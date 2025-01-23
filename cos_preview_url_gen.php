@@ -14,6 +14,7 @@ $region = $cos_region; //替换为用户的 region，已创建桶归属的region
 $cosClient = new Qcloud\Cos\Client(
     array(
         'region' => $region, //协议头部，默认为http
+        'scheme' => 'https',
         'signHost' => true, //默认签入Header Host；您也可以选择不签入Header Host，但可能导致请求失败或安全漏洞,若不签入host则填false
         'credentials'=> array(
             'secretId'  => $secretId ,

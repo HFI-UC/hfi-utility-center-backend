@@ -7,7 +7,8 @@ header('Access-Control-Allow-Headers: Content-Type');
 session_start();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset(/*$_POST['email'],*/ $_POST['regusername'], $_POST['regpassword']/*, $_POST['verificationCode']*/)) {
-    //exit;
+    exit;//临时停用接口
+    
     //$email = filter_input(INPUT_POST, 'email', FILTER_SANITIZE_EMAIL);
     $username = filter_input(INPUT_POST, 'regusername', FILTER_SANITIZE_STRING);
     $email=$username;

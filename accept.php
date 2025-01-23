@@ -12,13 +12,6 @@ use PHPMailer\PHPMailer\Exception;
     
 handleRequest();
 
-function sanitizeInput($data) {
-    $data = trim($data);
-    $data = stripslashes($data);
-    $data = htmlspecialchars($data);
-    return $data;
-}
-
 function update_request($pdo, $id, $op_email) {
     global $email_server, $email_account, $email_passwd, $domain_emaddr;
 
@@ -87,7 +80,7 @@ function update_request($pdo, $id, $op_email) {
         echo json_encode(['success' => true, 'message' => 'Email has sent successfully.']);
     } catch (Exception $e) {
         http_response_code(200);
-        echo json_encode(['success' => true, 'message' => 'Email sent failed, Error: ' . $e->getMessage()]);
+        echo json_encode(['success' => true, 'message' => 'Failed to send email.']);
     }
 }
 
@@ -99,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $email = opensslDecrypt($token, $key);
     if (!isAdmin($email)) {
         http_response_code(403);
-        echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+        echo json_encode(['success' => false, 'message' => 'Unauthorized.']);
         exit;
     }
     $id = sanitizeInput($_POST['Id']);

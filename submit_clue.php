@@ -139,7 +139,7 @@ try {
         logException($e);
         // 您可以选择在这里返回一个警告，但不改变主流程
         http_response_code(201);
-        echo json_encode(['success'=> true,'message' => 'Clue submitted successfully, unable to email the requester.']);
+        echo json_encode(['success'=> true,'message' => 'Clue submitted successfully, unable to notify the requester.']);
     }
     // 返回成功响应
     http_response_code(201);
