@@ -1,5 +1,6 @@
 db.php
 global_variables.php
+db.sql
 
 /cache/
 /monitor/
