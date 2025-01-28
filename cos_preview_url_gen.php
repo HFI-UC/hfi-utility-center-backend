@@ -34,5 +34,6 @@ try {
 } catch (\Exception $e) {
     // 请求失败
     http_response_code(500);
-    echo json_encode(['message'=>$e]);
+    logException($e);
+    echo json_encode(['message'=>"Internal Server Error"]);
 }

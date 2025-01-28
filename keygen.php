@@ -18,10 +18,10 @@ function generateCosKey($ext) {
 function getKeyAndCredentials($filename) {
     global $cos_bucket,$cos_region,$cos_secret_id,$cos_secret_key;
   $permission = array(
-    'limitExt' => false,
+    'limitExt' => true,
     'extWhiteList' => ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff'], 
-    'limitContentType' => false,
-    'limitContentLength' => false,
+    'limitContentType' => true,
+    'limitContentLength' => true,
   );
   $condition = array();
 
