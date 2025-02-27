@@ -13,7 +13,7 @@ class CustomPDOStatement extends PDOStatement
     {
         try {
             if ($name === 'fetch' || $name === 'fetchAll') {
-                // 捕获异常并调用 customExceptionHandler
+                // 捕获异常并调用 logException
                 return call_user_func_array([$this, $name], [PDO::FETCH_ASSOC]);
             }
 
@@ -21,10 +21,34 @@ class CustomPDOStatement extends PDOStatement
             return call_user_func_array([$this, $name], $arguments);
 
         } catch (PDOException $e) {
-            // 调用自定义异常处理函数
-            customExceptionHandler($e);
-            // 你可以选择重新抛出异常，或者返回 null 或默认值
-            throw $e;  // 如果希望继续抛出异常，使用 throw
+            // 调用日志记录函数
+            logException($e);
+            // 重新抛出异常，确保外部调用者能处理
+            throw $e;
+        }
+    }
+    
+    // 重写 execute 方法，添加性能优化和错误处理
+    public function execute($params = null)
+    {
+        try {
+            $startTime = microtime(true);
+            $result = parent::execute($params);
+            $executionTime = microtime(true) - $startTime;
+            
+            // 如果查询执行时间超过一定阈值，记录为慢查询
+            if ($executionTime > 0.1) { // 100ms阈值，可调整
+                error_log(sprintf(
+                    "慢查询警告: %.4f秒 - %s", 
+                    $executionTime, 
+                    $this->queryString
+                ));
+            }
+            
+            return $result;
+        } catch (PDOException $e) {
+            logException($e);
+            throw $e;
         }
     }
 }

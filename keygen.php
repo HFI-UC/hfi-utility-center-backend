@@ -43,7 +43,7 @@ function getKeyAndCredentials($filename) {
   $cosKey = $_POST['cosKey'];
   $bucket = $cos_bucket; 
   $region = $cos_region; 
-  
+  $allowedPrefixes=generateCosKey($ext);;
   $config = array(
     'url' => 'https://sts.tencentcloudapi.com/', 
     'domain' => 'sts.tencentcloudapi.com', 
@@ -53,7 +53,7 @@ function getKeyAndCredentials($filename) {
     'bucket' => $bucket, 
     'region' => $region, 
     'durationSeconds' => 180,
-    'allowPrefix' => array($cosKey),
+    'allowPrefix' => array($allowedPrefixes),
     'allowActions' => array (
         'name/cos:PutObject',
         'name/cos:InitiateMultipartUpload',
@@ -78,7 +78,7 @@ function getKeyAndCredentials($filename) {
     'ExpiredTime' => $tempKeys['expiredTime'],
     'Bucket' => $bucket,
     'Region' => $region,
-    'Key' => $cosKey,
+    'Key' => $allowedPrefixes,
   );
   echo json_encode(['credentials'=>$resTemp]);
   return $resTemp;
@@ -89,5 +89,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['file-name'])) {
 } else {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Invalid request']);
+    exit;
 }
 ?>

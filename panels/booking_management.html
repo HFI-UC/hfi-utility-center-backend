@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking Management Panel</title>
+    <style>
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        button { margin: 5px; }
+        .message { color: green; }
+        .error { color: red; }
+    </style>
+    <script>
+        function handleAction(action, id, reason = null) {
+            const xhr = new XMLHttpRequest();
+            const url = action === 'accept' ? 'accept.php' : 'reject.php';
+            const params = action === 'reject' ? `Id=${id}&Reason=${reason}` : `Id=${id}`;
+
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        document.getElementById('message').innerHTML = 'Action completed successfully!';
+                        document.getElementById('message').className = 'message';
+                        // Remove the row or update it as needed
+                        document.getElementById('row-' + id).remove();
+                    } else {
+                        document.getElementById('message').innerHTML = response.message;
+                        document.getElementById('message').className = 'error';
+                    }
+                }
+            };
+            xhr.send(params);
+        }
+    </script>
+</head>
+<body>
+    <h1>Classroom Booking Management Panel</h1>
+    <div id="message"></div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Room</th>
+                <th>Email</th>
+                <th>Time</th>
+                <th>Name</th>
+                <th>Reason</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Example Row -->
+            <tr id="row-1">
+                <td>1</td>
+                <td>101</td>
+                <td>example@example.com</td>
+                <td>10:00 - 11:00</td>
+                <td>John Doe</td>
+                <td>Class</td>
+                <td>
+                    <button onclick="handleAction('accept', 1)">Accept</button>
+                    <select onchange="handleAction('reject', 1, this.value)">
+                        <option value="">Reject</option>
+                        <option value="1">Time Conflict</option>
+                        <option value="2">Insufficient Resources</option>
+                        <option value="3">Does Not Meet Conditions</option>
+                        <option value="4">Under Maintenance</option>
+                        <option value="5">Safety Concerns</option>
+                        <option value="6">Incomplete Information</option>
+                        <option value="7">Policy Violation</option>
+                        <option value="8">Frequent Requests</option>
+                        <option value="9">Special Event Priority</option>
+                    </select>
+                </td>
+            </tr>
+            <!-- More rows can be added dynamically or through server-side rendering -->
+        </tbody>
+    </table>
+</body>
+</html> 

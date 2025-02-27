@@ -1,8 +1,4 @@
 <?php
-error_reporting(E_ALL);
-
-// 显示错误
-ini_set('display_errors', 1);
 require_once 'src/Sts.php';
 require_once 'src/Scope.php';
 require_once 'src/cos-sdk-v5-7/tencent-php/vendor/autoload.php';
