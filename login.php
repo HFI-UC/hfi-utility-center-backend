@@ -92,6 +92,9 @@ function verifyCloudflareTurnstile($cftoken) {
     
     // 初始化curl选项，启用SSL验证
     $ch = curl_init($url);
+    if ($ch === false) {
+        throw new Exception("CURL Initialization failed");
+    }
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $cfdata);
