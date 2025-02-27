@@ -111,9 +111,10 @@ function verifyCloudflareTurnstile($cftoken) {
     $result = curl_exec($ch);
     
     // 检查curl错误
-    if (curl_errno($ch)) {
+    if ($result === false) {
+        $error = curl_error($ch);
         curl_close($ch);
-        throw new Exception("CURL Error: " . curl_error($ch));
+        throw new Exception("CURL Error: " . $error);
     }
     
     curl_close($ch);
