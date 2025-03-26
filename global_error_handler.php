@@ -306,7 +306,7 @@ function shutdownFunction()
             http_response_code($currentCode);
             header('Content-Type: application/json; charset=UTF-8');
             echo json_encode([
-                'message' => $errorMessage.' If the error persists, please contact feedback@hfiuc.org And attach the current time.',
+                'message' => $errorMessage.' If the error persists, please contact feedback@hfiuc.org and attach the current time.',
                 'timestamp' => date('Y-m-d H:i:s')
             ], JSON_UNESCAPED_UNICODE);
         } else {
