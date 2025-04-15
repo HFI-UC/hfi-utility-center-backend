@@ -186,7 +186,7 @@ try {
      */
 
     // SQL 查询: 从 'requests' 表中选择 auth = 'yes' 且时间早于当前时间的记录
-    $sqlSelectRequests = "SELECT * FROM requests WHERE auth = 'yes' AND SUBSTRING_INDEX(time, '-', -1) < :currentTime";
+    $sqlSelectRequests = "SELECT * FROM requests WHERE auth != 'non' AND SUBSTRING_INDEX(time, '-', -1) < :currentTime";
     $stmtSelectRequests = $pdo->prepare($sqlSelectRequests);
     $currentTime = time() * 1000; // 当前时间（毫秒）
     $stmtSelectRequests->execute([':currentTime' => $currentTime]);
