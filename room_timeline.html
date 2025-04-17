@@ -538,6 +538,9 @@
                 
                 // Create event elements
                 todayReservations.forEach(reservation => {
+                    const startDisplayHour = 6; // Define locally
+                    const endDisplayHour = 22; // Define locally
+                    
                     const { startTime, endTime } = parseTimeRange(reservation.time);
                     
                     // Format display time
@@ -548,7 +551,7 @@
                     const endHour = new Date(parseInt(endTime)).getHours();
                     const endMinutes = new Date(parseInt(endTime)).getMinutes();
                     
-                    // Determine which hour slots this reservation touches
+                    // Determine which hour slots this reservation touches (within the display range)
                     for (let hour = Math.max(startHour, startDisplayHour); hour <= Math.min(endHour, endDisplayHour - 1); hour++) {
                         // Don't add to the next hour if reservation ends exactly at :00
                         if (hour === endHour && endMinutes === 0 && startTime !== endTime) continue;
