@@ -38,104 +38,6 @@
             color: #495057;
         }
         
-        .timeline-container {
-            position: relative;
-            background-color: var(--timeline-bg);
-            border-radius: 8px;
-            padding: 20px;
-            margin-top: 20px;
-            border: 1px solid var(--timeline-border);
-            overflow-x: auto;
-        }
-        
-        .timeline-header {
-            display: flex;
-            margin-bottom: 5px;
-        }
-        
-        .time-slots {
-            display: flex;
-            position: relative;
-            height: 50px;
-            border-bottom: 1px solid var(--timeline-border);
-            margin-bottom: 10px;
-        }
-        
-        .time-slot {
-            flex: 1;
-            text-align: center;
-            font-size: 0.8rem;
-            color: var(--timeline-time);
-            border-right: 1px dashed var(--timeline-border);
-            position: relative;
-            padding-top: 5px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .time-slot:last-child {
-            border-right: none;
-        }
-        
-        .timeline-events {
-            position: relative;
-            margin-top: 20px;
-            min-height: 150px;
-            background-image: repeating-linear-gradient(to right, transparent, transparent calc(100% / 17 - 1px), var(--timeline-border) calc(100% / 17 - 1px), var(--timeline-border) calc(100% / 17));
-        }
-        
-        .event {
-            position: absolute;
-            background-color: var(--reservation-primary);
-            border-radius: 6px;
-            padding: 5px 8px;
-            color: white;
-            font-size: 0.85rem;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            overflow: hidden;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-            z-index: 1;
-            min-width: 80px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        
-        .event:hover {
-            background-color: var(--reservation-hover);
-            z-index: 2;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-        }
-        
-        .tooltip-inner {
-            max-width: 300px;
-            text-align: left;
-            padding: 10px;
-        }
-        
-        .current-time-indicator {
-            position: absolute;
-            width: 3px;
-            background-color: #dc3545;
-            z-index: 3;
-        }
-        
-        .current-time-indicator::before {
-            content: '';
-            position: absolute;
-            top: -4px;
-            left: -3px;
-            width: 8px;
-            height: 8px;
-            background-color: #dc3545;
-            border-radius: 50%;
-        }
-        
         .status-approved {
             background-color: var(--reservation-approved);
             color: white;
@@ -144,26 +46,6 @@
         .status-pending {
             background-color: var(--reservation-pending);
             color: #333;
-        }
-        
-        .room-select {
-            max-width: 200px;
-        }
-        
-        @media (max-width: 768px) {
-            .timeline-container {
-                padding: 10px;
-            }
-            
-            .event {
-                padding: 4px;
-                font-size: 0.75rem;
-            }
-        }
-        
-        #reservationList {
-            list-style: none;
-            padding: 0;
         }
         
         .reservation-item {
@@ -226,11 +108,39 @@
             align-self: flex-start;
         }
         
-        /* Combined Grid/Timeline Styles */
+        @media (max-width: 768px) {
+            .hour-label {
+                width: 40px;
+                font-size: 0.7rem;
+            }
+            
+            .reservation-item {
+                padding: 10px;
+            }
+            
+            .item-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .item-time {
+                margin-top: 5px;
+                font-size: 0.9rem;
+            }
+        }
+        
+        #reservationList {
+            list-style: none;
+            padding: 0;
+        }
+        
+        /* Vertical Timeline Styles */
         .vertical-timeline {
             width: 100%;
             overflow: hidden;
             min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
         
         .hour-slot {
@@ -246,6 +156,16 @@
             flex-wrap: wrap;
         }
         
+        /* Add alternating background for better hour distinction */
+        .hour-slot:nth-child(even) {
+            background-color: rgba(248, 249, 250, 0.5);
+        }
+        
+        /* Highlight current hour */
+        .hour-slot.current-hour {
+            background-color: rgba(220, 53, 69, 0.05);
+        }
+        
         .hour-label {
             width: 50px;
             font-weight: bold;
@@ -253,6 +173,7 @@
             margin-right: 15px;
             flex-shrink: 0;
             padding-top: 5px;
+            color: #495057;
         }
         
         .reservations-in-hour {
@@ -260,6 +181,7 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+            width: calc(100% - 65px);
         }
         
         .current-time-line {
@@ -306,12 +228,21 @@
             border-left: 3px solid #dc3545;
         }
         
-        .time-marker {
-            position: absolute;
-            left: 0;
-            height: 100%;
-            background-color: rgba(108, 99, 255, 0.1);
-            z-index: 1;
+        /* Reservation status styles */
+        .reservation-past {
+            background-color: #f8f9fa;
+            border-left: 3px solid #6c757d;
+            opacity: 0.8;
+        }
+        
+        .reservation-current {
+            background-color: rgba(220, 53, 69, 0.05);
+            border-left: 3px solid #dc3545;
+        }
+        
+        .reservation-future {
+            background-color: rgba(108, 99, 255, 0.05);
+            border-left: 3px solid var(--reservation-primary);
         }
     </style>
 </head>
@@ -361,13 +292,11 @@
             function generateVerticalTimeline() {
                 verticalTimelineContainer.innerHTML = ''; // Clear previous
                 
-                const startDisplayHour = 6;
-                const endDisplayHour = 22; // Display up to 21:xx slot
-                
-                for (let hour = startDisplayHour; hour < endDisplayHour; hour++) {
+                // Display all 24 hours
+                for (let hour = 0; hour < 24; hour++) {
                     const hourSlot = document.createElement('div');
                     hourSlot.className = 'hour-slot';
-                    hourSlot.dataset.hour = hour; // Still use 0-23 for data consistency
+                    hourSlot.dataset.hour = hour;
                     
                     const hourLabel = document.createElement('div');
                     hourLabel.className = 'hour-label';
@@ -397,19 +326,9 @@
                 const hours = now.getHours();
                 const minutes = now.getMinutes();
                 
-                const startDisplayHour = 6;
-                const endDisplayHour = 22;
-                const displayDurationHours = endDisplayHour - startDisplayHour;
-                
-                // Hide indicator if outside the displayed range
-                if (hours < startDisplayHour || hours >= endDisplayHour) {
-                    return;
-                }
-                
-                // Calculate position relative to the displayed range
-                const hoursSinceStart = (hours - startDisplayHour) + (minutes / 60);
-                const timePercentage = hoursSinceStart / displayDurationHours;
-                const verticalPosition = timePercentage * 100;
+                // Calculate position in 24-hour format
+                const hourPercentage = (hours + (minutes / 60)) / 24;
+                const verticalPosition = hourPercentage * 100;
                 
                 // Create indicator
                 const timeIndicator = document.createElement('div');
@@ -420,28 +339,56 @@
                 // Add to timeline
                 verticalTimelineContainer.appendChild(timeIndicator);
                 
-                // Highlight current reservation(s)
-                highlightCurrentReservations();
+                // Highlight current hour
+                highlightCurrentHour(hours);
+                
+                // Update reservation status based on current time
+                updateReservationStatus();
+            }
+            
+            // Highlight the current hour
+            function highlightCurrentHour(currentHour) {
+                // Remove current-hour class from all slots
+                document.querySelectorAll('.hour-slot').forEach(slot => {
+                    slot.classList.remove('current-hour');
+                });
+                
+                // Add current-hour class to the current hour slot
+                const currentHourSlot = document.querySelector(`.hour-slot[data-hour="${currentHour}"]`);
+                if (currentHourSlot) {
+                    currentHourSlot.classList.add('current-hour');
+                }
+            }
+            
+            // Update reservation status (past, current, future)
+            function updateReservationStatus() {
+                const now = new Date().getTime();
+                
+                // Update all reservation items
+                document.querySelectorAll('.reservation-item').forEach(item => {
+                    // Remove all status classes first
+                    item.classList.remove('reservation-past', 'reservation-current', 'reservation-future');
+                    
+                    const startTime = parseInt(item.dataset.startTime);
+                    const endTime = parseInt(item.dataset.endTime);
+                    
+                    if (now > endTime) {
+                        // Reservation has ended
+                        item.classList.add('reservation-past');
+                    } else if (now >= startTime && now <= endTime) {
+                        // Reservation is currently active
+                        item.classList.add('reservation-current');
+                    } else {
+                        // Reservation is in the future
+                        item.classList.add('reservation-future');
+                    }
+                });
             }
             
             // Highlight current reservation(s)
             function highlightCurrentReservations() {
-                const now = new Date().getTime();
-                
-                // Remove existing highlights
-                document.querySelectorAll('.current-reservation').forEach(el => {
-                    el.classList.remove('current-reservation');
-                });
-                
-                // Add highlight to current reservations
-                document.querySelectorAll('.reservation-item').forEach(item => {
-                    const startTime = parseInt(item.dataset.startTime);
-                    const endTime = parseInt(item.dataset.endTime);
-                    
-                    if (now >= startTime && now <= endTime) {
-                        item.classList.add('current-reservation');
-                    }
-                });
+                // This function is now replaced by updateReservationStatus
+                updateReservationStatus();
             }
             
             // Parse timestamp from string format "startTime-endTime"
@@ -551,9 +498,6 @@
                 
                 // Create event elements
                 todayReservations.forEach(reservation => {
-                    const startDisplayHour = 6; // Define locally
-                    const endDisplayHour = 22; // Define locally
-                    
                     const { startTime, endTime } = parseTimeRange(reservation.time);
                     
                     // Format display time
@@ -564,21 +508,21 @@
                     const endHour = new Date(parseInt(endTime)).getHours();
                     const endMinutes = new Date(parseInt(endTime)).getMinutes();
                     
-                    // Determine which hour slots this reservation touches (within the display range)
-                    for (let hour = Math.max(startHour, startDisplayHour); hour <= Math.min(endHour, endDisplayHour - 1); hour++) {
+                    // Determine which hour slots this reservation touches
+                    for (let hour = startHour; hour <= endHour; hour++) {
                         // Don't add to the next hour if reservation ends exactly at :00
                         if (hour === endHour && endMinutes === 0 && startTime !== endTime) continue;
                         
                         const hourSlot = verticalTimelineContainer.querySelector(`.hour-slot[data-hour="${hour}"]`);
-                        if (!hourSlot) continue; // Skip if slot not found (e.g., outside 6-21 range)
+                        if (!hourSlot) continue; // Skip if slot not found
                         
                         const reservationsContainer = hourSlot.querySelector('.reservations-in-hour');
                         
                         // Create a copy of the reservation item for each hour it spans
-                        const listItem = document.createElement('div'); // Use div instead of li
+                        const listItem = document.createElement('div');
                         listItem.className = 'reservation-item';
                         
-                        // Store start and end times as data attributes for current time highlighting
+                        // Store start and end times as data attributes for status updates
                         listItem.dataset.startTime = startTime;
                         listItem.dataset.endTime = endTime;
                         
@@ -610,8 +554,8 @@
                     }
                 });
                 
-                // Highlight current reservations after all are added
-                highlightCurrentReservations();
+                // Update reservation status after all are added
+                updateReservationStatus();
             }
             
             // Initialize the page
@@ -619,8 +563,29 @@
                 generateVerticalTimeline();
                 fetchAllReservations(roomsToDisplay);
                 
-                // Update time indicator every minute
-                setInterval(updateCurrentTimeIndicator, 60000);
+                // Update time indicator every 30 seconds
+                setInterval(updateCurrentTimeIndicator, 30000);
+                
+                // Scroll to current time on initial load
+                setTimeout(scrollToCurrentTime, 1000);
+            }
+            
+            // Scroll to the current time in the timeline
+            function scrollToCurrentTime() {
+                const now = new Date();
+                const currentHour = now.getHours();
+                
+                // Find the current hour slot
+                const hourSlot = document.querySelector(`.hour-slot[data-hour="${currentHour}"]`);
+                if (hourSlot) {
+                    // Scroll to the hour slot, positioning it in the middle of the viewport
+                    const viewportHeight = window.innerHeight;
+                    const offset = hourSlot.offsetTop - (viewportHeight / 2);
+                    window.scrollTo({
+                        top: offset,
+                        behavior: 'smooth'
+                    });
+                }
             }
             
             init();
