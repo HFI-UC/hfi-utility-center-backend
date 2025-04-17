@@ -40,7 +40,6 @@ function getKeyAndCredentials($filename) {
     $condition['numeric_less_than_equal'] = array('cos:content-length' => 10 * 1024 * 1024);
   }
 
-  $cosKey = $_POST['cosKey'];
   $bucket = $cos_bucket; 
   $region = $cos_region; 
   $allowedPrefixes=generateCosKey($ext);;

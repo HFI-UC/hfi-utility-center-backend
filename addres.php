@@ -27,6 +27,62 @@ $rejectCnt = 0;
 $key = base64_decode($base64Key);
 $able_to_send_email=1;
 
+function checkFixedUnavailableTimes(PDO $pdo, $room, int $requestStartTimeMillis, int $requestEndTimeMillis): array {
+    try {
+        // 1. 获取请求的星期几 (1=Mon, 7=Sun) 和 时:分 (用于比较)
+        $requestStartTimeSec = $requestStartTimeMillis / 1000;
+        $requestEndTimeSec = $requestEndTimeMillis / 1000;
+        $requestDayOfWeek = date('N', $requestStartTimeSec);
+        // 将请求时间转换为当天基于0点的秒数或使用 strtotime('H:i') 得到的可比较时间戳
+        $requestStartHM = strtotime(date('H:i', $requestStartTimeSec));
+        $requestEndHM = strtotime(date('H:i', $requestEndTimeSec));
+        // 如果结束时间 H:i 小于开始时间 H:i，说明跨天了（对于教室规则通常不跨天，但以防万一）
+        // if ($requestEndHM < $requestStartHM) $requestEndHM += 86400; // 加一天秒数
+
+        // 2. 从数据库获取该教室的不可用规则
+        $stmt = $pdo->prepare("SELECT days, start_time, end_time FROM classrooms WHERE classroom = :room AND unavailable = 1");
+        $stmt->bindParam(':room', $room);
+        $stmt->execute();
+        $rules = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // 3. 遍历规则进行检查
+        foreach ($rules as $rule) {
+            // 检查星期几是否匹配
+            $ruleDays = explode(',', $rule['days']); // 假设 'days' 是逗号分隔的数字字符串，如 "1,4"
+            if (in_array($requestDayOfWeek, $ruleDays)) {
+                // 星期几匹配，比较时间段 (仅比较 H:i)
+                $ruleStartHM = strtotime($rule['start_time']); // e.g., strtotime("15:20")
+                $ruleEndHM = strtotime($rule['end_time']);     // e.g., strtotime("17:20")
+                // 处理规则跨天 (如果需要)
+                // if ($ruleEndHM < $ruleStartHM) $ruleEndHM += 86400;
+
+                // 核心重叠逻辑: (请求开始 < 规则结束) AND (请求结束 > 规则开始)
+                if ($requestStartHM < $ruleEndHM && $requestEndHM > $ruleStartHM) {
+                    // 发现冲突
+                    $dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+                    $dayName = $dayNames[$requestDayOfWeek - 1];
+                    $roomName = convertRoom($room); // 获取房间名
+                    $message = "Booking conflict: Room {$roomName} is unavailable on {$dayName}s between {$rule['start_time']} and {$rule['end_time']}. Your request from " . date('H:i', $requestStartTimeSec) . " to " . date('H:i', $requestEndTimeSec) . " overlaps.";
+                    return ['available' => false, 'message' => $message];
+                }
+            }
+        }
+
+        // 4. 如果循环结束都没有找到冲突
+        return ['available' => true, 'message' => ''];
+
+    } catch (PDOException $e) {
+        logException($e);
+        // 如果检查出错，保守起见可以认为不可用，或者抛出异常让上层处理
+        return ['available' => false, 'message' => 'Could not verify room availability due to a database error. Please try again.'];
+        // 或者 throw $e;
+    } catch (Exception $e) {
+        logException($e);
+        return ['available' => false, 'message' => 'Could not verify room availability due to an unexpected error.'];
+        // 或者 throw $e;
+    }
+}
+
 // Function to check if a user is a privileger
 function isPrivileger($pdo, $email) {
     $stmt = $pdo->prepare("SELECT COUNT(*) FROM privilegers WHERE email = :email");
@@ -221,6 +277,14 @@ if (in_array($room, $restrictedRooms) && !($userEndTime <= $cleaningStartTime ||
     echo json_encode(['success' => false, 'message' => "{$room_name} is unavailable between 12:00-13:00 for cleaning."]);
     exit;
 }
+
+$availabilityCheck = checkFixedUnavailableTimes($pdo, $room, $startTime, $endTime);
+    if (!$availabilityCheck['available']) {
+        // 如果检查失败（无论是冲突还是错误），都阻止预约
+        http_response_code(409); // Conflict or error during check
+        echo json_encode(['success' => false, 'message' => $availabilityCheck['message']]);
+        exit;
+    }
 
 // Check if the user is a privileger
 if (isPriv($email)) {

@@ -8,6 +8,7 @@ $cacheTime = 3600; // 缓存有效期，单位为秒
 
 handleRequest();
 
+
 function fetchClassrooms($pdo) {
     $stmt = $pdo->prepare("SELECT classroom, days, start_time, end_time FROM classrooms WHERE unavailable = 1");
     $stmt->execute();
