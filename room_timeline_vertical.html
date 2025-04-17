@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>教室预约时间线</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -10,290 +10,352 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
-            --timeline-bg: #f8f9fa;
-            --timeline-border: #dee2e6;
-            --reservation-primary: #6c63ff;
-            --reservation-hover: #5a52d5;
-            --timeline-time: #6c757d;
-            --reservation-approved: #28a745;
-            --reservation-pending: #ffc107;
-            --list-item-bg: #fff;
-            --list-item-border: #e9ecef;
+            --header-bg: #e9ecef;
+            --header-border: #dee2e6;
+            --hour-label-bg: #f8f9fa;
+            --hour-border: #dee2e6;
+            --reservation-bg: #fff;
+            --reservation-border: #e9ecef;
+            --status-approved: #28a745;
+            --status-pending: #ffc107;
+            --time-indicator: #dc3545;
         }
         
-        body {
-            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
-            background-color: #f5f5f5;
-            color: #333;
+        * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
         }
         
-        .card {
-            border: none;
-            box-shadow: none;
-            margin: 0;
-        }
-        
-        .card-header {
-            border-bottom: 1px solid #dee2e6;
-            background-color: #e9ecef;
-            color: #495057;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        
-        /* Vertical Timeline Styles */
-        .vertical-timeline {
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background-color: #f8f9fa;
+            color: #212529;
+            overflow-x: hidden;
+            width: 100vw;
+            height: 100vh;
             display: flex;
             flex-direction: column;
-            width: 100%;
-            overflow-x: hidden;
         }
         
-        .hour-slot {
-            display: flex;
-            border-bottom: 1px solid var(--timeline-border);
-            position: relative;
-            min-height: 100px;
-        }
-        
-        .hour-label {
-            width: 80px;
-            background-color: var(--timeline-bg);
-            padding: 5px;
-            text-align: center;
-            font-weight: bold;
-            border-right: 1px solid var(--timeline-border);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-        
-        .hour-content {
-            flex-grow: 1;
+        /* Header */
+        .page-header {
+            background-color: var(--header-bg);
+            border-bottom: 1px solid var(--header-border);
             padding: 10px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .header-title {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        .header-date {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+        
+        /* Loading and Messages */
+        .status-message {
+            padding: 15px;
+            text-align: center;
+        }
+        
+        /* Timeline */
+        .timeline-container {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
             display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            position: relative;
+            flex-direction: column;
+            scrollbar-width: thin;
+            scrollbar-color: #ccc #f8f9fa;
         }
         
-        /* Current time marker */
-        .current-time-marker {
-            position: absolute;
-            height: 2px;
-            background-color: #dc3545;
-            width: 100%;
-            left: 0;
-            z-index: 3;
+        .timeline-container::-webkit-scrollbar {
+            width: 6px;
         }
         
-        .current-time-marker::before {
-            content: "";
-            position: absolute;
-            width: 8px;
-            height: 8px;
-            background-color: #dc3545;
-            border-radius: 50%;
-            left: 0;
-            top: -3px;
-        }
-        
-        .current-time-marker::after {
-            content: attr(data-time);
-            position: absolute;
-            left: 10px;
-            top: -18px;
-            font-size: 0.75rem;
-            color: #dc3545;
-            background-color: rgba(255, 255, 255, 0.8);
-            padding: 2px 4px;
+        .timeline-container::-webkit-scrollbar-thumb {
+            background-color: #ccc;
             border-radius: 3px;
         }
         
-        /* Reservation styles */
-        .reservation-card {
-            background-color: var(--list-item-bg);
-            border: 1px solid var(--list-item-border);
-            border-radius: 8px;
-            padding: 10px;
+        /* Hour Slot */
+        .hour-row {
+            display: flex;
+            border-bottom: 1px solid var(--hour-border);
+            min-height: 80px;
+            position: relative;
+        }
+        
+        .hour-label {
+            width: 50px;
+            background-color: var(--hour-label-bg);
+            border-right: 1px solid var(--hour-border);
+            padding: 5px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            font-weight: bold;
+            font-size: 0.9rem;
+            color: #495057;
+            position: sticky;
+            left: 0;
+            padding-top: 10px;
+        }
+        
+        .hour-content {
+            flex: 1;
+            padding: 5px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        /* Current Time Indicator */
+        .time-indicator {
+            position: absolute;
+            left: 0;
             width: 100%;
-            max-width: 400px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            height: 2px;
+            background-color: var(--time-indicator);
+            z-index: 5;
+        }
+        
+        .time-indicator::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: -3px;
+            width: 8px;
+            height: 8px;
+            background-color: var(--time-indicator);
+            border-radius: 50%;
+        }
+        
+        .time-indicator::after {
+            content: attr(data-time);
+            position: absolute;
+            left: 12px;
+            top: -16px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            color: var(--time-indicator);
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 1px 3px;
+            border-radius: 2px;
+        }
+        
+        /* Reservation Card */
+        .reservation {
+            background-color: var(--reservation-bg);
+            border: 1px solid var(--reservation-border);
+            border-radius: 6px;
+            padding: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            font-size: 0.85rem;
+        }
+        
+        .reservation.active {
+            border-left: 3px solid var(--time-indicator);
+            background-color: rgba(220, 53, 69, 0.05);
         }
         
         .reservation-header {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 10px;
+            align-items: center;
+            margin-bottom: 5px;
             flex-wrap: wrap;
-            gap: 5px;
         }
         
         .reservation-room {
             font-weight: bold;
-            color: var(--reservation-primary);
+            color: #0d6efd;
         }
         
         .reservation-time {
-            color: var(--timeline-time);
+            color: #6c757d;
+            font-size: 0.8rem;
         }
         
-        .reservation-details {
-            font-size: 0.9rem;
-        }
-        
-        .reservation-details p {
+        .reservation-info {
+            line-height: 1.3;
             margin-bottom: 5px;
-            overflow-wrap: break-word;
         }
         
-        .reservation-status {
+        .reservation-info p {
+            margin: 0 0 3px 0;
+            overflow-wrap: break-word;
+            display: flex;
+            align-items: flex-start;
+        }
+        
+        .info-icon {
+            flex-shrink: 0;
+            width: 16px;
+            margin-right: 5px;
             display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.85rem;
-            margin-top: 8px;
+            text-align: center;
+        }
+        
+        .info-text {
+            flex-grow: 1;
+        }
+        
+        .status-tag {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            font-weight: bold;
         }
         
         .status-approved {
-            background-color: var(--reservation-approved);
+            background-color: var(--status-approved);
             color: white;
         }
         
         .status-pending {
-            background-color: var(--reservation-pending);
-            color: #333;
-        }
-        
-        .current-active {
-            border-left: 3px solid #dc3545;
-            background-color: rgba(220, 53, 69, 0.05);
-        }
-        
-        /* Loading states */
-        #loadingMessage {
-            padding: 20px;
-        }
-        
-        #noReservationsMessage {
-            margin: 20px;
+            background-color: var(--status-pending);
+            color: #212529;
         }
     </style>
 </head>
 <body>
-    <div class="container-fluid p-0">
-        <div class="card">
-            <div class="card-header">
-                <h4 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>今日教室预约</h4>
-                <div class="text-muted small" id="currentDate"></div>
-            </div>
-            <div class="card-body p-0">
-                <div id="loadingMessage" class="text-center">
-                    <div class="spinner-border" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <p>加载中...</p>
-                </div>
-                
-                <div id="noReservationsMessage" class="alert alert-info text-center mx-3" style="display: none;">
-                    今天没有教室预约。
-                </div>
-                
-                <div id="verticalTimeline" class="vertical-timeline" style="display: none;">
-                    <!-- Hour slots will be generated by JavaScript -->
-                </div>
-            </div>
-        </div>
+    <!-- Header -->
+    <header class="page-header">
+        <h1 class="header-title"><i class="fas fa-calendar-alt me-2"></i>今日教室预约</h1>
+        <div class="header-date" id="currentDate"></div>
+    </header>
+    
+    <!-- Loading Message -->
+    <div id="loadingMessage" class="status-message">
+        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+        <p class="mt-2">加载中...</p>
     </div>
-
+    
+    <!-- No Reservations Message -->
+    <div id="noReservationsMessage" class="status-message alert alert-info py-2" style="display: none;">
+        今天没有教室预约
+    </div>
+    
+    <!-- Timeline Container -->
+    <div id="timelineContainer" class="timeline-container" style="display: none;">
+        <!-- Hours will be generated by JavaScript -->
+    </div>
+    
     <!-- Bootstrap Bundle with Popper -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const verticalTimeline = document.getElementById('verticalTimeline');
+            // DOM elements
+            const timelineContainer = document.getElementById('timelineContainer');
             const loadingMessage = document.getElementById('loadingMessage');
             const noReservationsMessage = document.getElementById('noReservationsMessage');
             const currentDateElement = document.getElementById('currentDate');
             
-            const roomsToDisplay = ['101', '102', '103', '104', 'iStudy Meeting Room 1'];
+            // Settings
+            const roomsToFetch = ['101', '102', '103', '104', 'iStudy Meeting Room 1'];
+            const startHour = 6;  // 6:00 AM
+            const endHour = 22;   // 10:00 PM
             
-            // Set current date display
+            // Set current date
             const today = new Date();
             const dateOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
             currentDateElement.textContent = today.toLocaleDateString('zh-CN', dateOptions);
             
-            // Generate vertical timeline
+            // Generate timeline hours
             function generateTimeline() {
-                verticalTimeline.innerHTML = '';
-                
-                const startHour = 6;  // 6:00 AM
-                const endHour = 22;   // 10:00 PM
+                timelineContainer.innerHTML = '';
                 
                 for (let hour = startHour; hour < endHour; hour++) {
-                    const hourSlot = document.createElement('div');
-                    hourSlot.className = 'hour-slot';
-                    hourSlot.dataset.hour = hour;
+                    const hourRow = document.createElement('div');
+                    hourRow.className = 'hour-row';
+                    hourRow.dataset.hour = hour;
                     
-                    // Add hour label
+                    // Create hour label (left side)
                     const hourLabel = document.createElement('div');
                     hourLabel.className = 'hour-label';
                     hourLabel.textContent = `${hour.toString().padStart(2, '0')}:00`;
                     
-                    // Add content container for this hour
+                    // Create content area (right side)
                     const hourContent = document.createElement('div');
                     hourContent.className = 'hour-content';
+                    hourContent.id = `hour-${hour}`;
                     
-                    hourSlot.appendChild(hourLabel);
-                    hourSlot.appendChild(hourContent);
-                    verticalTimeline.appendChild(hourSlot);
+                    hourRow.appendChild(hourLabel);
+                    hourRow.appendChild(hourContent);
+                    timelineContainer.appendChild(hourRow);
                 }
                 
-                // Add current time marker
-                updateCurrentTimeMarker();
+                // Add current time indicator
+                updateTimeIndicator();
             }
             
-            // Update current time marker
-            function updateCurrentTimeMarker() {
-                // Remove existing markers
-                document.querySelectorAll('.current-time-marker').forEach(marker => marker.remove());
+            // Update current time indicator
+            function updateTimeIndicator() {
+                // Remove any existing indicators
+                document.querySelectorAll('.time-indicator').forEach(el => el.remove());
                 
                 const now = new Date();
                 const currentHour = now.getHours();
-                const currentMinutes = now.getMinutes();
+                const currentMinute = now.getMinutes();
                 
                 // Only show if within our display range
-                if (currentHour < 6 || currentHour >= 22) return;
+                if (currentHour < startHour || currentHour >= endHour) return;
                 
-                // Find the hour slot for the current hour
-                const hourSlot = document.querySelector(`.hour-slot[data-hour="${currentHour}"]`);
-                if (!hourSlot) return;
+                // Find the current hour's content area
+                const hourContent = document.getElementById(`hour-${currentHour}`);
+                if (!hourContent) return;
                 
-                const hourContent = hourSlot.querySelector('.hour-content');
+                // Calculate position within hour (0-100%)
+                const minutePercentage = (currentMinute / 60) * 100;
                 
-                // Calculate position within hour slot (based on minutes)
-                const percentInHour = (currentMinutes / 60) * 100;
+                // Create indicator
+                const indicator = document.createElement('div');
+                indicator.className = 'time-indicator';
+                indicator.style.top = `${minutePercentage}%`;
+                indicator.setAttribute('data-time', `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`);
                 
-                // Create marker
-                const marker = document.createElement('div');
-                marker.className = 'current-time-marker';
-                marker.style.top = `${percentInHour}%`;
-                marker.setAttribute('data-time', `${currentHour.toString().padStart(2, '0')}:${currentMinutes.toString().padStart(2, '0')}`);
+                hourContent.appendChild(indicator);
                 
-                hourContent.appendChild(marker);
+                // Highlight active reservations
+                highlightActiveReservations();
             }
             
-            // Parse timestamp from string format "startTime-endTime"
+            // Highlight currently active reservations
+            function highlightActiveReservations() {
+                const now = Date.now();
+                
+                document.querySelectorAll('.reservation').forEach(card => {
+                    const startTime = parseInt(card.dataset.startTime);
+                    const endTime = parseInt(card.dataset.endTime);
+                    
+                    if (now >= startTime && now <= endTime) {
+                        card.classList.add('active');
+                    } else {
+                        card.classList.remove('active');
+                    }
+                });
+            }
+            
+            // Utility: Parse time range
             function parseTimeRange(timeString) {
                 const [startTime, endTime] = timeString.split('-').map(Number);
                 return { startTime, endTime };
             }
             
-            // Format timestamp to HH:MM
+            // Utility: Format timestamp to HH:MM
             function formatTime(timestamp) {
                 const date = new Date(parseInt(timestamp));
                 const hours = date.getHours().toString().padStart(2, '0');
@@ -301,20 +363,18 @@
                 return `${hours}:${minutes}`;
             }
             
-            // Check if a time is for today
+            // Utility: Check if a timestamp is for today
             function isToday(timestamp) {
                 const date = new Date(parseInt(timestamp));
                 const today = new Date();
-                
                 return date.getDate() === today.getDate() && 
                        date.getMonth() === today.getMonth() && 
                        date.getFullYear() === today.getFullYear();
             }
             
-            // Fetch reservations for a room
+            // Fetch reservations for a single room
             async function fetchRoomReservations(room) {
                 try {
-                    // Adjust the endpoint to your actual API location
                     const response = await fetch(`inquiry.php?room=${room}`);
                     const data = await response.json();
                     
@@ -330,14 +390,14 @@
                 }
             }
             
-            // Fetch all reservations
+            // Fetch all reservations from all rooms
             async function fetchAllReservations() {
                 loadingMessage.style.display = 'block';
-                verticalTimeline.style.display = 'none';
+                timelineContainer.style.display = 'none';
                 noReservationsMessage.style.display = 'none';
                 
                 try {
-                    const promises = roomsToDisplay.map(room => fetchRoomReservations(room));
+                    const promises = roomsToFetch.map(room => fetchRoomReservations(room));
                     const results = await Promise.all(promises);
                     const allReservations = results.flat();
                     
@@ -345,7 +405,7 @@
                 } catch (error) {
                     console.error('Failed to fetch reservations:', error);
                     loadingMessage.style.display = 'none';
-                    noReservationsMessage.textContent = '加载预约信息时出错。';
+                    noReservationsMessage.textContent = '加载预约信息时出错';
                     noReservationsMessage.style.display = 'block';
                 }
             }
@@ -365,16 +425,17 @@
                     return aTime.startTime - bTime.startTime;
                 });
                 
-                // Hide loading, show timeline or no-reservations message
+                // Hide loading
                 loadingMessage.style.display = 'none';
                 
+                // Show no reservations message if empty
                 if (todayReservations.length === 0) {
                     noReservationsMessage.style.display = 'block';
-                    verticalTimeline.style.display = 'none';
                     return;
                 }
                 
-                verticalTimeline.style.display = 'flex';
+                // Show timeline
+                timelineContainer.style.display = 'flex';
                 
                 // Process each reservation
                 todayReservations.forEach(reservation => {
@@ -386,28 +447,26 @@
                     const endHour = endDate.getHours();
                     const endMinutes = endDate.getMinutes();
                     
-                    // Process hours this reservation spans
-                    for (let hour = Math.max(6, startHour); hour <= Math.min(21, endHour); hour++) {
-                        // Skip if this is the end hour and minutes are 0 (e.g., ends at 15:00 exactly)
+                    // Add to each hour slot this reservation spans
+                    for (let hour = Math.max(startHour, startHour); hour <= Math.min(endHour, endHour); hour++) {
+                        // Skip if this is the end hour and minutes are 0 (except if start and end are the same hour)
                         if (hour === endHour && endMinutes === 0 && startHour !== endHour) continue;
                         
-                        // Find hour slot
-                        const hourSlot = document.querySelector(`.hour-slot[data-hour="${hour}"]`);
-                        if (!hourSlot) continue;
+                        // Skip if outside our display range
+                        if (hour < startHour || hour >= endHour) continue;
                         
-                        const hourContent = hourSlot.querySelector('.hour-content');
+                        const hourContent = document.getElementById(`hour-${hour}`);
+                        if (!hourContent) continue;
                         
                         // Create reservation card
                         const card = document.createElement('div');
-                        card.className = 'reservation-card';
+                        card.className = 'reservation';
                         card.dataset.startTime = startTime;
                         card.dataset.endTime = endTime;
                         
-                        // Check if this reservation is currently active
-                        const now = Date.now();
-                        if (now >= parseInt(startTime) && now <= parseInt(endTime)) {
-                            card.classList.add('current-active');
-                        }
+                        // Format times
+                        const displayTimeStart = formatTime(startTime);
+                        const displayTimeEnd = formatTime(endTime);
                         
                         // Determine status
                         let statusClass = '';
@@ -421,31 +480,37 @@
                             statusText = '待定';
                         }
                         
-                        // Format times
-                        const displayTimeStart = formatTime(startTime);
-                        const displayTimeEnd = formatTime(endTime);
-                        
-                        // Create card content
+                        // Create content
                         card.innerHTML = `
                             <div class="reservation-header">
                                 <div class="reservation-room">
-                                    <i class="fas fa-door-open me-1"></i> ${reservation.room}
+                                    <i class="fas fa-door-open me-1"></i>${reservation.room}
                                 </div>
                                 <div class="reservation-time">
-                                    <i class="far fa-clock me-1"></i> ${displayTimeStart} - ${displayTimeEnd}
+                                    <i class="far fa-clock me-1"></i>${displayTimeStart}-${displayTimeEnd}
                                 </div>
                             </div>
-                            <div class="reservation-details">
-                                <p><i class="fas fa-user me-1"></i> <strong>预约人:</strong> ${reservation.name || '未知'}</p>
-                                <p><i class="fas fa-envelope me-1"></i> <strong>邮箱:</strong> ${reservation.email}</p>
-                                <p><i class="fas fa-info-circle me-1"></i> <strong>原因:</strong> ${reservation.reason || '未提供'}</p>
+                            <div class="reservation-info">
+                                <p>
+                                    <span class="info-icon"><i class="fas fa-user"></i></span>
+                                    <span class="info-text">${reservation.name || '未知'}</span>
+                                </p>
+                                <p>
+                                    <span class="info-icon"><i class="fas fa-info-circle"></i></span>
+                                    <span class="info-text">${reservation.reason || '未提供'}</span>
+                                </p>
                             </div>
-                            <div class="reservation-status ${statusClass}">${statusText}</div>
+                            <div>
+                                <span class="status-tag ${statusClass}">${statusText}</span>
+                            </div>
                         `;
                         
                         hourContent.appendChild(card);
                     }
                 });
+                
+                // Check for active reservations
+                highlightActiveReservations();
             }
             
             // Initialize
@@ -453,8 +518,8 @@
                 generateTimeline();
                 fetchAllReservations();
                 
-                // Update time marker every minute
-                setInterval(updateCurrentTimeMarker, 60000);
+                // Update time indicator every minute
+                setInterval(updateTimeIndicator, 60000);
             }
             
             init();
