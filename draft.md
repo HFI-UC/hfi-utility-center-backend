@@ -59,3 +59,34 @@
 4. Optimize web communication patterns
 5. Improve code structure for better performance and maintainability
 6. Test all changes thoroughly
+
+# Room Reservation Timeline Page
+
+## Requirements
+- Create a static HTML page to display reservations for a specific room on the current day
+- Use inquiry.php API to fetch the data
+- Display the information in a visual timeline format
+- Make it aesthetically pleasing and user-friendly
+
+## API Understanding
+- inquiry.php accepts parameters like 'room' to filter by room number
+- We'll need to add a date filter to get only today's reservations
+- API returns: id, room, email, auth, time, name, reason
+
+## Design Plan
+1. Create a responsive HTML page with modern styling
+2. Add JavaScript to:
+   - Get current date
+   - Fetch reservation data from inquiry.php API
+   - Display data in a timeline visualization
+3. Include features:
+   - Room selection dropdown
+   - Timeline view with reservation blocks
+   - Hover details for more information
+   - Color coding for different reservation types/status
+
+## Implementation Steps
+1. Create HTML structure
+2. Add CSS styling (using modern CSS framework)
+3. Implement JavaScript for data fetching and rendering
+4. Test with different room values and scenarios
