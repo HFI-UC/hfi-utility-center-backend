@@ -313,7 +313,7 @@
                 timelineEvents.appendChild(currentTimeIndicator);
                 
                 try {
-                    const response = await fetch(`https://api.hfiuc.org/api/inquiry.?room=${room}`);
+                    const response = await fetch(`https://api.hfiuc.org/api/inquiry.php?room=${room}`);
                     const data = await response.json();
                     
                     if (data.success) {
