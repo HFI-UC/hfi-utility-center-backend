@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教室预约时间线</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --timeline-bg: #f8f9fa;
+            --timeline-border: #dee2e6;
+            --reservation-primary: #6c63ff;
+            --reservation-hover: #5a52d5;
+            --timeline-time: #6c757d;
+            --reservation-approved: #28a745;
+            --reservation-pending: #ffc107;
+            --list-item-bg: #fff;
+            --list-item-border: #e9ecef;
+        }
+        
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .card {
+            border: none;
+            box-shadow: none;
+            margin: 0;
+        }
+        
+        .card-header {
+            border-bottom: 1px solid #dee2e6;
+            background-color: #e9ecef;
+            color: #495057;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        /* Vertical Timeline Styles */
+        .vertical-timeline {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            overflow-x: hidden;
+        }
+        
+        .hour-slot {
+            display: flex;
+            border-bottom: 1px solid var(--timeline-border);
+            position: relative;
+            min-height: 100px;
+        }
+        
+        .hour-label {
+            width: 80px;
+            background-color: var(--timeline-bg);
+            padding: 5px;
+            text-align: center;
+            font-weight: bold;
+            border-right: 1px solid var(--timeline-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        
+        .hour-content {
+            flex-grow: 1;
+            padding: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            position: relative;
+        }
+        
+        /* Current time marker */
+        .current-time-marker {
+            position: absolute;
+            height: 2px;
+            background-color: #dc3545;
+            width: 100%;
+            left: 0;
+            z-index: 3;
+        }
+        
+        .current-time-marker::before {
+            content: "";
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background-color: #dc3545;
+            border-radius: 50%;
+            left: 0;
+            top: -3px;
+        }
+        
+        .current-time-marker::after {
+            content: attr(data-time);
+            position: absolute;
+            left: 10px;
+            top: -18px;
+            font-size: 0.75rem;
+            color: #dc3545;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        /* Reservation styles */
+        .reservation-card {
+            background-color: var(--list-item-bg);
+            border: 1px solid var(--list-item-border);
+            border-radius: 8px;
+            padding: 10px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        .reservation-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        
+        .reservation-room {
+            font-weight: bold;
+            color: var(--reservation-primary);
+        }
+        
+        .reservation-time {
+            color: var(--timeline-time);
+        }
+        
+        .reservation-details {
+            font-size: 0.9rem;
+        }
+        
+        .reservation-details p {
+            margin-bottom: 5px;
+            overflow-wrap: break-word;
+        }
+        
+        .reservation-status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            margin-top: 8px;
+        }
+        
+        .status-approved {
+            background-color: var(--reservation-approved);
+            color: white;
+        }
+        
+        .status-pending {
+            background-color: var(--reservation-pending);
+            color: #333;
+        }
+        
+        .current-active {
+            border-left: 3px solid #dc3545;
+            background-color: rgba(220, 53, 69, 0.05);
+        }
+        
+        /* Loading states */
+        #loadingMessage {
+            padding: 20px;
+        }
+        
+        #noReservationsMessage {
+            margin: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid p-0">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>今日教室预约</h4>
+                <div class="text-muted small" id="currentDate"></div>
+            </div>
+            <div class="card-body p-0">
+                <div id="loadingMessage" class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p>加载中...</p>
+                </div>
+                
+                <div id="noReservationsMessage" class="alert alert-info text-center mx-3" style="display: none;">
+                    今天没有教室预约。
+                </div>
+                
+                <div id="verticalTimeline" class="vertical-timeline" style="display: none;">
+                    <!-- Hour slots will be generated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const verticalTimeline = document.getElementById('verticalTimeline');
+            const loadingMessage = document.getElementById('loadingMessage');
+            const noReservationsMessage = document.getElementById('noReservationsMessage');
+            const currentDateElement = document.getElementById('currentDate');
+            
+            const roomsToDisplay = ['101', '102', '103', '104', 'iStudy Meeting Room 1'];
+            
+            // Set current date display
+            const today = new Date();
+            const dateOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+            currentDateElement.textContent = today.toLocaleDateString('zh-CN', dateOptions);
+            
+            // Generate vertical timeline
+            function generateTimeline() {
+                verticalTimeline.innerHTML = '';
+                
+                const startHour = 6;  // 6:00 AM
+                const endHour = 22;   // 10:00 PM
+                
+                for (let hour = startHour; hour < endHour; hour++) {
+                    const hourSlot = document.createElement('div');
+                    hourSlot.className = 'hour-slot';
+                    hourSlot.dataset.hour = hour;
+                    
+                    // Add hour label
+                    const hourLabel = document.createElement('div');
+                    hourLabel.className = 'hour-label';
+                    hourLabel.textContent = `${hour.toString().padStart(2, '0')}:00`;
+                    
+                    // Add content container for this hour
+                    const hourContent = document.createElement('div');
+                    hourContent.className = 'hour-content';
+                    
+                    hourSlot.appendChild(hourLabel);
+                    hourSlot.appendChild(hourContent);
+                    verticalTimeline.appendChild(hourSlot);
+                }
+                
+                // Add current time marker
+                updateCurrentTimeMarker();
+            }
+            
+            // Update current time marker
+            function updateCurrentTimeMarker() {
+                // Remove existing markers
+                document.querySelectorAll('.current-time-marker').forEach(marker => marker.remove());
+                
+                const now = new Date();
+                const currentHour = now.getHours();
+                const currentMinutes = now.getMinutes();
+                
+                // Only show if within our display range
+                if (currentHour < 6 || currentHour >= 22) return;
+                
+                // Find the hour slot for the current hour
+                const hourSlot = document.querySelector(`.hour-slot[data-hour="${currentHour}"]`);
+                if (!hourSlot) return;
+                
+                const hourContent = hourSlot.querySelector('.hour-content');
+                
+                // Calculate position within hour slot (based on minutes)
+                const percentInHour = (currentMinutes / 60) * 100;
+                
+                // Create marker
+                const marker = document.createElement('div');
+                marker.className = 'current-time-marker';
+                marker.style.top = `${percentInHour}%`;
+                marker.setAttribute('data-time', `${currentHour.toString().padStart(2, '0')}:${currentMinutes.toString().padStart(2, '0')}`);
+                
+                hourContent.appendChild(marker);
+            }
+            
+            // Parse timestamp from string format "startTime-endTime"
+            function parseTimeRange(timeString) {
+                const [startTime, endTime] = timeString.split('-').map(Number);
+                return { startTime, endTime };
+            }
+            
+            // Format timestamp to HH:MM
+            function formatTime(timestamp) {
+                const date = new Date(parseInt(timestamp));
+                const hours = date.getHours().toString().padStart(2, '0');
+                const minutes = date.getMinutes().toString().padStart(2, '0');
+                return `${hours}:${minutes}`;
+            }
+            
+            // Check if a time is for today
+            function isToday(timestamp) {
+                const date = new Date(parseInt(timestamp));
+                const today = new Date();
+                
+                return date.getDate() === today.getDate() && 
+                       date.getMonth() === today.getMonth() && 
+                       date.getFullYear() === today.getFullYear();
+            }
+            
+            // Fetch reservations for a room
+            async function fetchRoomReservations(room) {
+                try {
+                    // Adjust the endpoint to your actual API location
+                    const response = await fetch(`inquiry.php?room=${room}`);
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        return data.data;
+                    } else {
+                        console.error(`Error fetching data for room ${room}:`, data.message);
+                        return [];
+                    }
+                } catch (error) {
+                    console.error(`Failed to fetch room ${room} reservations:`, error);
+                    return [];
+                }
+            }
+            
+            // Fetch all reservations
+            async function fetchAllReservations() {
+                loadingMessage.style.display = 'block';
+                verticalTimeline.style.display = 'none';
+                noReservationsMessage.style.display = 'none';
+                
+                try {
+                    const promises = roomsToDisplay.map(room => fetchRoomReservations(room));
+                    const results = await Promise.all(promises);
+                    const allReservations = results.flat();
+                    
+                    displayReservations(allReservations);
+                } catch (error) {
+                    console.error('Failed to fetch reservations:', error);
+                    loadingMessage.style.display = 'none';
+                    noReservationsMessage.textContent = '加载预约信息时出错。';
+                    noReservationsMessage.style.display = 'block';
+                }
+            }
+            
+            // Display reservations in timeline
+            function displayReservations(reservations) {
+                // Filter for today's reservations
+                const todayReservations = reservations.filter(reservation => {
+                    const { startTime } = parseTimeRange(reservation.time);
+                    return isToday(startTime);
+                });
+                
+                // Sort by start time
+                todayReservations.sort((a, b) => {
+                    const aTime = parseTimeRange(a.time);
+                    const bTime = parseTimeRange(b.time);
+                    return aTime.startTime - bTime.startTime;
+                });
+                
+                // Hide loading, show timeline or no-reservations message
+                loadingMessage.style.display = 'none';
+                
+                if (todayReservations.length === 0) {
+                    noReservationsMessage.style.display = 'block';
+                    verticalTimeline.style.display = 'none';
+                    return;
+                }
+                
+                verticalTimeline.style.display = 'flex';
+                
+                // Process each reservation
+                todayReservations.forEach(reservation => {
+                    const { startTime, endTime } = parseTimeRange(reservation.time);
+                    const startDate = new Date(parseInt(startTime));
+                    const endDate = new Date(parseInt(endTime));
+                    
+                    const startHour = startDate.getHours();
+                    const endHour = endDate.getHours();
+                    const endMinutes = endDate.getMinutes();
+                    
+                    // Process hours this reservation spans
+                    for (let hour = Math.max(6, startHour); hour <= Math.min(21, endHour); hour++) {
+                        // Skip if this is the end hour and minutes are 0 (e.g., ends at 15:00 exactly)
+                        if (hour === endHour && endMinutes === 0 && startHour !== endHour) continue;
+                        
+                        // Find hour slot
+                        const hourSlot = document.querySelector(`.hour-slot[data-hour="${hour}"]`);
+                        if (!hourSlot) continue;
+                        
+                        const hourContent = hourSlot.querySelector('.hour-content');
+                        
+                        // Create reservation card
+                        const card = document.createElement('div');
+                        card.className = 'reservation-card';
+                        card.dataset.startTime = startTime;
+                        card.dataset.endTime = endTime;
+                        
+                        // Check if this reservation is currently active
+                        const now = Date.now();
+                        if (now >= parseInt(startTime) && now <= parseInt(endTime)) {
+                            card.classList.add('current-active');
+                        }
+                        
+                        // Determine status
+                        let statusClass = '';
+                        let statusText = '未知';
+                        
+                        if (reservation.auth === 'yes') {
+                            statusClass = 'status-approved';
+                            statusText = '已批准';
+                        } else if (reservation.auth === 'pending') {
+                            statusClass = 'status-pending';
+                            statusText = '待定';
+                        }
+                        
+                        // Format times
+                        const displayTimeStart = formatTime(startTime);
+                        const displayTimeEnd = formatTime(endTime);
+                        
+                        // Create card content
+                        card.innerHTML = `
+                            <div class="reservation-header">
+                                <div class="reservation-room">
+                                    <i class="fas fa-door-open me-1"></i> ${reservation.room}
+                                </div>
+                                <div class="reservation-time">
+                                    <i class="far fa-clock me-1"></i> ${displayTimeStart} - ${displayTimeEnd}
+                                </div>
+                            </div>
+                            <div class="reservation-details">
+                                <p><i class="fas fa-user me-1"></i> <strong>预约人:</strong> ${reservation.name || '未知'}</p>
+                                <p><i class="fas fa-envelope me-1"></i> <strong>邮箱:</strong> ${reservation.email}</p>
+                                <p><i class="fas fa-info-circle me-1"></i> <strong>原因:</strong> ${reservation.reason || '未提供'}</p>
+                            </div>
+                            <div class="reservation-status ${statusClass}">${statusText}</div>
+                        `;
+                        
+                        hourContent.appendChild(card);
+                    }
+                });
+            }
+            
+            // Initialize
+            function init() {
+                generateTimeline();
+                fetchAllReservations();
+                
+                // Update time marker every minute
+                setInterval(updateCurrentTimeMarker, 60000);
+            }
+            
+            init();
+        });
+    </script>
+</body>
+</html> 
