@@ -201,11 +201,21 @@
         .item-details span {
             display: block;
             margin-bottom: 4px;
+            overflow-wrap: break-word;
         }
         
         .item-details strong {
             min-width: 50px;
             display: inline-block;
+            font-weight: bold;
+            background-color: rgba(248, 249, 250, 0.8);
+            padding: 1px 3px;
+            border-radius: 2px;
+            z-index: 6;
+            max-width: calc(100% - 20px);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         
         .item-status {
@@ -218,19 +228,22 @@
         
         /* Combined Grid/Timeline Styles */
         .vertical-timeline {
-            width: 100%; /* Full width */
+            width: 100%;
+            overflow: hidden;
+            min-height: 100vh;
         }
         
         .hour-slot {
-            min-height: 80px; /* Allow height to grow */
+            min-height: 80px;
             height: auto;
             border-bottom: 1px dashed var(--timeline-border);
             display: flex;
-            align-items: flex-start; /* Align items to top */
+            align-items: flex-start;
             font-size: 0.75rem;
             color: var(--timeline-time);
             position: relative;
             padding: 10px;
+            flex-wrap: wrap;
         }
         
         .hour-label {
@@ -255,7 +268,7 @@
             width: 100%;
             height: 2px;
             background-color: #dc3545;
-            z-index: 5; /* Below reservation items? */
+            z-index: 5;
         }
         
         .current-time-line::before {
@@ -273,12 +286,12 @@
         .current-time-line::after {
             content: attr(data-time);
             position: absolute;
-            left: 10px; /* Position near left edge */
+            left: 10px;
             top: -18px;
             font-size: 0.75rem;
             color: #dc3545;
             font-weight: bold;
-            background-color: rgba(248, 249, 250, 0.8); /* Add bg to make readable */
+            background-color: rgba(248, 249, 250, 0.8);
             padding: 1px 3px;
             border-radius: 2px;
             z-index: 6;
