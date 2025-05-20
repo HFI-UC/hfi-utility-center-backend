@@ -22,10 +22,6 @@ function send_json_response($success, $message, $data = null, $statusCode = 200,
     exit;
 }
 
-// 辅助函数：清理输入字符串
-function sanitize_input_value($data) {
-    return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
-}
 
 // 处理请求方法和 Content-Type
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -76,9 +72,9 @@ if ($created_by_email === false || empty($created_by_email)) {
 }
 
 // 2. 获取并验证输入参数
-$title = isset($input_data['title']) ? sanitize_input_value($input_data['title']) : null;
+$title = isset($input_data['title']) ? $input_data['title'] : null;
 $content = isset($input_data['content']) ? $input_data['content'] : null; // Content本身是JSON字符串，不需要sanitize
-$status = isset($input_data['status']) ? sanitize_input_value($input_data['status']) : 'published';
+$status = isset($input_data['status']) ? $input_data['status'] : 'published';
 
 $validation_errors = [];
 if (empty($title)) {

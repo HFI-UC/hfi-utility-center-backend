@@ -21,10 +21,6 @@ function send_json_response($success, $message, $data = null, $statusCode = 200,
     exit;
 }
 
-// 辅助函数：清理输入字符串
-function sanitize_input_value($data) {
-    return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
-}
 
 // 处理请求方法和 Content-Type
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -97,9 +93,9 @@ if ($id === false || $id === null) {
     ]);
 }
 
-$title_update = isset($input_data['title']) ? sanitize_input_value($input_data['title']) : null;
+$title_update = isset($input_data['title']) ? $input_data['title'] : null;
 $content_update = isset($input_data['content']) ? $input_data['content'] : null; // Content is JSON string
-$status_update = isset($input_data['status']) ? sanitize_input_value($input_data['status']) : null;
+$status_update = isset($input_data['status']) ? $input_data['status'] : null;
 
 if ($title_update === null && $content_update === null && $status_update === null) {
     send_json_response(false, '至少需要提供一个要更新的字段 (title, content, status)。', null, 400, [
