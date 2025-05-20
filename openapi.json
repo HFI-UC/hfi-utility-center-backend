@@ -1,4079 +1,490 @@
 {
-  "openapi": "3.0.0",
+  "openapi": "3.0.3",
   "info": {
-    "title": "HFI Utility Center Backend API",
-    "description": "This is the OpenAPI specification for the HFI Utility Center Backend API.",
-    "version": "1.0.0"
+    "title": "HFI Utility Center Announcements API",
+    "version": "1.0.0",
+    "description": "API for managing announcements."
   },
   "servers": [
     {
-      "url": "https://api.hfiuc.org"
+      "url": "http://preview-api.hfiuc.org/api",
+      "description": "Development server (replace with actual URL)"
     }
   ],
-  "paths": {
-    "/login.php": {
-      "post": {
-        "summary": "用户登录接口",
-        "description": "用户登录接口",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "cf_token": {
+  "tags": [
+    {
+      "name": "Announcements",
+      "description": "Operations related to announcements"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "Token": {
                     "type": "string",
-                    "description": "Cloudflare Turnstile token"
-                  },
-                  "username": {
-                    "type": "string",
-                    "description": "用户名或邮箱"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "密码"
-                  }
-                },
-                "required": [
-                  "cf_token",
-                  "username",
-                  "password"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful login",
-            "content": {
-              "application/json": {
-                "schema": {
+        "description": "Authentication token."
+      },
+      "AnnouncementId": {
+        "type": "integer",
+        "format": "int32",
+        "description": "ID of the announcement."
+      },
+      "AnnouncementBase": {
                   "type": "object",
                   "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "token": {
+          "title": {
                       "type": "string",
-                      "description": "User token"
-                    }
+            "description": "Title of the announcement.",
+            "example": "New System Update"
+          },
+            "content": {
+                    "type": "string",
+            "description": "Content of the announcement in Quill Delta JSON format (as a string).",
+            "example": "{\"ops\":[{\"insert\":\"Hello World!\\n\"}]}"
                   },
-                  "required": [
-                    "success",
-                    "message",
-                    "token"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
+          "status": {
+                    "type": "string",
+            "description": "Status of the announcement.",
+            "enum": ["draft", "published", "archived"],
+            "example": "published"
           }
         }
-      }
-    },
-    "/reg.php": {
-      "post": {
-        "summary": "用户注册接口 (当前禁用)",
-        "description": "用户注册接口 (当前禁用)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
+      },
+      "Announcement": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AnnouncementBase"
+          },
+          {
                 "type": "object",
                 "properties": {
-                  "regusername": {
+              "id": {
+                "$ref": "#/components/schemas/AnnouncementId"
+              },
+              "created_at": {
                     "type": "string",
-                    "format": "email",
-                    "description": "用户名 (邮箱格式)"
+                "format": "date-time",
+                "description": "Timestamp of creation."
                   },
-                  "regpassword": {
+              "updated_at": {
                     "type": "string",
-                    "description": "密码"
-                  }
-                },
-                "required": [
-                  "regusername",
-                  "regpassword"
-                ]
+                "format": "date-time",
+                "description": "Timestamp of last update."
               }
             }
           }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful registration",
-            "content": {
-              "application/json": {
-                "schema": {
+        ]
+      },
+      "AddAnnouncementRequest": {
                   "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/submit_repair.php": {
-      "post": {
-        "summary": "提交维修请求接口",
-        "description": "提交维修请求接口",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "studentName": {
-                    "type": "string"
-                  },
-                  "subject": {
-                    "type": "string"
-                  },
-                  "detail": {
-                    "type": "string"
-                  },
-                  "location": {
-                    "type": "string"
-                  },
-                  "email": {
-                    "type": "string",
-                    "format": "email"
-                  },
-                  "campus": {
-                    "type": "string"
-                  },
-                  "filePath": {
-                    "type": "string",
-                    "format": "url"
-                  }
-                },
-                "required": [
-                  "studentName",
-                  "subject",
-                  "detail",
-                  "location",
-                  "email",
-                  "campus",
-                  "filePath"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful submission",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "error": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error"
-                  ]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/get_repair.php": {
-      "post": {
-        "summary": "获取维修请求接口 (Admin only)",
-        "description": "获取维修请求接口 (Admin only)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
+        "required": ["token", "title", "content"],
                 "properties": {
                   "token": {
+            "$ref": "#/components/schemas/Token"
+          },
+          "title": {
                     "type": "string",
-                    "description": "Admin token"
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful retrieval",
+            "description": "Title of the announcement."
+          },
             "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "integer"
-                          },
-                          "studentName": {
-                            "type": "string"
-                          },
-                          "subject": {
-                            "type": "string"
-                          },
-                          "detail": {
-                            "type": "string"
-                          },
-                          "location": {
-                            "type": "string"
-                          },
-                          "email": {
                             "type": "string",
-                            "format": "email"
-                          },
-                          "campus": {
-                            "type": "string"
-                          },
-                          "filePath": {
-                            "type": "string",
-                            "format": "url"
+            "description": "Content of the announcement (Quill Delta JSON string)."
                           },
                           "status": {
-                            "type": "boolean"
-                          },
-                          "created_at": {
                             "type": "string",
-                            "format": "date-time"
-                          }
-                        }
-                      }
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Unprocessable Entity",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
+            "description": "Status of the announcement. Defaults to 'published' if not provided.",
+            "enum": ["draft", "published"],
+            "default": "published"
           }
         }
-      }
-    },
-    "/process_repair.php": {
-      "post": {
-        "summary": "处理维修请求接口 (Admin only)",
-        "description": "处理维修请求接口 (Admin only)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
+      },
+      "EditAnnouncementRequest": {
                 "type": "object",
+        "required": ["token", "id"],
                 "properties": {
                   "token": {
-                    "type": "string",
-                    "description": "Admin token"
+            "$ref": "#/components/schemas/Token"
                   },
                   "id": {
-                    "type": "integer",
-                    "description": "Repair request ID"
-                  },
-                  "action": {
-                    "type": "integer",
-                    "description": "Action type: 1 (完成), 2 (打回), 3 (重复申请)"
-                  }
-                },
-                "required": [
-                  "token",
-                  "id",
-                  "action"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful update",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
+            "$ref": "#/components/schemas/AnnouncementId"
           },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/fetch_lnf.php": {
-      "get": {
-        "summary": "获取失物招领信息接口 (GET)",
-        "description": "获取失物招领信息接口",
-        "parameters": [
-          {
-            "name": "token",
-            "in": "query",
-            "description": "Admin token for filtering is_found status",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "is_found",
-            "in": "query",
-            "description": "Filter by is_found status (0: lost, 1: found, 3: all for admin)",
-            "schema": {
+          "title": {
               "type": "string",
-              "enum": ["0", "1", "3"]
-            }
+            "description": "New title for the announcement (optional)."
           },
-          {
-            "name": "page",
-            "in": "query",
-            "description": "Page number for pagination, default 1",
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Number of items per page, default 50, max limit defined in code",
-            "schema": {
-              "type": "integer",
-              "default": 50
-            }
-          },
-          {
-            "name": "query",
-            "in": "query",
-            "description": "Search query for keywords in entries",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "include_clues",
-            "in": "query",
-            "description": "Include volunteer clues in response, default false",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            }
+            "content": {
+                    "type": "string",
+            "description": "New content for the announcement (Quill Delta JSON string, optional)."
+                  },
+          "status": {
+                    "type": "string",
+            "description": "New status for the announcement (optional).",
+            "enum": ["draft", "published", "archived"]
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful retrieval",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FetchLnfResponse"
-                }
-              }
-            }
+        },
+        "description": "At least one of 'title', 'content', or 'status' must be provided for an update."
+      },
+      "DeleteAnnouncementRequest": {
+                "type": "object",
+        "required": ["token", "id"],
+                "properties": {
+          "token": {
+            "$ref": "#/components/schemas/Token"
           },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
+          "id": {
+            "$ref": "#/components/schemas/AnnouncementId"
           }
         }
       },
-      "post": {
-        "summary": "获取失物招领信息接口 (POST)",
-        "description": "获取失物招领信息接口",
-        "requestBody": {
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token for filtering is_found status"
-                  },
-                  "is_found": {
-                    "type": "string",
-                    "enum": ["0", "1", "3"],
-                    "description": "Filter by is_found status (0: lost, 1: found, 3: all for admin)"
-                  },
-                  "page": {
-                    "type": "integer",
-                    "default": 1,
-                    "description": "Page number for pagination, default 1"
-                  },
-                  "limit": {
-                    "type": "integer",
-                    "default": 50,
-                    "description": "Number of items per page, default 50, max limit defined in code"
-                  },
-                  "query": {
-                    "type": "string",
-                    "description": "Search query for keywords in entries"
-                  },
-                  "include_clues": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Include volunteer clues in response, default false"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful retrieval",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FetchLnfResponse"
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/submit_lnf.php": {
-      "post": {
-        "summary": "提交失物招领信息接口",
-        "description": "提交失物招领信息接口",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": ["lost", "found"]
-                  },
-                  "student_name": {
-                    "type": "string"
-                  },
-                  "detail": {
-                    "type": "string"
-                  },
-                  "location": {
-                    "type": "string"
-                  },
-                  "email": {
-                    "type": "string",
-                    "format": "email"
-                  },
-                  "campus": {
-                    "type": "string"
-                  },
-                  "file_path": {
-                    "type": "string",
-                    "format": "url"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "Passphrase"
-                  },
-                  "reward": {
-                    "type": "string",
-                    "nullable": true
-                  },
-                  "alt_contact": {
-                    "type": "string",
-                    "nullable": true
-                  },
-                  "event_time": {
-                    "type": "string",
-                    "format": "date-time"
-                  }
-                },
-                "required": [
-                  "type",
-                  "student_name",
-                  "detail",
-                  "location",
-                  "email",
-                  "campus",
-                  "file_path",
-                  "password",
-                  "event_time"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful submission",
-            "content": {
-              "application/json": {
-                "schema": {
+      "Pagination": {
                   "type": "object",
                   "properties": {
-                    "success": {
+          "total_records": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          },
+          "current_page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "include_deleted": {
                       "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Unprocessable Entity",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/update_lnf_status.php": {
-      "post": {
-        "summary": "更新失物招领状态接口",
-        "description": "更新失物招领状态接口",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "integer",
-                    "description": "Lost and Found entry ID"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "Passphrase for the entry"
-                  },
-                  "action": {
-                    "type": "string",
-                    "enum": ["found", "not_found", "hide"]
-                  }
-                },
-                "required": [
-                  "id",
-                  "password",
-                  "action"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful update",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Unprocessable Entity",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/submit_clue.php": {
-      "post": {
-        "summary": "提交线索接口",
-        "description": "提交线索接口",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "campus": {
-                    "type": "string"
-                  },
-                  "detail": {
-                    "type": "string"
-                  },
-                  "location": {
-                    "type": "string"
-                  },
-                  "filePath": {
-                    "type": "string",
-                    "format": "url"
-                  },
-                  "contact": {
-                    "type": "string"
-                  },
-                  "lost_info_id": {
-                    "type": "integer",
-                    "description": "Lost and Found entry ID"
-                  }
-                },
-                "required": [
-                  "campus",
-                  "detail",
-                  "location",
-                  "filePath",
-                  "contact",
-                  "lost_info_id"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful submission",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Unprocessable Entity",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/accept.php": {
-      "post": {
-        "summary": "批准教室预订请求 (Admin only)",
-        "description": "批准教室预订请求 (Admin only)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token"
-                  },
-                  "Id": {
-                    "type": "integer",
-                    "description": "Booking request ID"
-                  }
-                },
-                "required": [
-                  "token",
-                  "Id"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful approval or email failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string",
-                      "examples": [
-                        "Email has sent successfully.",
-                        "Failed to send email."
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (e.g., DB error)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": false
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "An internal error occurred."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/addres.php": {
-      "post": {
-        "summary": "提交教室预订请求",
-        "description": "提交教室预订请求。特权用户 (Privileger) 的请求会自动批准并拒绝冲突的普通请求。普通用户的请求会进入审批队列。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "room": {
-                    "type": "integer",
-                    "description": "教室ID"
-                  },
-                  "sid": {
-                    "type": "integer",
-                    "description": "学生ID"
-                  },
-                  "email": {
-                    "type": "string",
-                    "format": "email",
-                    "description": "用户邮箱"
-                  },
-                  "time": {
-                    "type": "string",
-                    "description": "预订时间段 (毫秒级时间戳), 格式: 'startTimestamp-endTimestamp'",
-                    "example": "1678886400000-1678890000000"
-                  },
-                  "name": {
-                    "type": "string",
-                    "description": "用户姓名"
-                  },
-                  "reason": {
-                    "type": "string",
-                    "description": "预订原因"
-                  }
-                },
-                "required": [
-                  "room",
-                  "sid",
-                  "email",
-                  "time",
-                  "name",
-                  "reason"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "预订成功 (特权用户)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Your booking has been approved. 0 conflicting requests were rejected."
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "请求已提交待审批 (普通用户)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Your booking request has been added to the approval queue."
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (输入无效或时间冲突)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": false
-                    },
-                    "message": {
-                      "type": "string",
-                      "examples": [
-                        "The following fields are required and cannot be empty: field1, field2.",
-                        "Invalid time format.",
-                        "Start time cannot be later than or equal to end time.",
-                        "Invalid email address.",
-                        "Time conflict detected. Your request cannot be processed."
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (清洁时间冲突)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": false
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "[Room Name] is unavailable between 12:00-13:00 for cleaning."
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed"
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": false
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "An error occurred while processing your request."
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "message"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/adminSearch.php": {
-      "get": {
-        "summary": "搜索教室预订记录 (Admin only, GET)",
-        "description": "管理员通过GET请求搜索教室预订记录 (包括当前请求和历史记录)。",
-        "parameters": [
-          {
-            "name": "token",
-            "in": "query",
-            "required": true,
-            "description": "Admin token",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "email",
-            "in": "query",
-            "description": "按用户邮箱过滤",
-            "schema": {
-              "type": "string",
-              "format": "email"
-            }
-          },
-          {
-            "name": "room",
-            "in": "query",
-            "description": "按教室ID过滤",
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "name": "sid",
-            "in": "query",
-            "description": "按学生ID过滤",
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "name": "query",
-            "in": "query",
-            "description": "在多个字段中搜索关键词 (id, room, email, auth, time, name, reason)",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "time",
-            "in": "query",
-            "description": "搜索指定时间点(毫秒时间戳)附近 ±3 小时的预订记录",
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "搜索成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/BookingRecord"
-                      }
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (未提供搜索参数)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (未授权)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
           }
         }
       },
-      "post": {
-        "summary": "搜索教室预订记录 (Admin only, POST)",
-        "description": "管理员通过POST请求搜索教室预订记录 (包括当前请求和历史记录)。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token"
-                  },
-                  "email": {
-                    "type": "string",
-                    "format": "email",
-                    "description": "按用户邮箱过滤"
-                  },
-                  "room": {
-                    "type": "integer",
-                    "description": "按教室ID过滤"
-                  },
-                  "sid": {
-                    "type": "integer",
-                    "description": "按学生ID过滤"
-                  },
-                  "query": {
-                    "type": "string",
-                    "description": "在多个字段中搜索关键词 (id, room, email, auth, time, name, reason)"
-                  },
-                  "time": {
-                    "type": "integer",
-                    "description": "搜索指定时间点(毫秒时间戳)附近 ±3 小时的预订记录"
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "搜索成功",
-            "content": {
-              "application/json": {
-                "schema": {
+      "GenericSuccessResponse": {
                   "type": "object",
                   "properties": {
                     "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/BookingRecord"
-                      }
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (未提供搜索参数)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (未授权)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/approval_action.php": {
-      "post": {
-        "summary": "处理教室预订审批 (Token-based)",
-        "description": "通过邮件中的一次性令牌批准或拒绝教室预订请求。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "从审批邮件中获取的一次性令牌"
-                  },
-                  "action": {
-                    "type": "string",
-                    "enum": ["approve", "reject"],
-                    "description": "执行的操作 ('approve' 或 'reject')"
-                  }
-                },
-                "required": [
-                  "token",
-                  "action"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "操作成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/BookingRecord"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (缺少参数、令牌无效或格式错误)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found (请求不存在)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Unprocessable Entity (请求已被处理或令牌已使用)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/cos_preview_url_gen.php": {
-      "post": {
-        "summary": "生成COS文件预览URL",
-        "description": "为存储在腾讯云对象存储(COS)中的文件生成一个临时的预签名预览URL。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "file_key": {
-                    "type": "string",
-                    "description": "文件在COS存储桶中的路径 (对象键)"
-                  }
-                },
-                "required": [
-                  "file_key"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "成功生成预签名URL",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string",
-                  "format": "url",
-                  "description": "生成的预签名URL，有效期1分钟"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (生成URL失败)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/enableClassroom.php": {
-      "post": {
-        "summary": "启用教室 (Admin only)",
-        "description": "管理员通过删除 `classrooms` 表中的记录来重新启用一个教室。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  },
-                  "id": {
-                    "type": "integer",
-                    "description": "要启用的教室记录的ID"
-                  }
-                },
-                "required": [
-                  "token",
-                  "id"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "教室启用成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    }
-                  },
-                  "required": [
-                    "success"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (Token缺失、无效或非管理员)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": false
+            "type": "boolean",
+            "example": true
                     },
                     "message": {
-                      "type": "string",
-                      "examples": ["114514", "token不合法！"]
-                    },
-                    "error": {
-                      "type": "string",
-                      "example": "Unauthorized"
-                    }
-                  }
-                }
-              }
-            }
+                      "type": "string"
           },
-          "500": {
-            "description": "Internal Server Error (数据库错误)",
-            "content": {
-              "application/json": {
-                "schema": {
+          "data": {
                   "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": false
-                    },
-                    "error": {
-                      "type": "string",
-                      "example": "Database error: [具体错误信息]"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/fetch_clues.php": {
-      "get": {
-        "summary": "获取失物招领线索 (GET)",
-        "description": "根据失物招领ID获取相关的志愿者线索，支持分页和过滤。",
-        "parameters": [
-          {
-            "name": "lost_info_id",
-            "in": "query",
-            "required": true,
-            "description": "关联的失物招领信息ID",
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "description": "页码 (默认 1)",
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "每页数量 (默认 50)",
-            "schema": {
-              "type": "integer",
-              "default": 50
-            }
-          },
-          {
-            "name": "campus",
-            "in": "query",
-            "description": "按校区过滤",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "query",
-            "in": "query",
-            "description": "在详细信息或位置中搜索关键词",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "成功获取线索",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FetchCluesResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (未提供有效的 lost_info_id)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed"
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
+            "nullable": true
           }
         }
       },
-      "post": {
-        "summary": "获取失物招领线索 (POST)",
-        "description": "根据失物招领ID获取相关的志愿者线索，支持分页和过滤。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "lost_info_id": {
-                    "type": "integer",
-                    "description": "关联的失物招领信息ID"
-                  },
-                  "page": {
-                    "type": "integer",
-                    "default": 1,
-                    "description": "页码 (默认 1)"
-                  },
-                  "limit": {
-                    "type": "integer",
-                    "default": 50,
-                    "description": "每页数量 (默认 50)"
-                  },
-                  "campus": {
-                    "type": "string",
-                    "description": "按校区过滤"
-                  },
-                  "query": {
-                    "type": "string",
-                    "description": "在详细信息或位置中搜索关键词"
-                  }
-                },
-                "required": [
-                  "lost_info_id"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "成功获取线索",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FetchCluesResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (未提供有效的 lost_info_id)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed"
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/fetchPolicy.php": {
-      "get": {
-        "summary": "获取教室不可用策略",
-        "description": "获取当前配置的教室不可用时间段 (例如清洁时间)。使用缓存以提高性能。",
-        "responses": {
-          "200": {
-            "description": "成功获取策略",
-            "content": {
-              "application/json": {
-                "schema": {
+      "AddSuccessResponse": {
+         "allOf": [
+           { "$ref": "#/components/schemas/GenericSuccessResponse" },
+           {
                   "type": "object",
                   "properties": {
-                    "policy": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/ClassroomPolicy"
-                      }
-                    }
-                  },
-                  "required": [
-                    "policy"
-                  ]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (数据库或缓存错误)",
-            "content": {
-              "application/json": {
-                "schema": {
+               "data": {
                   "type": "object",
                   "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Failed to retrieve policy data."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/get_error_logs.php": {
-      "post": {
-        "summary": "获取错误日志 (Admin only)",
-        "description": "管理员获取错误日志，支持按关键词、日期范围和错误类型过滤。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  },
-                  "keyword": {
-                    "type": "string",
-                    "description": "搜索关键词 (匹配 error_message, error_file, error_type)"
-                  },
-                  "start_date": {
-                    "type": "string",
-                    "format": "date",
-                    "description": "开始日期 (YYYY-MM-DD)"
-                  },
-                  "end_date": {
-                    "type": "string",
-                    "format": "date",
-                    "description": "结束日期 (YYYY-MM-DD)"
-                  },
-                  "error_type": {
-                    "type": "string",
-                    "description": "错误类型 (例如 'PHP Error', 'Database Error', 'HTTP 404 Error', 或 'HTTP Errors' 代表所有HTTP错误)"
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "成功获取错误日志",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/ErrorLog"
-                      }
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (Token缺失)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (未授权)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (数据库查询失败)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/get_error_stats.php": {
-      "post": {
-        "summary": "获取错误统计信息 (Admin only)",
-        "description": "管理员获取错误日志的统计信息，包括按类型、每日（近7天）、每周和每小时（可选日期范围）的统计。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  },
-                  "hourly_start_date": {
-                    "type": "string",
-                    "format": "date",
-                    "description": "按小时统计的开始日期 (YYYY-MM-DD, 可选)"
-                  },
-                  "hourly_end_date": {
-                    "type": "string",
-                    "format": "date",
-                    "description": "按小时统计的结束日期 (YYYY-MM-DD, 可选)"
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "成功获取错误统计信息",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorStatsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (Token缺失)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (未授权)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (数据库查询失败)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/get_oplog.php": {
-      "post": {
-        "summary": "获取操作日志 (Admin only)",
-        "description": "管理员根据请求ID获取相关的操作日志记录。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  },
-                  "ids": {
-                    "type": "string",
-                    "description": "逗号分隔的请求ID字符串 (e.g., '1,2,3')"
-                  }
-                },
-                "required": [
-                  "token",
-                  "ids"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "成功获取操作日志",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetOplogResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (参数不完整或无效ID)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (Token无效)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (未授权)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (数据库查询失败)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/getDisabledClassroomDetails.php": {
-      "post": {
-        "summary": "获取禁用的教室详情 (Admin only)",
-        "description": "管理员获取当前所有被禁用或暂停使用的教室记录。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "成功获取教室详情",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "policy": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/DisabledClassroomDetail"
-                      }
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "policy"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (Token缺失、无效或非管理员)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/getHellVisits.php": {
-      "get": {
-        "summary": "获取访问计数",
-        "description": "从缓存文件获取访问计数。",
-        "responses": {
-          "200": {
-            "description": "成功获取访问计数",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetHellVisitsResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found (缓存文件不存在)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/getrequests.php": {
-      "post": {
-        "summary": "获取待审批教室预订请求 (Admin only)",
-        "description": "管理员获取未分配给特定管理员的教室预订请求 (即需要通用管理员审批的请求)。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "成功获取请求列表",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/BookingRecord"
-                      },
-                      "description": "待审批的预订请求数组"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (Token缺失、无效或非管理员)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/inquiry_repair.php": {
-      "get": {
-        "summary": "查询维修请求 (当前获取所有请求)",
-        "description": "查询维修请求。注意：当前实现获取所有维修记录，忽略 email 参数。",
-        "responses": {
-          "200": {
-            "description": "成功获取维修请求列表",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": { "type": "integer" },
-                          "subject": { "type": "string" },
-                          "detail": { "type": "string" },
-                          "location": { "type": "string" },
-                          "campus": { "type": "string" },
-                          "filePath": { "type": "string", "format": "url", "nullable": true },
-                          "addTime": { "type": "string", "format": "date-time" },
-                          "status": { "type": "integer", "description": "维修状态" }
-                        }
-                      }
-                    }
-                  },
-                  "required": ["success", "data"]
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed (如果使用了非 GET/POST 方法)",
-             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "查询维修请求 (当前获取所有请求 - POST)",
-        "description": "查询维修请求。注意：当前实现获取所有维修记录，忽略 email 参数。允许 POST 请求但行为与 GET 相同。",
-         "responses": {
-          "200": {
-            "description": "成功获取维修请求列表",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": { "type": "integer" },
-                          "subject": { "type": "string" },
-                          "detail": { "type": "string" },
-                          "location": { "type": "string" },
-                          "campus": { "type": "string" },
-                          "filePath": { "type": "string", "format": "url", "nullable": true },
-                          "addTime": { "type": "string", "format": "date-time" },
-                          "status": { "type": "integer", "description": "维修状态" }
-                        }
-                      }
-                    }
-                  },
-                  "required": ["success", "data"]
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed (如果使用了非 GET/POST 方法)",
-             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/inquiry.php": {
-      "get": {
-        "summary": "查询教室预订请求",
-        "description": "根据提供的参数查询教室预订请求 (不包括已拒绝的请求)。支持按邮箱、教室ID、学生ID、关键词或时间范围进行查询。",
-        "parameters": [
-          {
-            "name": "email",
-            "in": "query",
-            "description": "按用户邮箱过滤",
-            "schema": { "type": "string", "format": "email" }
-          },
-          {
-            "name": "room",
-            "in": "query",
-            "description": "按教室ID过滤",
-            "schema": { "type": "integer" }
-          },
-          {
-            "name": "sid",
-            "in": "query",
-            "description": "按学生ID过滤",
-            "schema": { "type": "integer" }
-          },
-          {
-            "name": "query",
-            "in": "query",
-            "description": "在多个字段中搜索关键词 (id, room, email, auth, time, name, reason)",
-            "schema": { "type": "string" }
-          },
-          {
-            "name": "time",
-            "in": "query",
-            "description": "搜索指定时间点(毫秒时间戳)附近 ±3 小时的预订记录",
-            "schema": { "type": "integer" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "成功获取预订请求列表",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                           "id": { "type": "integer" },
-                           "room": { "type": "integer" },
-                           "email": { "type": "string", "format": "email" },
-                           "auth": { "type": "string", "description": "Approval status (e.g., 'yes', 'non')" },
-                           "time": { "type": "string", "description": "Booking time range (milliseconds timestamp), format: 'startTimestamp-endTimestamp'" },
-                           "name": { "type": "string" },
-                           "reason": { "type": "string" }
-                        }
-                      }
-                    }
-                  },
-                  "required": ["success", "data"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (未提供查询参数)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "查询教室预订请求 (POST)",
-        "description": "根据提供的参数查询教室预订请求 (不包括已拒绝的请求)。支持按邮箱、教室ID、学生ID、关键词或时间范围进行查询。",
-        "requestBody": {
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "email": { "type": "string", "format": "email", "description": "按用户邮箱过滤" },
-                  "room": { "type": "integer", "description": "按教室ID过滤" },
-                  "sid": { "type": "integer", "description": "按学生ID过滤" },
-                  "query": { "type": "string", "description": "在多个字段中搜索关键词 (id, room, email, auth, time, name, reason)" },
-                  "time": { "type": "integer", "description": "搜索指定时间点(毫秒时间戳)附近 ±3 小时的预订记录" }
-                }
-              }
-            }
-          }
-        },
-         "responses": {
-          "200": {
-            "description": "成功获取预订请求列表",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                         "type": "object",
-                         "properties": {
-                           "id": { "type": "integer" },
-                           "room": { "type": "integer" },
-                           "email": { "type": "string", "format": "email" },
-                           "auth": { "type": "string", "description": "Approval status (e.g., 'yes', 'non')" },
-                           "time": { "type": "string", "description": "Booking time range (milliseconds timestamp), format: 'startTimestamp-endTimestamp'" },
-                           "name": { "type": "string" },
-                           "reason": { "type": "string" }
-                         }
-                      }
-                    }
-                  },
-                  "required": ["success", "data"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (未提供查询参数)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/pauseDisableClassroom.php": {
-      "post": {
-        "summary": "恢复教室使用 (Admin only)",
-        "description": "管理员通过提供教室记录ID来恢复一个教室的使用 (设置 unavailable = 0)。需要有效的管理员令牌。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  },
-                  "id": {
-                    "type": "integer",
-                    "description": "要恢复的教室记录的ID"
-                  }
-                },
-                "required": [
-                  "token",
-                  "id"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "教室恢复成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true }
-                  },
-                  "required": ["success"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (缺少教室ID)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                     "success": { "type": "boolean", "example": false },
-                     "error": { "type": "string", "example": "Missing classroom ID" }
-                  },
-                   "required": ["success", "error"]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (Token缺失、无效或非管理员)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                     "success": { "type": "boolean", "example": false },
-                     "message": { "type": "string", "examples": ["Authentication token is missing", "Invalid token", "Unauthorized"] }
-                  },
-                   "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (数据库错误)",
-            "content": {
-              "application/json": {
-                 "schema": {
-                  "type": "object",
-                  "properties": {
-                     "success": { "type": "boolean", "example": false },
-                     "error": { "type": "string", "example": "Database error: [具体错误信息]" }
-                  },
-                   "required": ["success", "error"]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/reject.php": {
-      "post": {
-        "summary": "拒绝教室预订请求 (Admin only)",
-        "description": "管理员拒绝一个教室预订请求。需要提供请求ID和拒绝原因代码。系统会更新请求状态，记录操作日志，并尝试向用户发送拒绝邮件。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  },
-                  "Id": {
-                    "type": "integer",
-                    "description": "要拒绝的预订请求的ID"
-                  },
-                  "Reason": {
-                    "type": "integer",
-                    "description": "拒绝原因代码 (1: 时间冲突, 2: 资源不足, 3: 不符条件, 4: 维修中, 5: 安全问题, 6: 信息不完整, 7: 违反政策, 8: 预约频繁, 9: 特殊活动优先)"
-                  }
-                },
-                "required": [
-                  "token",
-                  "Id",
-                  "Reason"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "请求已拒绝 (邮件发送状态可能不同)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "message": { "type": "string", "examples": ["邮件已发送。", "未能发送邮件，Error: [error message]"] }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (未授权)",
-            "content": {
-              "application/json": {
-                 "schema": {
-                  "type": "object",
-                  "properties": {
-                     "success": { "type": "boolean", "example": false },
-                     "message": { "type": "string", "example": "Unauthorized" }
-                  },
-                   "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "500": {
-             "description": "Internal Server Error (潜在的数据库错误或其他未捕获异常)",
-             "content": {
-               "application/json": {
-                 "schema": {
-                   "$ref": "#/components/schemas/ErrorResponse"
+                   "id": { "$ref": "#/components/schemas/AnnouncementId" }
                  }
                }
              }
-          }
-        }
-      }
-    },
-    "/report_error.php": {
-      "post": {
-        "summary": "报告客户端错误",
-        "description": "接收来自客户端的错误报告，将其存储在数据库中，并发送邮件通知。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "url": { "type": "string", "format": "url", "description": "发生错误的页面URL" },
-                  "timestamp": { "type": "string", "format": "date-time", "description": "错误发生的时间戳 (ISO 8601格式)" },
-                  "userAgent": { "type": "string", "description": "用户的User Agent" },
-                  "referrer": { "type": "string", "format": "url", "description": "来源页面URL" },
-                  "screenWidth": { "type": "integer", "description": "屏幕宽度" },
-                  "screenHeight": { "type": "integer", "description": "屏幕高度" },
-                  "language": { "type": "string", "description": "浏览器语言" },
-                  "cookiesEnabled": { "type": "boolean", "description": "是否启用Cookie" },
-                  "platform": { "type": "string", "description": "操作系统/平台信息" },
-                  "userFeedback": { "type": "string", "description": "用户的附加反馈信息 (可选)" }
-                },
-                "required": [
-                  "url", "timestamp", "userAgent", "referrer", "screenWidth", "screenHeight", "language", "cookiesEnabled", "platform"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "错误报告已存储并发送邮件",
-            "content": {
-              "application/json": {
-                "schema": {
+           }
+         ]
+      },
+      "GetSuccessResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/GenericSuccessResponse" },
+          {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "message": { "type": "string", "example": "Error report stored and email sent." }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (无效数据)",
-            "content": {
-              "application/json": {
-                "schema": {
+              "data": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "example": "Invalid data." }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (存储或邮件发送失败)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "example": "Failed to store error report or send email." }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/resumeDisabledClassroom.php": {
-      "post": {
-        "summary": "禁用教室 (Admin only)",
-        "description": "管理员通过提供教室记录ID来禁用一个教室 (设置 unavailable = 1)。需要有效的管理员令牌。注意：文件名可能具有误导性，此接口实际执行禁用操作。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  },
-                  "id": {
-                    "type": "integer",
-                    "description": "要禁用的教室记录的ID"
-                  }
-                },
-                "required": [
-                  "token",
-                  "id"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "教室禁用成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true }
-                  },
-                  "required": ["success"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (缺少教室ID)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                     "success": { "type": "boolean", "example": false },
-                     "error": { "type": "string", "example": "Missing classroom ID" }
-                  },
-                   "required": ["success", "error"]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (Token缺失、无效或非管理员)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                     "success": { "type": "boolean", "example": false },
-                     "message": { "type": "string", "examples": ["Authentication token is missing", "Invalid token", "Unauthorized"] }
-                  },
-                   "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (数据库错误)",
-            "content": {
-              "application/json": {
-                 "schema": {
-                  "type": "object",
-                  "properties": {
-                     "success": { "type": "boolean", "example": false },
-                     "error": { "type": "string", "example": "Database error: [具体错误信息]" }
-                  },
-                   "required": ["success", "error"]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/send_reservation_details.php": {
-      "get": {
-        "summary": "发送明日预订详情报告",
-        "description": "生成第二天的教室预订详情Excel报告，并通过邮件发送给指定管理员。此接口主要设计为由计划任务自动触发，不接受输入参数。",
-        "responses": {
-          "200": {
-            "description": "操作成功 (邮件已发送或明天无预订)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "message": { "type": "string", "examples": ["Email has been sent", "No reservations for tomorrow."] },
-                    "progress": {
-                       "type": "array",
-                       "items": { "type": "string" },
-                       "description": "记录脚本执行步骤的日志数组"
-                    }
-                  },
-                  "required": ["success", "message", "progress"]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (数据库查询、文件生成或邮件发送失败)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "example": "Error occurred: [具体错误信息]" },
-                     "progress": {
-                       "type": "array",
-                       "items": { "type": "string" },
-                       "description": "记录脚本执行步骤的日志数组 (可能包含错误信息)"
-                    }
-                  },
-                  "required": ["success", "message", "progress"]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/submit_classroom.php": {
-      "post": {
-        "summary": "添加教室不可用策略 (Admin only)",
-        "description": "管理员添加一条教室不可用策略 (例如清洁时间或维护)。需要提供教室名称/ID、适用的星期几、开始时间和结束时间。此操作会将教室在指定时间段标记为不可用。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "Admin token (加密的邮箱)"
-                  },
-                  "classroom": {
-                    "type": "string",
-                    "description": "教室名称或ID"
-                  },
-                  "days": {
+                  "announcements": {
                     "type": "array",
                     "items": {
-                      "type": "integer"
-                    },
-                    "description": "适用的星期几数组 (例如 [1, 2, 3, 4, 5] 代表周一到周五)"
-                  },
-                  "start_time": {
-                    "type": "string",
-                    "format": "time",
-                    "pattern": "^\\d{1,2}:\\d{1,2}:\\d{2}$",
-                    "description": "开始时间 (HH:MM:SS)"
-                  },
-                  "end_time": {
-                    "type": "string",
-                    "format": "time",
-                    "pattern": "^\\d{1,2}:\\d{1,2}:\\d{2}$",
-                    "description": "结束时间 (HH:MM:SS)"
-                  }
-                },
-                "required": [
-                  "token",
-                  "classroom",
-                  "days",
-                  "start_time",
-                  "end_time"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "策略添加成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true }
-                  },
-                  "required": ["success"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (缺少字段、无效日期或时间格式)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "examples": ["Missing required fields.", "Invalid or missing days.", "Invalid time format"] }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (Token缺失或无效)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "examples": ["Token is required.", "Invalid token."] }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (非管理员)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "example": "Unauthorized" }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-             "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "example": "Method Not Allowed." }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (数据库错误)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "example": "Internal Server Error" }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/verify_admin.php": {
-      "post": {
-        "summary": "验证管理员令牌",
-        "description": "验证提供的令牌是否对应一个有效的管理员用户。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "需要验证的管理员令牌 (加密的邮箱)"
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "验证成功，是管理员",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true }
-                  },
-                  "required": ["success"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (Token缺失或无效)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "error": { "type": "string", "examples": ["Token is required.", "Invalid token data."] }
-                  },
-                  "required": ["success", "error"]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (非管理员)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "error": { "type": "string", "example": "Unauthorized." }
-                  },
-                  "required": ["success", "error"]
-                }
-              }
-            }
-          },
-          "405": {
-            "description": "Method Not Allowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "error": { "type": "string", "example": "Method Not Allowed." }
-                  },
-                  "required": ["success", "error"]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/verify_priv.php": {
-      "post": {
-        "summary": "验证特权用户令牌",
-        "description": "验证提供的令牌是否对应一个有效的特权用户 (通常具有自动预订批准权限)。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string",
-                    "description": "需要验证的特权用户令牌 (加密的邮箱)"
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "验证成功，是特权用户",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true }
-                  },
-                  "required": ["success"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (Token缺失或无效)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "examples": ["Token is required.", "Invalid token."] }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized (非特权用户)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "example": "Unauthorized" }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/visitHell.php": {
-      "post": {
-        "summary": "记录访问并增加计数器 (需Cloudflare验证)",
-        "description": "验证 Cloudflare Turnstile 令牌，如果有效，则记录访问者信息并增加访问计数。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "cf_token": {
-                    "type": "string",
-                    "description": "Cloudflare Turnstile token"
-                  }
-                },
-                "required": [
-                  "cf_token"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "访问记录成功，返回当前计数",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "cnt": { "type": "integer", "description": "当前访问总数" }
-                  },
-                  "required": ["success", "cnt"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (缺少 cf_token)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "example": "Invalid Parameter." }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (Cloudflare Turnstile 验证失败)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "example": "您疑似有点人机了。" }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error (Turnstile 服务错误或数据库错误)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "examples": ["Turnstile Service Error.", "Internal Server Error."] }
-                  },
-                  "required": ["success", "message"]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/keygen.php": {
-      "post": {
-        "summary": "生成COS上传临时密钥",
-        "description": "为客户端直接上传文件到腾讯云COS生成临时的安全凭证和上传路径。",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "file-name": {
-                    "type": "string",
-                    "description": "要上传的文件的原始名称 (用于检查扩展名)"
-                  }
-                },
-                "required": [
-                  "file-name"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "成功生成临时凭证",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "credentials": {
-                      "type": "object",
-                      "properties": {
-                        "TmpSecretId": { "type": "string", "description": "临时 Secret ID" },
-                        "TmpSecretKey": { "type": "string", "description": "临时 Secret Key" },
-                        "SessionToken": { "type": "string", "description": "会话令牌 (X-Cos-Security-Token)" },
-                        "StartTime": { "type": "integer", "format": "int64", "description": "凭证开始时间 (Unix 时间戳)" },
-                        "ExpiredTime": { "type": "integer", "format": "int64", "description": "凭证过期时间 (Unix 时间戳)" },
-                        "Bucket": { "type": "string", "description": "目标存储桶名称" },
-                        "Region": { "type": "string", "description": "目标存储桶所在地域" },
-                        "Key": { "type": "string", "description": "建议的上传对象键 (文件路径)" }
-                      },
-                      "required": ["TmpSecretId", "TmpSecretKey", "SessionToken", "StartTime", "ExpiredTime", "Bucket", "Region", "Key"]
+                      "$ref": "#/components/schemas/Announcement"
                     }
                   },
-                  "required": ["credentials"]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request (无效请求或非法文件类型)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean", "example": false },
-                    "message": { "type": "string", "examples": ["Invalid request", "非法文件，禁止上传"] }
-                  },
-                  "required": ["success", "message"]
+                  "pagination": {
+                    "$ref": "#/components/schemas/Pagination"
+                  }
                 }
               }
             }
           }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "LnfEntry": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "type": {
-            "type": "string"
-          },
-          "studentName": {
-            "type": "string"
-          },
-          "detail": {
-            "type": "string"
-          },
-          "location": {
-            "type": "string"
-          },
-          "email": {
-            "type": "string",
-            "format": "email"
-          },
-          "altContact": {
-            "type": "string",
-            "nullable": true
-          },
-          "campus": {
-            "type": "string"
-          },
-          "filePath": {
-            "type": "string",
-            "format": "url"
-          },
-          "reward": {
-            "type": "string",
-            "nullable": true
-          },
-          "isFound": {
-            "type": "integer"
-          },
-          "lastUpdated": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "eventTime": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "clues": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Clue"
-            }
-          }
-        }
-      },
-      "Clue": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "campus": {
-            "type": "string"
-          },
-          "detail": {
-            "type": "string"
-          },
-          "location": {
-            "type": "string"
-          },
-          "filePath": {
-            "type": "string",
-            "format": "url"
-          },
-          "contact": {
-            "type": "string"
-          },
-          "lostInfoId": {
-            "type": "integer"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "FetchLnfResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean"
-          },
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LnfEntry"
-            }
-          },
-          "totalPages": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "success",
-          "data",
-          "totalPages"
-        ]
-      },
-      "FetchCluesResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean"
-          },
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Clue"
-            }
-          },
-          "pagination": {
-            "type": "object",
-            "properties": {
-              "current_page": {
-                "type": "integer"
-              },
-              "per_page": {
-                "type": "integer"
-              },
-              "total_entries": {
-                "type": "integer"
-              },
-              "total_pages": {
-                "type": "integer"
-              }
-            }
-          }
-        },
-        "required": [
-          "success",
-          "data",
-          "pagination"
         ]
       },
       "ErrorResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "error": {
-             "type": "string"
-          }
-        },
-        "required": [
-          "success"
-        ]
-      },
-      "BookingRecord": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "room": {
-            "type": "integer"
-          },
-          "email": {
-            "type": "string",
-            "format": "email"
-          },
-          "auth": {
-            "type": "string",
-            "description": "Approval status (e.g., 'yes', 'no', 'non')"
-          },
-          "time": {
-            "type": "string",
-            "description": "Booking time range (milliseconds timestamp), format: 'startTimestamp-endTimestamp'"
-          },
-          "name": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "sid": {
-            "type": "integer"
-          },
-          "addTime": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Time the request was added"
-          },
-          "operator": {
-            "type": "string",
-            "format": "email",
-            "description": "Email of the admin who processed the request (if applicable)"
-          }
-        },
-        "description": "Represents a booking record from either the requests or history table."
-      },
-      "ClassroomPolicy": {
-        "type": "object",
-        "properties": {
-          "classroom": {
-            "type": "string",
-            "description": "教室名称或ID"
-          },
-          "days": {
-            "type": "string",
-            "description": "适用的星期几 (例如 '1,2,3,4,5' 代表周一到周五)"
-          },
-          "start_time": {
-            "type": "string",
-            "format": "time",
-            "description": "不可用开始时间 (HH:MM:SS)"
-          },
-          "end_time": {
-            "type": "string",
-            "format": "time",
-            "description": "不可用结束时间 (HH:MM:SS)"
-          }
-        },
-        "required": [
-          "classroom",
-          "days",
-          "start_time",
-          "end_time"
-        ],
-        "description": "代表一条教室不可用策略 (例如清洁时间)。"
-      },
-      "ErrorLog": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer",
-            "description": "日志ID"
-          },
-          "error_message": {
-            "type": "string",
-            "description": "错误信息"
-          },
-          "error_file": {
-            "type": "string",
-            "description": "发生错误的文件路径"
-          },
-          "error_line": {
-            "type": "integer",
-            "description": "发生错误的行号"
-          },
-          "error_type": {
-            "type": "string",
-            "description": "错误类型 (e.g., 'PHP Error', 'Database Error', 'HTTP 404 Error')"
-          },
-          "error_time": {
-            "type": "string",
-            "format": "date-time",
-            "description": "错误发生时间"
-          },
-          "user_agent": {
-            "type": "string",
-            "description": "用户的User Agent"
-          },
-          "ip_address": {
-            "type": "string",
-            "description": "用户的IP地址"
-          }
-        },
-        "description": "代表一条错误日志记录。"
-      },
-      "ErrorStatsResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "example": true
-          },
-          "errorTypeStats": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "error_type": {
-                  "type": "string"
-                },
-                "count": {
-                  "type": "integer"
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "message": {
+                      "type": "string",
+            "example": "Error message describing the issue."
                 }
               }
-            },
-            "description": "按错误类型统计的数量"
+            }
           },
-          "dailyErrorStats": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "date": {
-                  "type": "string",
-                  "format": "date"
-                },
-                "count": {
-                  "type": "integer"
+        "responses": {
+      "BadRequest": {
+        "description": "Bad Request - Invalid input, validation failed, or invalid JSON.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "最近7天的每日错误数量"
+            }
           },
-          "weeklyErrorStats": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "weekday": {
-                  "type": "integer",
-                  "description": "星期几 (0=周一, 6=周日)"
-                },
-                "count": {
-                  "type": "integer"
+      "Unauthorized": {
+        "description": "Unauthorized - Missing or invalid authentication token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "按星期几统计的错误数量"
+            }
           },
-          "hourlyErrorStats": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "hour_label": {
-                  "type": "string",
-                  "format": "YYYY-MM-DD HH",
-                  "description": "小时标签"
-                },
-                "count": {
-                  "type": "integer"
-                }
-              }
-            },
-            "description": "指定日期范围内按小时统计的错误数量 (如果提供了日期范围)"
+      "NotFound": {
+        "description": "Not Found - The requested resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+            }
           }
-        },
-        "required": [
-          "success",
-          "errorTypeStats",
-          "dailyErrorStats",
-          "weeklyErrorStats",
-          "hourlyErrorStats"
-        ],
-        "description": "错误统计信息的响应体"
+        }
       },
-      "OplogEntry": {
-        "type": "object",
-        "properties": {
-          "operator": {
-            "type": "string",
-            "format": "email",
-            "description": "执行操作的管理员邮箱"
+      "MethodNotAllowed": {
+        "description": "Method Not Allowed - The HTTP method is not supported for this endpoint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
-          "time": {
-            "type": "string",
-            "format": "date-time",
-            "description": "操作时间"
+      "UnsupportedMediaType": {
+        "description": "Unsupported Media Type - The request Content-Type is not 'application/json'.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
-          "operation": {
-            "type": "string",
-            "description": "执行的操作 (e.g., 'approve', 'reject')"
-          },
-          "reason": {
-            "type": "string",
-            "description": "操作原因 (如果适用)"
+      "InternalServerError": {
+        "description": "Internal Server Error - An unexpected error occurred on the server.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
           }
-        },
-        "description": "代表一条操作日志记录。"
-      },
-      "GetOplogResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "example": true
-          },
-          "data": {
-            "type": "object",
-            "description": "一个以请求ID (reqId) 为键，操作日志条目数组为值的映射",
-            "additionalProperties": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/OplogEntry"
+        }
+      }
+    },
+  "paths": {
+    "/announcements": {
+      "post": {
+        "tags": ["Announcements"],
+        "summary": "Add a new announcement",
+        "description": "Creates a new announcement.",
+        "operationId": "addAnnouncement",
+        "requestBody": {
+          "description": "Announcement data to create.",
+          "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                "$ref": "#/components/schemas/AddAnnouncementRequest"
               }
             }
           }
         },
-        "required": [
-          "success",
-          "data"
-        ],
-        "description": "获取操作日志的响应体。"
+        "responses": {
+          "201": {
+            "description": "Announcement created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddSuccessResponse"
+          }
+        }
+      }
+    },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" },
+          "415": { "$ref": "#/components/responses/UnsupportedMediaType" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
       },
-      "DisabledClassroomDetail": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer",
-            "description": "记录ID"
+      "get": {
+        "tags": ["Announcements"],
+        "summary": "List announcements",
+        "description": "Retrieves a paginated list of announcements.",
+        "operationId": "getAnnouncements",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number for pagination.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
           },
-          "classroom_id": {
-            "type": "integer",
-            "description": "教室ID"
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of announcements per page.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 100
+            }
           },
-          "reason": {
-            "type": "string",
-            "description": "禁用/暂停原因"
+          {
+            "name": "sort_by",
+            "in": "query",
+            "description": "Field to sort by.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["id", "title", "created_at", "updated_at", "status"],
+              "default": "created_at"
+            }
           },
-          "start_time": {
-            "type": "string",
-            "format": "date-time",
-            "description": "禁用/暂停开始时间"
+          {
+            "name": "sort_order",
+            "in": "query",
+            "description": "Sort order.",
+            "required": false,
+            "schema": {
+                    "type": "string",
+              "enum": ["ASC", "DESC"],
+              "default": "DESC"
+            }
           },
-          "end_time": {
-            "type": "string",
-            "format": "date-time",
-            "description": "禁用/暂停结束时间"
+          {
+            "name": "include_deleted",
+            "in": "query",
+            "description": "Whether to include soft-deleted announcements.",
+            "required": false,
+                "schema": {
+                      "type": "boolean",
+              "default": false
+            }
           },
-          "status": {
-            "type": "string",
-            "enum": ["disabled", "paused"],
-            "description": "当前状态"
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter announcements by status. The current `get_announcements.php` script hardcodes filtering to 'published' regardless of this parameter, but it's included for future compatibility.",
+            "required": false,
+                "schema": {
+                    "type": "string",
+              "enum": ["published", "draft", "archived"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved announcements.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSuccessResponse"
+                }
+              }
+            }
           },
-          "operator": {
-            "type": "string",
-            "format": "email",
-            "description": "操作员邮箱"
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/announcements/edit": {
+      "post": {
+        "tags": ["Announcements"],
+        "summary": "Edit an existing announcement",
+        "description": "Updates an existing announcement. The ID of the announcement is provided in the request body.",
+        "operationId": "editAnnouncement",
+        "requestBody": {
+          "description": "Announcement data to update. Requires token, id, and at least one of title, content, or status.",
+          "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                "$ref": "#/components/schemas/EditAnnouncementRequest"
+              }
+            }
           }
         },
-        "description": "代表一条禁用/暂停的教室记录。"
-      },
-      "GetHellVisitsResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "example": true
+        "responses": {
+          "200": {
+            "description": "Announcement updated successfully or no changes detected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccessResponse" 
+                }
+              }
+            }
           },
-          "count": {
-            "type": "integer",
-            "description": "访问计数"
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" },
+          "415": { "$ref": "#/components/responses/UnsupportedMediaType" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
+      }
+    },
+    "/announcements/delete": {
+      "post": {
+        "tags": ["Announcements"],
+        "summary": "Delete an announcement",
+        "description": "Soft-deletes an announcement. The ID of the announcement is provided in the request body.",
+        "operationId": "deleteAnnouncement",
+        "requestBody": {
+          "description": "Requires token and id of the announcement to delete.",
+          "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                "$ref": "#/components/schemas/DeleteAnnouncementRequest"
+              }
+            }
           }
         },
-        "required": [
-          "success",
-          "count"
-        ],
-        "description": "获取访问计数的响应体。"
+        "responses": {
+          "200": {
+            "description": "Announcement deleted successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" },
+          "415": { "$ref": "#/components/responses/UnsupportedMediaType" },
+          "500": { "$ref": "#/components/responses/InternalServerError" }
+        }
       }
     }
   }

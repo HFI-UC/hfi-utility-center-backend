@@ -167,7 +167,7 @@ try {
     if ($content_update !== null && $content_update !== $current_announcement['content']) {
         $update_fields_sql[] = 'content = :content';
         $params_execute['content'] = $content_update;
-        $changes_detected['content'] = ['old' => '[content_omitted]', 'new' => '[content_omitted]']; // Avoid logging large content
+        $changes_detected['content'] = ['old' => current_announcement[content], 'new' => content_update]; 
     }
     if ($status_update !== null && $status_update !== $current_announcement['status']) {
         $update_fields_sql[] = 'status = :status';
