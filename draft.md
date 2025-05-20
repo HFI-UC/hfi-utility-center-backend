@@ -11,17 +11,6 @@
     *   `updated_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)
     *   `created_by` (VARCHAR(255)) - 创建人 (从会话或 token 中获取)
     *   `status` (ENUM('draft', 'published', 'archived'), DEFAULT 'published') - 公告状态
-    *   `deleted_at` (TIMESTAMP, NULLABLE, DEFAULT NULL) - 软删除时间标记
-
-*   **新增表名**: `announcement_logs`
-*   **字段**:
-    *   `log_id` (INT, PK, AI)
-    *   `announcement_id` (INT, NULLABLE) - 关联的公告ID，操作公告前的行为可能为NULL
-    *   `user_email` (VARCHAR(255), NOT NULL) - 操作用户的邮箱
-    *   `action` (VARCHAR(100), NOT NULL) - 操作类型 (e.g., 'create_announcement_success', 'update_announcement_field_xyz', 'soft_delete_announcement_success', 'announcement_status_change_to_published')
-    *   `details` (TEXT, NULLABLE) - JSON格式，存储操作详情，如更改前后的值
-    *   `ip_address` (VARCHAR(45), NULLABLE) - 操作者IP地址
-    *   `logged_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
 
 ## 2. API 接口设计
 
@@ -78,25 +67,10 @@
     *   `sort_by` (string, optional, default: 'created_at'): 排序字段
     *   `sort_order` (string, optional, default: 'DESC'): 排序方式 (ASC/DESC)
 *   **逻辑**:
-    1.  引入依赖和认证。
-    2.  根据参数构建 SQL 查询 (默认排除 `deleted_at IS NOT NULL` 的记录)。
-    3.  查询 `announcements` 表。
-    4.  返回公告列表。
-
-### 2.4 软删除公告 (`api/announcements/delete_announcement.php`) - 新增
-
-*   **方法**: POST
-*   **请求参数**:
-    *   `token` (string, required): 用户认证Token
-    *   `id` (int, required): 要软删除的公告ID
-*   **逻辑**:
-    1.  引入依赖和认证。
-    2.  获取当前登录用户名 (`requesting_user_email`)。
-    3.  校验参数 `id`。
-    4.  检查公告是否存在且尚未被软删除。
-    5.  更新 `announcements` 表，设置 `deleted_at = NOW()`。
-    6.  记录操作到 `announcement_logs` (action: 'soft_delete_announcement_success', details: {id: 公告ID})。
-    7.  返回成功或失败信息。
+    1.  引入依赖和认证 (根据是否所有人都可查看，认证可能是可选的，但建议保留)。
+    2.  根据参数构建 SQL 查询。
+    3.  查询 `announcements` 表 (通常只查询 `published` 状态的，除非有特殊参数)。
+    4.  返回公告列表 (包含分页信息，如总数、当前页等)。
 
 ## 3. 数据库更新脚本 (`update_announcements.sql`)
 
@@ -109,34 +83,18 @@ CREATE TABLE IF NOT EXISTS `announcements` (
   `created_by` VARCHAR(255) DEFAULT NULL,
   `status` ENUM('draft', 'published', 'archived') DEFAULT 'published',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted_at` TIMESTAMP NULL DEFAULT NULL COMMENT '软删除时间标记'
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 可选：添加索引
 ALTER TABLE `announcements` ADD INDEX `idx_status` (`status`);
 ALTER TABLE `announcements` ADD INDEX `idx_created_at` (`created_at`);
 ALTER TABLE `announcements` ADD INDEX `idx_created_by` (`created_by`);
-ALTER TABLE `announcements` ADD INDEX `idx_deleted_at` (`deleted_at`);
 
 -- 可选：示例数据
 -- INSERT INTO `announcements` (`title`, `content`, `created_by`, `status`) VALUES
 -- ('系统维护通知', '{"ops":[{"insert":"亲爱的用户，\n为了提升服务质量，我们计划于2024年8月1日凌晨2:00至4:00进行系统维护。届时相关服务可能暂停。不便之处，敬请谅解。\n"}]}', 'admin', 'published'),
 -- ('新功能上线！', '{"ops":[{"insert":"激动人心的消息！我们的新功能【XX】已正式上线，快来体验吧！\n"}]}', 'system', 'published');
-
--- 创建 announcement_logs 表
-CREATE TABLE IF NOT EXISTS `announcement_logs` (
-  `log_id` INT AUTO_INCREMENT PRIMARY KEY,
-  `announcement_id` INT DEFAULT NULL,
-  `user_email` VARCHAR(255) NOT NULL,
-  `action` VARCHAR(100) NOT NULL COMMENT 'e.g., create_success, update_title, soft_delete_success',
-  `details` TEXT DEFAULT NULL COMMENT 'JSON-encoded details of the action',
-  `ip_address` VARCHAR(45) DEFAULT NULL,
-  `logged_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  KEY `idx_announcement_id` (`announcement_id`),
-  KEY `idx_user_email` (`user_email`),
-  KEY `idx_action` (`action`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
 ## 4. 文件结构 (暂定 api/ 目录下)
@@ -161,18 +119,8 @@ api/
     *   后端在接收到 Quill 内容时，不直接将其拼接到 HTML 中。
     *   如果需要在后端对内容进行某些处理或展示（例如生成摘要），应使用 HTML Purifier 或类似库对 Quill Delta 转换后的 HTML 进行清理，以防止 XSS。由于我们只是存储和透传，后端主要关注参数校验。前端渲染时 Quill 自身有一定安全机制，但仍需注意。
 
-## 6. 日志记录辅助函数 (暂定在各API脚本内实现或后续提取)
-
-*   `function log_announcement_action($pdo, $announcement_id, $user_email, $action, $details_array = null, $ip_address = null)`
-    *   `$announcement_id`: 关联的公告ID，可以为 null。
-    *   `$user_email`: 操作者邮箱。
-    *   `$action`: 具体操作的描述性字符串。
-    *   `$details_array`: 包含操作细节的PHP数组，将转为JSON存储。
-    *   `$ip_address`: 操作者IP。
-
 ## 后续步骤
 1.  确认 `global_*.php` 和 `db.php` 文件是否存在及位置。
 2.  确认 `accept.php` 的具体认证逻辑。
-3.  更新 `update_announcements.sql` 脚本。
-4.  实现日志记录辅助函数。
-5.  逐个实现/修改 API 接口 (`add_announcement.php`, `edit_announcement.php`, `get_announcements.php`, `delete_announcement.php`) 并集成日志。
+3.  编写 `update_announcements.sql`。
+4.  逐个实现三个 API 接口。

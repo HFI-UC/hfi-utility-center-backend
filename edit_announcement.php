@@ -26,68 +26,99 @@ function sanitize_input_value($data) {
     return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
 }
 
+// 处理请求方法和 Content-Type
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    $user_email_for_log = isset($_POST['token']) ? opensslDecrypt($_POST['token'], base64_decode($base64Key)) : 'unknown_user';
-    if ($user_email_for_log === false) $user_email_for_log = 'invalid_token';
+    $user_email_for_log = 'unknown_user';
+    $request_id_for_log = null; // ID is unknown before parsing body
     send_json_response(false, '仅支持 POST 请求。', null, 405, [
-        'announcement_id' => isset($_POST['id']) ? filter_var($_POST['id'], FILTER_SANITIZE_NUMBER_INT) : null, 
+        'announcement_id' => $request_id_for_log,
         'user_email' => $user_email_for_log,
-        'action' => 'edit_announcement_method_not_allowed', 
+        'action' => 'edit_announcement_method_not_allowed',
         'details' => ['method' => $_SERVER['REQUEST_METHOD']]
     ]);
 }
 
+if (stripos($_SERVER['CONTENT_TYPE'], 'application/json') === false) {
+    $user_email_for_log = 'unknown_user';
+    $request_id_for_log = null;
+    send_json_response(false, 'Content-Type 必须是 application/json。', null, 415, [
+        'announcement_id' => $request_id_for_log,
+        'user_email' => $user_email_for_log,
+        'action' => 'edit_announcement_invalid_content_type',
+        'details' => ['content_type' => $_SERVER['CONTENT_TYPE'] ?? 'not_set']
+    ]);
+}
+
+// 获取 JSON 输入
+$json_input = file_get_contents('php://input');
+$input_data = json_decode($json_input, true);
+
+if (json_last_error() !== JSON_ERROR_NONE) {
+    $user_email_for_log = 'unknown_user';
+    $request_id_for_log = null;
+    send_json_response(false, '无效的 JSON 输入: ' . json_last_error_msg(), null, 400, [
+        'announcement_id' => $request_id_for_log,
+        'user_email' => $user_email_for_log,
+        'action' => 'edit_announcement_invalid_json',
+        'details' => ['json_error' => json_last_error_msg()]
+    ]);
+}
+
 // 1. 身份验证
-if (!isset($_POST['token'])) {
+if (!isset($input_data['token'])) {
     send_json_response(false, '缺少认证 token。', null, 401, [
-        'announcement_id' => isset($_POST['id']) ? filter_var($_POST['id'], FILTER_SANITIZE_NUMBER_INT) : null, 
+        'announcement_id' => isset($input_data['id']) ? filter_var($input_data['id'], FILTER_SANITIZE_NUMBER_INT) : null,
         'user_email' => 'unknown_user',
-        'action' => 'edit_announcement_auth_fail_no_token', 
+        'action' => 'edit_announcement_auth_fail_no_token',
         'details' => null
     ]);
 }
-$token = $_POST['token'];
+$token = $input_data['token'];
 $key = base64_decode($base64Key);
 $requesting_user_email = opensslDecrypt($token, $key);
 
 if ($requesting_user_email === false || empty($requesting_user_email)) {
     send_json_response(false, '无效或已过期的 token。', null, 401, [
-        'announcement_id' => isset($_POST['id']) ? filter_var($_POST['id'], FILTER_SANITIZE_NUMBER_INT) : null, 
+        'announcement_id' => isset($input_data['id']) ? filter_var($input_data['id'], FILTER_SANITIZE_NUMBER_INT) : null,
         'user_email' => 'invalid_token_received',
-        'action' => 'edit_announcement_auth_fail_invalid_token', 
+        'action' => 'edit_announcement_auth_fail_invalid_token',
         'details' => ['token_prefix' => substr($token, 0, 10) . '...']
     ]);
 }
 
 // 2. 获取并验证输入参数
-$id = isset($_POST['id']) ? filter_var($_POST['id'], FILTER_VALIDATE_INT) : null;
-if ($id === false || $id === null) { 
+$id = isset($input_data['id']) ? filter_var($input_data['id'], FILTER_VALIDATE_INT) : null;
+if ($id === false || $id === null) {
     send_json_response(false, '无效或缺少公告 ID。', null, 400, [
-        'announcement_id' => null, 
+        'announcement_id' => null,
         'user_email' => $requesting_user_email,
-        'action' => 'edit_announcement_validation_fail_no_id', 
-        'details' => ['input_id' => $_POST['id'] ?? null]
+        'action' => 'edit_announcement_validation_fail_no_id',
+        'details' => ['input_id' => $input_data['id'] ?? null]
     ]);
 }
 
-$title_update = isset($_POST['title']) ? sanitize_input_value($_POST['title']) : null;
-$content_update = isset($_POST['content']) ? $_POST['content'] : null; 
-$status_update = isset($_POST['status']) ? sanitize_input_value($_POST['status']) : null;
+$title_update = isset($input_data['title']) ? sanitize_input_value($input_data['title']) : null;
+$content_update = isset($input_data['content']) ? $input_data['content'] : null; // Content is JSON string
+$status_update = isset($input_data['status']) ? sanitize_input_value($input_data['status']) : null;
 
 if ($title_update === null && $content_update === null && $status_update === null) {
     send_json_response(false, '至少需要提供一个要更新的字段 (title, content, status)。', null, 400, [
-        'announcement_id' => $id, 
+        'announcement_id' => $id,
         'user_email' => $requesting_user_email,
-        'action' => 'edit_announcement_validation_fail_no_fields', 
-        'details' => ['input' => array_intersect_key($_POST, array_flip(['title', 'content', 'status']))]
+        'action' => 'edit_announcement_validation_fail_no_fields',
+        'details' => ['input' => array_intersect_key($input_data, array_flip(['title', 'content', 'status']))]
     ]);
 }
 
 $validation_errors = [];
 if ($content_update !== null) {
-    json_decode($content_update);
-    if (json_last_error() !== JSON_ERROR_NONE) {
-        $validation_errors[] = '公告内容必须是有效的 JSON 格式 (Quill Delta)。';
+    if (!is_string($content_update)) {
+        $validation_errors[] = '公告内容必须是字符串形式的 JSON (Quill Delta)。';
+    } else {
+        json_decode($content_update);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $validation_errors[] = '公告内容必须是有效的 JSON 格式 (Quill Delta)。错误: ' . json_last_error_msg();
+        }
     }
 }
 if ($status_update !== null) {
@@ -98,10 +129,10 @@ if ($status_update !== null) {
 }
 if (!empty($validation_errors)) {
     send_json_response(false, implode(' ', $validation_errors), null, 400, [
-        'announcement_id' => $id, 
+        'announcement_id' => $id,
         'user_email' => $requesting_user_email,
-        'action' => 'edit_announcement_validation_fail', 
-        'details' => ['errors' => $validation_errors, 'input' => array_intersect_key($_POST, array_flip(['title', 'content', 'status']))]
+        'action' => 'edit_announcement_validation_fail',
+        'details' => ['errors' => $validation_errors, 'input' => array_intersect_key($input_data, array_flip(['title', 'content', 'status']))]
     ]);
 }
 
@@ -148,8 +179,8 @@ try {
         send_json_response(true, '没有提供需要更新的字段或值未发生变化。', null, 200, [
             'announcement_id' => $id,
             'user_email' => $requesting_user_email,
-            'action' => 'edit_announcement_no_change', 
-            'details' => ['input' => array_intersect_key($_POST, array_flip(['title', 'content', 'status']))]
+            'action' => 'edit_announcement_no_change',
+            'details' => ['input' => array_intersect_key($input_data, array_flip(['title', 'content', 'status']))]
         ]);
     }
 

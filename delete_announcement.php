@@ -23,53 +23,80 @@ function send_json_response($success, $message, $data = null, $statusCode = 200,
 
 // 辅助函数：清理输入字符串 (如果 sanitize_input_value 也计划移到全局，则需调整)
 // 当前保留本地定义，因 global_variables.php 未提供
-function sanitize_input_value($data) {
-    return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
-}
+// function sanitize_input_value($data) { // No longer needed here as only ID and token are expected, and token is not sanitized directly.
+// return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
+// }
 
 // 本地 get_user_ip 和 log_announcement_action 已移除
 
+// 处理请求方法和 Content-Type
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    $user_email_for_log = isset($_POST['token']) ? opensslDecrypt($_POST['token'], base64_decode($base64Key)) : 'unknown_user';
-    if ($user_email_for_log === false) $user_email_for_log = 'invalid_token';
+    $user_email_for_log = 'unknown_user';
+    $request_id_for_log = null;
     send_json_response(false, '仅支持 POST 请求。', null, 405, [
-        'announcement_id' => isset($_POST['id']) ? filter_var($_POST['id'], FILTER_SANITIZE_NUMBER_INT) : null, 
-        'user_email' => $user_email_for_log, // 修正
-        'action' => 'delete_announcement_method_not_allowed', 
+        'announcement_id' => $request_id_for_log,
+        'user_email' => $user_email_for_log,
+        'action' => 'delete_announcement_method_not_allowed',
         'details' => ['method' => $_SERVER['REQUEST_METHOD']]
     ]);
 }
 
+if (stripos($_SERVER['CONTENT_TYPE'], 'application/json') === false) {
+    $user_email_for_log = 'unknown_user';
+    $request_id_for_log = null;
+    send_json_response(false, 'Content-Type 必须是 application/json。', null, 415, [
+        'announcement_id' => $request_id_for_log,
+        'user_email' => $user_email_for_log,
+        'action' => 'delete_announcement_invalid_content_type',
+        'details' => ['content_type' => $_SERVER['CONTENT_TYPE'] ?? 'not_set']
+    ]);
+}
+
+// 获取 JSON 输入
+$json_input = file_get_contents('php://input');
+$input_data = json_decode($json_input, true);
+
+if (json_last_error() !== JSON_ERROR_NONE) {
+    $user_email_for_log = 'unknown_user';
+    $request_id_for_log = null;
+    send_json_response(false, '无效的 JSON 输入: ' . json_last_error_msg(), null, 400, [
+        'announcement_id' => $request_id_for_log,
+        'user_email' => $user_email_for_log,
+        'action' => 'delete_announcement_invalid_json',
+        'details' => ['json_error' => json_last_error_msg()]
+    ]);
+}
+
 // 1. 身份验证
-if (!isset($_POST['token'])) {
+if (!isset($input_data['token'])) {
     send_json_response(false, '缺少认证 token。', null, 401, [
-        'announcement_id' => isset($_POST['id']) ? filter_var($_POST['id'], FILTER_SANITIZE_NUMBER_INT) : null, 
-        'user_email' => 'unknown_user', // 修正
-        'action' => 'delete_announcement_auth_fail_no_token', 
+        'announcement_id' => isset($input_data['id']) ? filter_var($input_data['id'], FILTER_SANITIZE_NUMBER_INT) : null,
+        'user_email' => 'unknown_user',
+        'action' => 'delete_announcement_auth_fail_no_token',
         'details' => null
     ]);
 }
-$token = $_POST['token'];
+$token = $input_data['token'];
 $key = base64_decode($base64Key);
 $requesting_user_email = opensslDecrypt($token, $key);
 
 if ($requesting_user_email === false || empty($requesting_user_email)) {
     send_json_response(false, '无效或已过期的 token。', null, 401, [
-        'announcement_id' => isset($_POST['id']) ? filter_var($_POST['id'], FILTER_SANITIZE_NUMBER_INT) : null, 
-        'user_email' => 'invalid_token_received', // 修正
-        'action' => 'delete_announcement_auth_fail_invalid_token', 
+        'announcement_id' => isset($input_data['id']) ? filter_var($input_data['id'], FILTER_SANITIZE_NUMBER_INT) : null,
+        'user_email' => 'invalid_token_received',
+        'action' => 'delete_announcement_auth_fail_invalid_token',
         'details' => ['token_prefix' => substr($token, 0, 10) . '...']
     ]);
 }
 
 // 2. 获取并验证输入参数
-$id = isset($_POST['id']) ? filter_var($_POST['id'], FILTER_VALIDATE_INT) : null;
+$id = isset($input_data['id']) ? filter_var($input_data['id'], FILTER_VALIDATE_INT) : null;
 if ($id === false || $id === null) {
     send_json_response(false, '无效或缺少公告 ID。', null, 400, [
-        'announcement_id' => null, 
-        'user_email' => $requesting_user_email, // 修正
-        'action' => 'delete_announcement_validation_fail_no_id', 
-        'details' => ['input_id' => $_POST['id'] ?? null]
+        'announcement_id' => null,
+        'user_email' => $requesting_user_email,
+        'action' => 'delete_announcement_validation_fail_no_id',
+        'details' => ['input_id' => $input_data['id'] ?? null] // Log the received id from JSON
     ]);
 }
 

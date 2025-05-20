@@ -27,53 +27,77 @@ function sanitize_input_value($data) {
     return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
 }
 
-// 处理请求方法
+// 处理请求方法和 Content-Type
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    // 对于方法不允许的请求，user_email 可能无法获取，但仍可记录尝试
-    $user_email_for_log = isset($_POST['token']) ? opensslDecrypt($_POST['token'], base64_decode($base64Key)) : 'unknown_user';
-    if ($user_email_for_log === false) $user_email_for_log = 'invalid_token';
+    $user_email_for_log = 'unknown_user'; // POSTでない場合、token取得は難しい
     send_json_response(false, '仅支持 POST 请求。', null, 405, [
-        'announcement_id' => null, 'user_email' => $user_email_for_log, 
+        'announcement_id' => null, 'user_email' => $user_email_for_log,
         'action' => 'add_announcement_method_not_allowed', 'details' => ['method' => $_SERVER['REQUEST_METHOD']]
     ]);
 }
 
+if (stripos($_SERVER['CONTENT_TYPE'], 'application/json') === false) {
+    $user_email_for_log = 'unknown_user'; // Content-Typeが不正な場合もtoken取得は難しい
+    send_json_response(false, 'Content-Type 必须是 application/json。', null, 415, [
+        'announcement_id' => null, 'user_email' => $user_email_for_log,
+        'action' => 'add_announcement_invalid_content_type', 'details' => ['content_type' => $_SERVER['CONTENT_TYPE'] ?? 'not_set']
+    ]);
+}
+
+// 获取 JSON 输入
+$json_input = file_get_contents('php://input');
+$input_data = json_decode($json_input, true);
+
+if (json_last_error() !== JSON_ERROR_NONE) {
+    $user_email_for_log = 'unknown_user'; // JSONデコード失敗時
+    send_json_response(false, '无效的 JSON 输入: ' . json_last_error_msg(), null, 400, [
+        'announcement_id' => null, 'user_email' => $user_email_for_log,
+        'action' => 'add_announcement_invalid_json', 'details' => ['json_error' => json_last_error_msg()]
+    ]);
+}
+
 // 1. 身份验证
-if (!isset($_POST['token'])) {
+if (!isset($input_data['token'])) {
     send_json_response(false, '缺少认证 token。', null, 401, [
-        'announcement_id' => null, 'user_email' => 'unknown_user', 
+        'announcement_id' => null, 'user_email' => 'unknown_user',
         'action' => 'add_announcement_auth_fail_no_token', 'details' => null
     ]);
 }
 
-$token = $_POST['token'];
+$token = $input_data['token'];
 $key = base64_decode($base64Key); // $base64Key 来自 global_variables.php
 $created_by_email = opensslDecrypt($token, $key);
 
 if ($created_by_email === false || empty($created_by_email)) {
     send_json_response(false, '无效或已过期的 token。', null, 401, [
-        'announcement_id' => null, 'user_email' => (is_string($token) ? 'invalid_token_received: ' . substr($token,0,10) . '...': 'invalid_token_received'), 
+        'announcement_id' => null, 'user_email' => (is_string($token) ? 'invalid_token_received: ' . substr($token,0,10) . '...': 'invalid_token_received'),
         'action' => 'add_announcement_auth_fail_invalid_token', 'details' => null
     ]);
 }
 
 // 2. 获取并验证输入参数
-$title = isset($_POST['title']) ? sanitize_input_value($_POST['title']) : null;
-$content = isset($_POST['content']) ? $_POST['content'] : null; 
-$status = isset($_POST['status']) ? sanitize_input_value($_POST['status']) : 'published';
+$title = isset($input_data['title']) ? sanitize_input_value($input_data['title']) : null;
+$content = isset($input_data['content']) ? $input_data['content'] : null; // Content本身是JSON字符串，不需要sanitize
+$status = isset($input_data['status']) ? sanitize_input_value($input_data['status']) : 'published';
 
 $validation_errors = [];
 if (empty($title)) {
     $validation_errors[] = '公告标题不能为空。';
 }
-if (empty($content)) {
+if ($content === null) { // 检查是否为 null，因为空字符串可能是有效的JSON ("")
     $validation_errors[] = '公告内容不能为空。';
+} else {
+    // 确保 content 是字符串形式的 JSON，以便后续的 json_decode 检查
+    if (!is_string($content)) {
+        $validation_errors[] = '公告内容必须是字符串形式的 JSON (Quill Delta)。';
+    } else {
+        json_decode($content); // 检查 content 是否为有效 JSON 字符串
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $validation_errors[] = '公告内容必须是有效的 JSON 格式 (Quill Delta)。错误: ' . json_last_error_msg();
+        }
+    }
 }
 
-json_decode($content); // 检查 content 是否为有效 JSON
-if (json_last_error() !== JSON_ERROR_NONE) {
-    $validation_errors[] = '公告内容必须是有效的 JSON 格式 (Quill Delta)。';
-}
 
 $valid_statuses = ['draft', 'published'];
 if (!in_array($status, $valid_statuses)) {
@@ -82,8 +106,8 @@ if (!in_array($status, $valid_statuses)) {
 
 if (!empty($validation_errors)) {
     send_json_response(false, implode(' ', $validation_errors), null, 400, [
-        'announcement_id' => null, 'user_email' => $created_by_email, 
-        'action' => 'add_announcement_validation_fail', 'details' => ['errors' => $validation_errors, 'input' => $_POST]
+        'announcement_id' => null, 'user_email' => $created_by_email,
+        'action' => 'add_announcement_validation_fail', 'details' => ['errors' => $validation_errors, 'input' => $input_data]
     ]);
 }
 
@@ -104,19 +128,19 @@ try {
     if ($stmt->execute()) {
         $lastInsertId = $pdo->lastInsertId();
         send_json_response(true, '公告添加成功。', ['id' => $lastInsertId], 201, [
-            'announcement_id' => $lastInsertId, 'user_email' => $created_by_email, 
-            'action' => 'add_announcement_success', 'details' => ['title' => $title, 'status' => $status]
+            'announcement_id' => $lastInsertId, 'user_email' => $created_by_email,
+            'action' => 'add_announcement_success', 'details' => ['title' => $title, 'status' => $status] // content 不记录在details中，可能过大
         ]);
     } else {
         send_json_response(false, '添加公告失败，请稍后重试。', null, 500, [
-            'announcement_id' => null, 'user_email' => $created_by_email, 
+            'announcement_id' => null, 'user_email' => $created_by_email,
             'action' => 'add_announcement_db_execute_fail', 'details' => ['title' => $title, 'status' => $status, 'errorInfo' => $stmt->errorInfo()]
         ]);
     }
 } catch (PDOException $e) {
     logException($e); // 使用 global_error_handler.php 中的函数记录主异常
     send_json_response(false, '数据库操作失败，请联系管理员。', null, 500, [
-        'announcement_id' => null, 'user_email' => $created_by_email, 
+        'announcement_id' => null, 'user_email' => $created_by_email,
         'action' => 'add_announcement_db_exception', 'details' => ['title' => $title, 'status' => $status, 'exception_message' => $e->getMessage()]
     ]);
 }
