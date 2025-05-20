@@ -1,92 +1,178 @@
-# Performance Optimization and Error Handling Improvements
+# 公告管理功能 - 草稿
 
-## Comprehensive Analysis
+## 1. 数据库设计 (参考 uc.sql)
 
-### Error Handling
-- `global_error_handler.php` contains comprehensive error handling functions:
-  - `logException()` - This should be used in all try-catch blocks
-  - Currently, `CustomPDO.php` and `CustomPDOStatement.php` use `customExceptionHandler()` directly instead of `logException()`
+*   **表名**: `announcements`
+*   **字段**:
+    *   `id` (INT, PK, AI)
+    *   `title` (VARCHAR(255), NOT NULL) - 公告标题
+    *   `content` (TEXT, NOT NULL) - 公告内容 (Quill Delta 格式)
+    *   `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
+    *   `updated_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)
+    *   `created_by` (VARCHAR(255)) - 创建人 (从会话或 token 中获取)
+    *   `status` (ENUM('draft', 'published', 'archived'), DEFAULT 'published') - 公告状态
+    *   `deleted_at` (TIMESTAMP, NULLABLE, DEFAULT NULL) - 软删除时间标记
 
-### Issues Identified in API Endpoints:
-1. `login.php`:
-   - No try-catch blocks for error handling
-   - Duplicate code for checking empty username/password
-   - No function encapsulation (code is linear)
-   - `handleRequest()` function is called but not defined in the file
-   - SSL verification disabled in curl request (security concern)
+*   **新增表名**: `announcement_logs`
+*   **字段**:
+    *   `log_id` (INT, PK, AI)
+    *   `announcement_id` (INT, NULLABLE) - 关联的公告ID，操作公告前的行为可能为NULL
+    *   `user_email` (VARCHAR(255), NOT NULL) - 操作用户的邮箱
+    *   `action` (VARCHAR(100), NOT NULL) - 操作类型 (e.g., 'create_announcement_success', 'update_announcement_field_xyz', 'soft_delete_announcement_success', 'announcement_status_change_to_published')
+    *   `details` (TEXT, NULLABLE) - JSON格式，存储操作详情，如更改前后的值
+    *   `ip_address` (VARCHAR(45), NULLABLE) - 操作者IP地址
+    *   `logged_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
 
-2. `reg.php`:
-   - Has a try-catch block but doesn't use `logException()`
-   - Contains commented-out code (email verification)
-   - Has an explicit exit statement disabling the endpoint
-   - Duplicate email/username validation
+## 2. API 接口设计
 
-### Database Connection (`db.php`):
-- Uses `CustomPDO` for database connection
-- Contains commented-out code showing an older implementation
-- No persistent connection configured
+### 通用部分
 
-## Performance Optimization Opportunities
+*   **认证**: 参考 `accept.php` 的逻辑，校验用户登录状态和权限。
+*   **依赖**: `global_error_handler.php`, `global_variables.php`, `db.php`
+*   **响应格式**: JSON
 
-1. Database Interaction:
-   - Implement connection pooling or persistent connections
-   - Add query caching for frequently used queries
-   - Optimize query execution plans
-   - Add proper indexing if missing
-   - Use prepared statements consistently (already implemented)
+    ```json
+    {
+        "success": true/false,
+        "message": "...",
+        "data": {} // (可选)
+    }
+    ```
 
-2. Web Communication:
-   - Cache Cloudflare Turnstile verification results
-   - Optimize curl operations with connection pooling
-   - Implement HTTP keep-alive for multiple requests
-   - Add proper timeout handling for external services
+### 2.1 添加公告 (`add_announcement.php`)
 
-3. PHP Configuration:
-   - Enable opcode caching (opcache)
-   - Tune session handling configurations
-   - Implement output buffering consistently
-   - Configure proper memory limits
+*   **方法**: POST
+*   **请求参数**:
+    *   `title` (string, required): 公告标题
+    *   `content` (string, required): 公告内容 (Quill Delta 格式)
+    *   `status` (string, optional, default: 'published'): 公告状态 ('draft', 'published')
+*   **逻辑**:
+    1.  引入依赖和认证。
+    2.  获取当前登录用户名。
+    3.  校验参数。
+    4.  将数据插入 `announcements` 表。
+    5.  返回成功或失败信息。
 
-4. Code Structure:
-   - Implement function encapsulation for reusable code
-   - Remove duplicate validation logic
-   - Add proper error handling with try-catch blocks
+### 2.2 编辑公告 (`edit_announcement.php`)
 
-## Action Plan
-1. Update `CustomPDO.php` and `CustomPDOStatement.php` to use `logException()`
-2. Refactor API endpoints to include try-catch blocks with `logException()`
-3. Implement database connection optimizations
-4. Optimize web communication patterns
-5. Improve code structure for better performance and maintainability
-6. Test all changes thoroughly
+*   **方法**: POST
+*   **请求参数**:
+    *   `id` (int, required): 公告ID
+    *   `title` (string, optional): 公告标题
+    *   `content` (string, optional): 公告内容 (Quill Delta 格式)
+    *   `status` (string, optional): 公告状态 ('draft', 'published', 'archived')
+*   **逻辑**:
+    1.  引入依赖和认证。
+    2.  校验参数。
+    3.  检查公告是否存在且用户有权限编辑 (可选，看具体需求，通常创建者或管理员可编辑)。
+    4.  更新 `announcements` 表中对应记录。
+    5.  返回成功或失败信息。
 
-# Room Reservation Timeline Page
+### 2.3 获取公告列表 (`get_announcements.php`)
 
-## Requirements
-- Create a static HTML page to display reservations for a specific room on the current day
-- Use inquiry.php API to fetch the data
-- Display the information in a visual timeline format
-- Make it aesthetically pleasing and user-friendly
+*   **方法**: GET
+*   **请求参数**:
+    *   `status` (string, optional, default: 'published'): 筛选公告状态 (e.g., 'published', 'all')
+    *   `page` (int, optional, default: 1): 页码
+    *   `limit` (int, optional, default: 10): 每页数量
+    *   `sort_by` (string, optional, default: 'created_at'): 排序字段
+    *   `sort_order` (string, optional, default: 'DESC'): 排序方式 (ASC/DESC)
+*   **逻辑**:
+    1.  引入依赖和认证。
+    2.  根据参数构建 SQL 查询 (默认排除 `deleted_at IS NOT NULL` 的记录)。
+    3.  查询 `announcements` 表。
+    4.  返回公告列表。
 
-## API Understanding
-- inquiry.php accepts parameters like 'room' to filter by room number
-- We'll need to add a date filter to get only today's reservations
-- API returns: id, room, email, auth, time, name, reason
+### 2.4 软删除公告 (`api/announcements/delete_announcement.php`) - 新增
 
-## Design Plan
-1. Create a responsive HTML page with modern styling
-2. Add JavaScript to:
-   - Get current date
-   - Fetch reservation data from inquiry.php API
-   - Display data in a timeline visualization
-3. Include features:
-   - Room selection dropdown
-   - Timeline view with reservation blocks
-   - Hover details for more information
-   - Color coding for different reservation types/status
+*   **方法**: POST
+*   **请求参数**:
+    *   `token` (string, required): 用户认证Token
+    *   `id` (int, required): 要软删除的公告ID
+*   **逻辑**:
+    1.  引入依赖和认证。
+    2.  获取当前登录用户名 (`requesting_user_email`)。
+    3.  校验参数 `id`。
+    4.  检查公告是否存在且尚未被软删除。
+    5.  更新 `announcements` 表，设置 `deleted_at = NOW()`。
+    6.  记录操作到 `announcement_logs` (action: 'soft_delete_announcement_success', details: {id: 公告ID})。
+    7.  返回成功或失败信息。
 
-## Implementation Steps
-1. Create HTML structure
-2. Add CSS styling (using modern CSS framework)
-3. Implement JavaScript for data fetching and rendering
-4. Test with different room values and scenarios
+## 3. 数据库更新脚本 (`update_announcements.sql`)
+
+```sql
+-- 创建 announcements 表
+CREATE TABLE IF NOT EXISTS `announcements` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `title` VARCHAR(255) NOT NULL,
+  `content` TEXT NOT NULL,
+  `created_by` VARCHAR(255) DEFAULT NULL,
+  `status` ENUM('draft', 'published', 'archived') DEFAULT 'published',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL COMMENT '软删除时间标记'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 可选：添加索引
+ALTER TABLE `announcements` ADD INDEX `idx_status` (`status`);
+ALTER TABLE `announcements` ADD INDEX `idx_created_at` (`created_at`);
+ALTER TABLE `announcements` ADD INDEX `idx_created_by` (`created_by`);
+ALTER TABLE `announcements` ADD INDEX `idx_deleted_at` (`deleted_at`);
+
+-- 可选：示例数据
+-- INSERT INTO `announcements` (`title`, `content`, `created_by`, `status`) VALUES
+-- ('系统维护通知', '{"ops":[{"insert":"亲爱的用户，\n为了提升服务质量，我们计划于2024年8月1日凌晨2:00至4:00进行系统维护。届时相关服务可能暂停。不便之处，敬请谅解。\n"}]}', 'admin', 'published'),
+-- ('新功能上线！', '{"ops":[{"insert":"激动人心的消息！我们的新功能【XX】已正式上线，快来体验吧！\n"}]}', 'system', 'published');
+
+-- 创建 announcement_logs 表
+CREATE TABLE IF NOT EXISTS `announcement_logs` (
+  `log_id` INT AUTO_INCREMENT PRIMARY KEY,
+  `announcement_id` INT DEFAULT NULL,
+  `user_email` VARCHAR(255) NOT NULL,
+  `action` VARCHAR(100) NOT NULL COMMENT 'e.g., create_success, update_title, soft_delete_success',
+  `details` TEXT DEFAULT NULL COMMENT 'JSON-encoded details of the action',
+  `ip_address` VARCHAR(45) DEFAULT NULL,
+  `logged_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY `idx_announcement_id` (`announcement_id`),
+  KEY `idx_user_email` (`user_email`),
+  KEY `idx_action` (`action`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+## 4. 文件结构 (暂定 api/ 目录下)
+
+```
+api/
+├── announcements/
+│   ├── add_announcement.php
+│   ├── edit_announcement.php
+│   └── get_announcements.php
+├── global_error_handler.php (已存在或按需创建)
+├── global_variables.php (已存在或按需创建)
+├── db.php (已存在或按需创建)
+└── accept.php (已存在，用于参考)
+```
+
+## 5. Quill 内容处理
+
+*   **存储**: 直接存储 Quill 生成的 JSON 字符串 (Delta 格式)。
+*   **展示**: 前端使用 Quill 渲染 Delta。
+*   **安全性**:
+    *   后端在接收到 Quill 内容时，不直接将其拼接到 HTML 中。
+    *   如果需要在后端对内容进行某些处理或展示（例如生成摘要），应使用 HTML Purifier 或类似库对 Quill Delta 转换后的 HTML 进行清理，以防止 XSS。由于我们只是存储和透传，后端主要关注参数校验。前端渲染时 Quill 自身有一定安全机制，但仍需注意。
+
+## 6. 日志记录辅助函数 (暂定在各API脚本内实现或后续提取)
+
+*   `function log_announcement_action($pdo, $announcement_id, $user_email, $action, $details_array = null, $ip_address = null)`
+    *   `$announcement_id`: 关联的公告ID，可以为 null。
+    *   `$user_email`: 操作者邮箱。
+    *   `$action`: 具体操作的描述性字符串。
+    *   `$details_array`: 包含操作细节的PHP数组，将转为JSON存储。
+    *   `$ip_address`: 操作者IP。
+
+## 后续步骤
+1.  确认 `global_*.php` 和 `db.php` 文件是否存在及位置。
+2.  确认 `accept.php` 的具体认证逻辑。
+3.  更新 `update_announcements.sql` 脚本。
+4.  实现日志记录辅助函数。
+5.  逐个实现/修改 API 接口 (`add_announcement.php`, `edit_announcement.php`, `get_announcements.php`, `delete_announcement.php`) 并集成日志。

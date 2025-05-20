@@ -17,3 +17,76 @@
 - [x] Add error handling for API requests
 - [ ] Test with different room values
 - [ ] Optimize performance if needed 
+
+# 公告管理功能 - Todo List
+
+- [ ] **数据库**
+  - [ ] 根据 `draft.md` 中的设计，创建 `update_announcements.sql` 脚本。
+  - [ ] 执行 SQL 脚本更新数据库。
+- [ ] **后端 API**
+  - [ ] 确认 `global_error_handler.php`, `global_variables.php`, `db.php` 的路径和内容。
+  - [ ] 确认 `accept.php` 的身份验证逻辑。
+  - [ ] 创建 `api/announcements/` 目录 (如果尚不存在)。
+  - [ ] **添加公告接口 (`api/announcements/add_announcement.php`)**
+    - [ ] 引入必要文件 (全局处理、数据库、认证参考)。
+    - [ ] 实现 POST 请求处理。
+    - [ ] 获取并验证 `title`, `content`, `status` 参数。
+    - [ ] 从会话/token 获取 `created_by`。
+    - [ ] 将公告数据插入数据库。
+    - [ ] 返回 JSON 响应。
+  - [ ] **编辑公告接口 (`api/announcements/edit_announcement.php`)**
+    - [ ] 引入必要文件。
+    - [ ] 实现 POST 请求处理。
+    - [ ] 获取并验证 `id`, `title` (可选), `content` (可选), `status` (可选) 参数。
+    - [ ] 检查公告是否存在。
+    - [ ] (可选) 检查用户是否有编辑权限。
+    - [ ] 更新数据库中的公告数据。
+    - [ ] 返回 JSON 响应。
+  - [ ] **获取公告接口 (`api/announcements/get_announcements.php`)**
+    - [ ] 引入必要文件。
+    - [ ] 实现 GET 请求处理。
+    - [ ] 获取并验证 `status`, `page`, `limit`, `sort_by`, `sort_order` 参数。
+    - [ ] 从数据库查询公告列表 (支持分页和排序)。
+    - [ ] 返回 JSON 响应 (包含公告数据和分页信息)。
+
+# --- BEGIN: Soft Delete and Logging --- #
+- [ ] **数据库 (增强)**
+  - [ ] 更新 `update_announcements.sql`：
+    - [ ] 为 `announcements` 表添加 `deleted_at` 字段。
+    - [ ] 创建 `announcement_logs` 表。
+  - [ ] 手动执行更新后的 SQL 脚本。
+- [ ] **日志功能**
+  - [ ] 实现 `log_announcement_action()` 辅助函数 (暂定在各API脚本内，或后续提取)。
+- [ ] **后端 API (增强与新增)**
+  - [ ] **修改 `add_announcement.php`**
+    - [ ] 集成 `log_announcement_action` (记录创建成功/失败)。
+  - [ ] **修改 `edit_announcement.php`**
+    - [ ] 查询时确保公告未被软删除 (`deleted_at IS NULL`)。
+    - [ ] 集成 `log_announcement_action` (记录更新成功/失败，包含字段变更详情)。
+  - [ ] **创建 `api/announcements/delete_announcement.php` (软删除)**
+    - [ ] 引入必要文件。
+    - [ ] 实现 POST 请求处理。
+    - [ ] 身份验证。
+    - [ ] 获取并验证 `id` 参数。
+    - [ ] 检查公告是否存在且未被软删除。
+    - [ ] 更新 `announcements` 表，设置 `deleted_at = NOW()`。
+    - [ ] 集成 `log_announcement_action` (记录软删除成功/失败)。
+    - [ ] 返回 JSON 响应。
+  - [ ] **修改 `get_announcements.php`**
+    - [ ] 默认查询未被软删除的公告 (`deleted_at IS NULL`)。
+    - [ ] (可选) 添加 `include_deleted=true` 参数以包含软删除的公告。
+- [ ] **测试 (扩展)**
+  - [ ] 测试软删除功能。
+  - [ ] 检查 `announcement_logs` 表是否正确记录各种操作。
+  - [ ] 测试 `get_announcements.php` 的软删除过滤。
+# --- END: Soft Delete and Logging --- #
+
+- [ ] **测试**
+  - [ ] 使用 Postman 或类似工具测试三个 API 接口的各种场景。
+    - [ ] 添加公告：成功、缺少参数、无效参数。
+    - [ ] 编辑公告：成功、公告不存在、权限不足（如果实现）、部分更新。
+    - [ ] 获取公告：默认参数、带筛选参数、分页、排序。
+- [ ] **代码审查和优化**
+  - [ ] 检查代码风格和一致性。
+  - [ ] 考虑安全性 (SQL注入, XSS - Quill 内容处理已在 `draft.md` 中说明)。
+  - [ ] 优化查询性能。 

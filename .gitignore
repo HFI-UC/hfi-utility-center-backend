@@ -8,3 +8,6 @@ doc4.md
 doc5.md
 /cache/
 /monitor/
+*.sql
+*.md
+announcement_tester.html
