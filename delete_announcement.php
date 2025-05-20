@@ -73,11 +73,11 @@ if ($id === false || $id === null) {
     ]);
 }
 
-// 3. 执行软删除
+// 3. 执行删除
 global $pdo;
 
 try {
-    // 检查公告是否存在且未被软删除
+    // 检查公告是否存在且未被删除
     $stmt_check = $pdo->prepare("SELECT id FROM announcements WHERE id = :id AND deleted_at IS NULL");
     $stmt_check->bindParam(':id', $id, PDO::PARAM_INT);
     $stmt_check->execute();
@@ -96,7 +96,7 @@ try {
 
     if ($stmt_delete->execute()) {
         if ($stmt_delete->rowCount() > 0) {
-            send_json_response(true, '公告软删除成功。', null, 200, [
+            send_json_response(true, '公告删除成功。', null, 200, [
                 'announcement_id' => $id, 
                 'user_email' => $requesting_user_email, // 修正
                 'action' => 'soft_delete_announcement_success', 
@@ -104,7 +104,7 @@ try {
             ]);
         } else {
             // 此情况理论上应该在上面的 fetch 检查中被捕获，或者发生并发删除
-            send_json_response(false, '软删除失败，公告可能已被删除或不存在。', null, 404, [
+            send_json_response(false, '删除失败，公告可能已被删除或不存在。', null, 404, [
                 'announcement_id' => $id, 
                 'user_email' => $requesting_user_email, // 修正
                 'action' => 'soft_delete_announcement_fail_on_update_not_found', 
@@ -112,7 +112,7 @@ try {
             ]);
         }
     } else {
-        send_json_response(false, '软删除操作执行失败，请稍后重试。', null, 500, [
+        send_json_response(false, '删除操作执行失败，请稍后重试。', null, 500, [
             'announcement_id' => $id, 
             'user_email' => $requesting_user_email, // 修正
             'action' => 'soft_delete_announcement_db_execute_fail', 

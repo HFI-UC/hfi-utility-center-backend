@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 // 2. 获取并验证查询参数
-$status_filter = isset($_GET['status']) ? sanitize_input_value($_GET['status']) : null; // 允许不传 status，则不过滤此项
+$status_filter = 'published';
 $page = isset($_GET['page']) ? filter_var($_GET['page'], FILTER_VALIDATE_INT, ['options' => ['default' => 1, 'min_range' => 1]]) : 1;
 $limit = isset($_GET['limit']) ? filter_var($_GET['limit'], FILTER_VALIDATE_INT, ['options' => ['default' => 10, 'min_range' => 1, 'max_range' => 100]]) : 10;
 $sort_by = isset($_GET['sort_by']) ? sanitize_input_value($_GET['sort_by']) : 'created_at';
@@ -80,7 +80,7 @@ try {
     $announcements = [];
     if ($total_records > 0 && $page <= $total_pages) {
         $offset = ($page - 1) * $limit;
-        $data_sql = "SELECT id, title, content, created_by, status, created_at, updated_at, deleted_at " 
+        $data_sql = "SELECT id, title, content, status, created_at, updated_at " 
                     . $base_sql . $sql_where 
                     . " ORDER BY `$sort_by` $sort_order " 
                     . " LIMIT :limit OFFSET :offset";
