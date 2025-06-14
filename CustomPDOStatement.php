@@ -12,18 +12,35 @@ class CustomPDOStatement extends PDOStatement
     public function __call($name, $arguments)
     {
         try {
-            if ($name === 'fetch' || $name === 'fetchAll') {
-                // 捕获异常并调用 logException
-                return call_user_func_array([$this, $name], [PDO::FETCH_ASSOC]);
-            }
-
-            // 对于其他方法，正常调用
+            // 对于未被覆盖的方法，正常调用
             return call_user_func_array([$this, $name], $arguments);
 
         } catch (PDOException $e) {
             // 调用日志记录函数
             logException($e);
             // 重新抛出异常，确保外部调用者能处理
+            throw $e;
+        }
+    }
+
+    // 默认以 PDO::FETCH_ASSOC 模式获取单行
+    public function fetch(?int $mode = PDO::FETCH_ASSOC, int $cursorOrientation = PDO::FETCH_ORI_NEXT, int $cursorOffset = 0)
+    {
+        try {
+            return parent::fetch($mode, $cursorOrientation, $cursorOffset);
+        } catch (PDOException $e) {
+            logException($e);
+            throw $e;
+        }
+    }
+
+    // 默认以 PDO::FETCH_ASSOC 模式获取所有行
+    public function fetchAll(int $mode = PDO::FETCH_ASSOC, ...$args)
+    {
+        try {
+            return parent::fetchAll($mode, ...$args);
+        } catch (PDOException $e) {
+            logException($e);
             throw $e;
         }
     }
