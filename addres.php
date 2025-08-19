@@ -131,6 +131,7 @@ function rejectConflictingRequests($pdo, $startTime, $endTime, $room, $privilege
 
 // Function to send rejection email
 function sendRejectionEmail($recipientEmail, $room, $addTime) {
+    global $email_account;
     $mail = initializeMailer();
     $room_name = convertRoom($room);
     $mail->addAddress($recipientEmail);
