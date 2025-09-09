@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "hfi-utility-center-backend"
+version = "0.1.0"
+description = "The backend of HFI Utility Center."
+authors = ["SilianZ <silian_zheng@outlook.com>"]
+license = "AGPL-3.0"
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+dotenv = "^0.9.9"
+fastapi = "^0.116.1"
+uvicorn = "^0.35.0"
+httpx = "^0.28.1"
+pymysql = "^1.1.2"
+sqlmodel = "^0.0.24"
+bcrypt = "^4.3.0"
+slowapi = "^0.1.9"
+openpyxl = "^3.1.5"
+psutil = "^7.0.0"
+apscheduler = "^3.11.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
