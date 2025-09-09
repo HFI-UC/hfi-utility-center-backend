@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from sqlmodel import (
     SQLModel,
+    DateTime,
     create_engine,
     Session,
     select,
@@ -10,6 +11,7 @@ from sqlmodel import (
     JSON,
     Column,
     BIGINT,
+    func
 )
 from core.env import *
 from typing import Sequence, List, Any
@@ -22,22 +24,39 @@ class Class(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str
     campus: int
-    createdAt: datetime = Field(default_factory=datetime.now)
+    createdAt: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
 
 
 class Campus(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str
     isPrivileged: bool = Field(default=False)
-    createdAt: datetime = Field(default_factory=datetime.now)
+    createdAt: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
 
 
 class Room(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str
     campus: int
-    createdAt: datetime = Field(default_factory=datetime.now)
-
+    createdAt: datetime | None = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
 
 class RoomApprover(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -48,8 +67,20 @@ class RoomApprover(SQLModel, table=True):
 class Reservation(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     room: int
-    startTime: datetime
-    endTime: datetime
+    startTime: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
+    endTime: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
     studentName: str
     email: str
     reason: str
@@ -57,8 +88,13 @@ class Reservation(SQLModel, table=True):
     studentId: str
     status: str = "pending"
     latestExecutor: int | None = Field(default=None)
-    createdAt: datetime = Field(default_factory=datetime.now)
-
+    createdAt: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
 
 class RoomPolicy(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -74,29 +110,54 @@ class Admin(SQLModel, table=True):
     email: str
     name: str
     password: str
-    createdAt: datetime = Field(default_factory=datetime.now)
+    createdAt: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
 
 
 class TempAdminLogin(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str
     token: str
-    createdAt: datetime = Field(default_factory=datetime.now)
+    createdAt: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
 
 
 class AdminLogin(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str
     cookie: str
-    createdAt: datetime = Field(default_factory=datetime.now)
+    createdAt: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
     expiry: datetime = Field(
-        default_factory=lambda: datetime.now() + timedelta(hours=1)
+        sa_column=Column(DateTime(timezone=True)),
+        default_factory=lambda: datetime.now() + timedelta(hours=1),
     )
 
 
 class AccessLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    time: datetime = Field(default_factory=datetime.now)
+    time: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
     userAgent: str
     payload: str | None = None
     ip: str | None = None
@@ -109,7 +170,13 @@ class AccessLog(SQLModel, table=True):
 class ErrorLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     error: str
-    time: datetime = Field(default_factory=datetime.now)
+    time: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
 
 
 class ReservationOperationLog(SQLModel, table=True):
@@ -118,22 +185,35 @@ class ReservationOperationLog(SQLModel, table=True):
     reservation: int
     operation: str
     reason: str | None = None
-    time: datetime = Field(default_factory=datetime.now)
+    time: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
 
 
 class Analytic(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     date: datetime = Field(
+        sa_column=Column(DateTime(timezone=True)),
         default_factory=lambda: datetime.now().replace(
             hour=0, minute=0, second=0, microsecond=0
-        )
+        ),
     )
     reservations: int = 0
     reservationCreations: int = 0
     approvals: int = 0
     rejections: int = 0
     requests: int = Field(sa_column=Column(BIGINT), default=0)
-    createdAt: datetime = Field(default_factory=datetime.now)
+    createdAt: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=func.now()
+        ),
+        default_factory=None
+    )
 
 
 engine = create_engine(database_url)
