@@ -394,7 +394,7 @@ async def admin_login(
         response = JSONResponse(
             BasicResponse(success=True, message="Login successful.").model_dump()
         )
-        response.set_cookie("UCCOOKIE", cookie, httponly=True)
+        response.set_cookie("UCCOOKIE", cookie)
         return response
     if not payload.email or not payload.password:
         return JSONResponse(
