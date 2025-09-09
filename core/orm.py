@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlmodel import (
     SQLModel,
     DateTime,
@@ -145,7 +145,7 @@ class AdminLogin(SQLModel, table=True):
     )
     expiry: datetime = Field(
         sa_column=Column(DateTime(timezone=True)),
-        default_factory=lambda: datetime.now() + timedelta(hours=1),
+        default_factory=lambda: datetime.now(timezone.utc) + timedelta(hours=1),
     )
 
 
@@ -198,7 +198,7 @@ class Analytic(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     date: datetime = Field(
         sa_column=Column(DateTime(timezone=True)),
-        default_factory=lambda: datetime.now().replace(
+        default_factory=lambda: datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         ),
     )
@@ -327,8 +327,8 @@ def create_reservation(request: ReservationCreateRequest) -> bool | int:
         with Session(engine) as session:
             reservation = Reservation(
                 room=request.room,
-                startTime=datetime.fromtimestamp(request.startTime),
-                endTime=datetime.fromtimestamp(request.endTime),
+                startTime=datetime.fromtimestamp(request.startTime, timezone.utc),
+                endTime=datetime.fromtimestamp(request.endTime, timezone.utc),
                 studentName=request.studentName,
                 email=request.email,
                 reason=request.reason,
@@ -338,8 +338,8 @@ def create_reservation(request: ReservationCreateRequest) -> bool | int:
             session.add(reservation)
             session.commit()
             session.refresh(reservation)
-            update_analytic(datetime.now(), 0, 0, 0, 1, 0)
-            update_analytic(datetime.fromtimestamp(request.startTime), 1, 0, 0, 0, 0)
+            update_analytic(datetime.now(timezone.utc), 0, 0, 0, 1, 0)
+            update_analytic(datetime.fromtimestamp(request.startTime, timezone.utc), 1, 0, 0, 0, 0)
             return reservation.id or -1
     except Exception as e:
         create_error_log(e)
@@ -436,7 +436,7 @@ def get_reservation(
 def create_admin_login(email: str, cookie: str) -> bool:
     with Session(engine) as session:
         user_login = AdminLogin(
-            email=email, cookie=cookie, expiry=datetime.now() + timedelta(seconds=3600)
+            email=email, cookie=cookie, expiry=datetime.now(timezone.utc) + timedelta(seconds=3600)
         )
         try:
             session.add(user_login)
@@ -451,7 +451,7 @@ def get_future_reservations() -> Sequence[Reservation]:
     try:
         with Session(engine) as session:
             reservations = session.exec(
-                select(Reservation).where(Reservation.startTime >= datetime.now())
+                select(Reservation).where(Reservation.startTime >= datetime.now(timezone.utc))
             ).all()
             return reservations
     except Exception as e:
@@ -472,7 +472,7 @@ def get_future_reservations_by_approver_id(approver_id: int) -> Sequence[Reserva
                 reservations.extend(
                     session.exec(
                         select(Reservation)
-                        .where(Reservation.startTime >= datetime.now())
+                        .where(Reservation.startTime >= datetime.now(timezone.utc))
                         .where(Reservation.room == approver.room)
                     ).all()
                 )
@@ -499,7 +499,7 @@ def change_reservation_status_by_id(
                     admin, reservation.id or -1, reservation.status, reason
                 )
                 update_analytic(
-                    datetime.now(),
+                    datetime.now(timezone.utc),
                     0,
                     1 if status == "approved" else 0,
                     1 if status == "rejected" else 0,

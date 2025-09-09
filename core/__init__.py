@@ -15,7 +15,7 @@ from core.classes import *
 from core.email import *
 from core.utils import *
 from core.schedulers import *
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import psutil
@@ -114,7 +114,7 @@ def get_current_user(request: Request) -> AdminLogin | None:
     user_login = get_admin_login_by_cookie(cookie)
     if not user_login:
         return None
-    if user_login.expiry < datetime.now():
+    if user_login.expiry < datetime.now(timezone.utc):
         return None
     return user_login
 
@@ -248,8 +248,8 @@ async def reservation_create(
         ):
             errors.append("Start or end time violates room policy.")
         if not validate_time_conflict(
-            datetime.fromtimestamp(payload.startTime)
-        ) or not validate_time_conflict(datetime.fromtimestamp(payload.endTime)):
+            datetime.fromtimestamp(payload.startTime, timezone.utc)
+        ) or not validate_time_conflict(datetime.fromtimestamp(payload.endTime, timezone.utc)):
             errors.append("Start or end time conflicts with existing reservation.")
     if errors:
         return BasicResponse(success=False, message="\n".join(errors))
