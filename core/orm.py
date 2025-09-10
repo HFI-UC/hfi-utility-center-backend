@@ -327,8 +327,8 @@ def create_reservation(request: ReservationCreateRequest) -> bool | int:
         with Session(engine) as session:
             reservation = Reservation(
                 room=request.room,
-                startTime=datetime.fromtimestamp(request.startTime, timezone.utc),
-                endTime=datetime.fromtimestamp(request.endTime, timezone.utc),
+                startTime=datetime.fromtimestamp(request.startTime, tz=timezone.utc),
+                endTime=datetime.fromtimestamp(request.endTime, tz=timezone.utc),
                 studentName=request.studentName,
                 email=request.email,
                 reason=request.reason,
@@ -339,7 +339,7 @@ def create_reservation(request: ReservationCreateRequest) -> bool | int:
             session.commit()
             session.refresh(reservation)
             update_analytic(datetime.now(timezone.utc), 0, 0, 0, 1, 0)
-            update_analytic(datetime.fromtimestamp(request.startTime, timezone.utc), 1, 0, 0, 0, 0)
+            update_analytic(datetime.fromtimestamp(request.startTime, tz=timezone.utc), 1, 0, 0, 0, 0)
             return reservation.id or -1
     except Exception as e:
         create_error_log(e)
