@@ -542,12 +542,12 @@ def update_analytic(
             analytic = session.exec(
                 select(Analytic).where(
                     Analytic.date
-                    == date.replace(hour=0, minute=0, second=0, microsecond=0)
+                    == date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
                 )
             ).one_or_none()
             if not analytic:
                 analytic = Analytic(
-                    date=date.replace(hour=0, minute=0, second=0, microsecond=0),
+                    date=date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc),
                     reservations=reservations,
                     approvals=approvals,
                     rejections=rejections,
