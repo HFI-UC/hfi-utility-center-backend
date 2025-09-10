@@ -577,7 +577,9 @@ def get_analytic_by_date(date: datetime) -> Analytic | None:
             analytic = session.exec(
                 select(Analytic).where(
                     Analytic.date
-                    == date.replace(hour=0, minute=0, second=0, microsecond=0)
+                    == date.astimezone(timezone.utc).replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
                 )
             ).one_or_none()
             return analytic
@@ -589,8 +591,12 @@ def get_analytic_by_date(date: datetime) -> Analytic | None:
 def get_analytics_between(start: datetime, end: datetime) -> Sequence[Analytic]:
     try:
         with Session(engine) as session:
-            s = start.replace(hour=0, minute=0, second=0, microsecond=0)
-            e = end.replace(hour=0, minute=0, second=0, microsecond=0)
+            s = start.astimezone(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            e = end.astimezone(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
             analytics = session.exec(
                 select(Analytic).where(Analytic.date >= s).where(Analytic.date <= e)
             ).all()
