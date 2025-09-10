@@ -254,6 +254,10 @@ async def reservation_create(
     if errors:
         return BasicResponse(success=False, message="\n".join(errors))
 
+    approvers = get_room_approvers_by_room_id(room.id if room and room.id else -1)
+    if not approvers:
+        return BasicResponse(success=False, message="No approvers found.")
+
     result = create_reservation(payload)
     if not result:
         return BasicResponse(success=False, message="Failed to create reservation.")
@@ -303,9 +307,7 @@ async def reservation_create(
         return BasicResponse(
             success=True, message="Your reservation has been created and approved."
         )
-    approvers = get_room_approvers_by_room_id(room.id if room and room.id else -1)
-    if not approvers:
-        return BasicResponse(success=False, message="No approvers found.")
+
     for approver in approvers:
         admin = get_admin_by_id(approver.id or -1)
         if not admin:
