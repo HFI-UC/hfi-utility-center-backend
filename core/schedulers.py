@@ -50,4 +50,4 @@ def send_daily_reservation_report_email() -> None:
         pass
 
 
-scheduler.add_job(send_daily_reservation_report_email, CronTrigger(hour=20, minute=0))
+scheduler.add_job(send_daily_reservation_report_email, CronTrigger(hour=20, minute=0, timezone=datetime.now().astimezone().tzinfo))
