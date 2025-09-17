@@ -14,9 +14,8 @@ from sqlmodel import (
     func
 )
 from core.env import *
-from typing import Sequence, List, Any
-from core.classes import *
-from logging import getLogger
+from typing import Sequence, List
+from core.types import *
 import traceback
 
 
@@ -151,6 +150,7 @@ class AdminLogin(SQLModel, table=True):
 
 class AccessLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    uuid: str
     time: datetime = Field(
         sa_column=Column(
             DateTime(timezone=True),
@@ -1012,3 +1012,13 @@ def get_error_log_count() -> int:
     except Exception as e:
         create_error_log(e)
         return 0
+    
+def edit_admin(admin: Admin) -> bool:
+    try:
+        with Session(engine) as session:
+            session.add(admin)
+            session.commit()
+            return True
+    except Exception as e:
+        create_error_log(e)
+        return False

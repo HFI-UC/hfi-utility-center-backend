@@ -1,6 +1,5 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 from core.orm import *
 from core.utils import *
 from core.email import *
@@ -50,4 +49,4 @@ def send_daily_reservation_report_email() -> None:
         pass
 
 
-scheduler.add_job(send_daily_reservation_report_email, CronTrigger(hour=20, minute=0, timezone=datetime.now().astimezone().tzinfo))
+scheduler.add_job(send_daily_reservation_report_email, CronTrigger(hour=20, minute=0))

@@ -10,6 +10,7 @@ class ReservationCreateRequest(BaseModel):
     reason: str
     classId: int
     studentId: str
+    turnstileToken: str
 
 class ReservationGetRequest(BaseModel):
     keyword: str | None
@@ -20,6 +21,7 @@ class AdminLoginRequest(BaseModel):
     email: str | None
     password: str | None
     token: str | None
+    turnstileToken: str | None
 
 class ReservationApproveRequest(BaseModel):
     id: int
@@ -101,6 +103,11 @@ class AdminEditPasswordRequest(BaseModel):
 
 class AdminDeleteRequest(BaseModel):
     id: int
+
+class AdminEditRequest(BaseModel):
+    id: int
+    name: str
+    email: str
 
 class BasicResponse(BaseModel):
     success: bool

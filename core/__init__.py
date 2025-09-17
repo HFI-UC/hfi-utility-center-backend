@@ -2,8 +2,9 @@ from logging import log
 from fastapi import Depends, FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import Receive, Scope, Send, Message
 from fastapi.requests import Request
-from fastapi.responses import JSONResponse, StreamingResponse, Response
+from fastapi.responses import JSONResponse, StreamingResponse
 from slowapi import _rate_limit_exceeded_handler, Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -11,13 +12,14 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from anyio import to_thread
 from contextlib import asynccontextmanager
 from core.orm import *
-from core.classes import *
+from core.types import *
 from core.email import *
 from core.utils import *
 from core.schedulers import *
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
+import uuid
 import psutil
 import hashlib
 import random
@@ -54,34 +56,35 @@ class LogMiddleware(BaseHTTPMiddleware):
             return await self.app(scope, receive, send)
 
         req_body = bytearray()
-        async def recv_wrapper():
+        async def recv_wrapper() -> Message:
             message = await receive()
             if message["type"] == "http.request":
                 req_body.extend(message.get("body", b""))
             return message
         status_code = 500
         resp_chunks = []
-        async def send_wrapper(message):
+        _uuid = str(uuid.uuid4())
+        async def send_wrapper(message: Message) -> None:
             nonlocal status_code
             if message["type"] == "http.response.start":
                 status_code = message["status"]
+                message["headers"].append((b"x-request-id", _uuid.encode()))
             elif message["type"] == "http.response.body":
                 resp_chunks.append(message.get("body", b""))
-            await send(message)  # 立刻转发，保持流式
-
+            await send(message)
         try:
             await self.app(scope, recv_wrapper, send_wrapper)
         finally:
             headers = dict((k.lower(), v) for k, v in scope.get("headers", []))
             ua = headers.get(b"user-agent", b"").decode("latin-1")
             client = scope.get("client") or ("", 0)
-
             try:
                 payload = req_body.decode("utf-8")
             except UnicodeDecodeError:
                 payload = None
             log = AccessLog(
                 userAgent=ua,
+                uuid=_uuid,
                 ip=client[0],
                 port=client[1],
                 url=scope.get("path", ""),
@@ -179,6 +182,8 @@ async def reservation_create(
     payload: ReservationCreateRequest,
     background_task: BackgroundTasks,
 ) -> BasicResponse:
+    if not verify_turnstile_token(payload.turnstileToken):
+        return BasicResponse(success=False, message="Turnstile verification failed.")
     reservations = get_reservation_by_room_id(payload.room)
     room = get_room_by_id(payload.room)
     errors = []
@@ -403,6 +408,10 @@ async def admin_login(
             BasicResponse(
                 success=False, message="Email and password are required."
             ).model_dump()
+        )
+    if not payload.turnstileToken or not verify_turnstile_token(payload.turnstileToken):
+        return JSONResponse(
+            BasicResponse(success=False, message="Turnstile verification failed.").model_dump()
         )
     admin = get_admin_by_email(payload.email)
     if not admin or not verify_password(payload.password, admin.password):
@@ -1007,6 +1016,26 @@ async def admin_edit_password(request: Request, payload: AdminEditPasswordReques
     if result:
         return BasicResponse(success=True, message="Password changed successfully.")
     return BasicResponse(success=False, message="Failed to change password.")
+
+@app.post("/admin/edit")
+@limiter.limit("5/second")
+async def admin_edit(
+    request: Request, payload: AdminEditRequest, admin_login=Depends(get_current_user)
+) -> BasicResponse:
+    if not admin_login:
+        return BasicResponse(success=False, message="User is not logged in.")
+    admin = get_admin_by_id(payload.id)
+    if not admin:
+        return BasicResponse(success=False, message="Admin not found.")
+    if admin.email != payload.email and get_admin_by_email(payload.email):
+        return BasicResponse(success=False, message="Email already in use.")
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
+        return BasicResponse(success=False, message="Invalid email format.")
+    admin.name = payload.name
+    admin.email = payload.email
+    if edit_admin(admin):
+        return BasicResponse(success=True, message="Admin edited successfully.")
+    return BasicResponse(success=False, message="Failed to edit admin.")
 
 @app.post("/admin/delete")
 @limiter.limit("5/second")

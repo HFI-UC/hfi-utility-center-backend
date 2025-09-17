@@ -1,5 +1,5 @@
-    
 from openpyxl import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.utils import get_column_letter
 from core.orm import *
 from core.env import *
@@ -49,7 +49,7 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
             i += 1
         used.add(sheet_name)
 
-        ws = workbook.create_sheet(title=sheet_name)
+        ws: Worksheet = workbook.create_sheet(title=sheet_name)
         ws.append(headers)
 
         for reservation in reservations:
@@ -73,7 +73,7 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
         for row in ws.rows:
             for cell in row:
                 if cell.value:
-                    col_letter = getattr(cell, "column_letter", None) or get_column_letter(cell.column)
+                    col_letter = getattr(cell, "column_letter", None) or get_column_letter(cell.column or -1)
                     dims[col_letter] = max(dims.get(col_letter, 0), len(str(cell.value))) + 2
         for col, value in dims.items():
             ws.column_dimensions[col].width = value
