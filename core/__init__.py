@@ -432,7 +432,7 @@ async def admin_login(
     response = JSONResponse(
         BasicResponse(success=True, message="Login successful.").model_dump()
     )
-    response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite='none')
+    response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite='none', secure=True)
     return response
 
 
