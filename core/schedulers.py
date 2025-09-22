@@ -13,9 +13,9 @@ scheduler = BackgroundScheduler()
 def send_daily_reservation_report_email() -> None:
     try:
         reservations = get_reservations_by_time_range(
-            datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             + timedelta(days=1),
-            datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
+            datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=999999)
             + timedelta(days=1),
         )
         if not reservations:
@@ -39,7 +39,7 @@ def send_daily_reservation_report_email() -> None:
                 "Please find the attached reservation report for tomorrow.",
                 [
                     (
-                        f"reservation_report_{(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')}.xlsx",
+                        f"reservation_report_{(datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%d')}.xlsx",
                         output,
                     )
                 ],

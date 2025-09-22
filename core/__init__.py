@@ -517,7 +517,7 @@ async def reservation_approval(
         return BasicResponse(success=False, message="Reservation not found.")
     if not payload.approved and not payload.reason:
         return BasicResponse(success=False, message="Reason is required for rejection.")
-    if reservation.startTime < datetime.now():
+    if reservation.startTime < datetime.now(timezone.utc):
         return BasicResponse(
             success=False, message="Cannot change status of past reservations."
         )
@@ -1073,7 +1073,7 @@ async def analytic_get(
     monthly_reservation_creations = []
     monthly_approvals = []
     monthly_rejections = []
-    now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     start = now - timedelta(days=365)
     analytics = get_analytics_between(start, now)
     analytics_by_date: dict = {a.date.date(): a for a in analytics}
