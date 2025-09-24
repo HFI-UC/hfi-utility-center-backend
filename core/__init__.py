@@ -25,6 +25,8 @@ import hashlib
 import random
 import bcrypt
 import re
+import traceback
+import time
 
 
 @asynccontextmanager
@@ -37,7 +39,11 @@ async def lifespan(_: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://www.hfiuc.org", "https://preview.hfiuc.org"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://www.hfiuc.org",
+        "https://preview.hfiuc.org",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,6 +51,19 @@ app.add_middleware(
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    scope = request.scope
+    _uuid = scope.get("state", {}).get("request_id", str(uuid.uuid4()))
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": f"An internal server error occurred. Please contact support with request ID: {_uuid}",
+        },
+    )
 
 
 class LogMiddleware(BaseHTTPMiddleware):
@@ -55,15 +74,23 @@ class LogMiddleware(BaseHTTPMiddleware):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
 
+        start_time = time.time()
+        _uuid = str(uuid.uuid4())
+        if "state" not in scope:
+            scope["state"] = {}
+        scope["state"]["request_id"] = _uuid
+
         req_body = bytearray()
+
         async def recv_wrapper() -> Message:
             message = await receive()
             if message["type"] == "http.request":
                 req_body.extend(message.get("body", b""))
             return message
+
         status_code = 500
         resp_chunks = []
-        _uuid = str(uuid.uuid4())
+
         async def send_wrapper(message: Message) -> None:
             nonlocal status_code
             if message["type"] == "http.response.start":
@@ -72,11 +99,26 @@ class LogMiddleware(BaseHTTPMiddleware):
             elif message["type"] == "http.response.body":
                 resp_chunks.append(message.get("body", b""))
             await send(message)
+
         try:
             await self.app(scope, recv_wrapper, send_wrapper)
+        except Exception as e:
+            status_code = 500
+            error_log = ErrorLog(
+                uuid=_uuid,
+                error=str(e),
+                traceback=traceback.format_exc(),
+            )
+            try:
+                await to_thread.run_sync(create_error_log, error_log)
+            except Exception:
+                pass
+            raise e from None
         finally:
+            response_time_ms = int((time.time() - start_time) * 1000)
             headers = dict((k.lower(), v) for k, v in scope.get("headers", []))
-            ua = headers.get(b"user-agent", b"").decode("latin-1")
+            ua = headers.get(b"user-agent", b"").decode()
+            ip = headers.get(b"x-forwarded-for", b"").decode()
             client = scope.get("client") or ("", 0)
             try:
                 payload = req_body.decode("utf-8")
@@ -85,20 +127,23 @@ class LogMiddleware(BaseHTTPMiddleware):
             log = AccessLog(
                 userAgent=ua,
                 uuid=_uuid,
-                ip=client[0],
+                ip=ip,
                 port=client[1],
                 url=scope.get("path", ""),
                 method=scope.get("method", ""),
                 status=status_code,
                 payload=payload,
+                responseTime=response_time_ms,
             )
             try:
                 await to_thread.run_sync(create_access_log, log)
                 await to_thread.run_sync(update_analytic, datetime.now(), 0, 0, 0, 0, 1)
             except Exception:
                 pass
-    
+
+
 app.add_middleware(LogMiddleware)
+
 
 def password_hash(password: str) -> str:
     salt = bcrypt.gensalt()
@@ -254,7 +299,9 @@ async def reservation_create(
             errors.append("Start or end time violates room policy.")
         if not validate_time_conflict(
             datetime.fromtimestamp(payload.startTime, timezone.utc)
-        ) or not validate_time_conflict(datetime.fromtimestamp(payload.endTime, timezone.utc)):
+        ) or not validate_time_conflict(
+            datetime.fromtimestamp(payload.endTime, timezone.utc)
+        ):
             errors.append("Start or end time conflicts with existing reservation.")
     if errors:
         return BasicResponse(success=False, message="\n".join(errors))
@@ -411,7 +458,9 @@ async def admin_login(
         )
     if not payload.turnstileToken or not verify_turnstile_token(payload.turnstileToken):
         return JSONResponse(
-            BasicResponse(success=False, message="Turnstile verification failed.").model_dump()
+            BasicResponse(
+                success=False, message="Turnstile verification failed."
+            ).model_dump()
         )
     admin = get_admin_by_email(payload.email)
     if not admin or not verify_password(payload.password, admin.password):
@@ -432,7 +481,7 @@ async def admin_login(
     response = JSONResponse(
         BasicResponse(success=True, message="Login successful.").model_dump()
     )
-    response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite='none', secure=True)
+    response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite="none", secure=True)
     return response
 
 
@@ -548,7 +597,10 @@ async def reservation_approval(
         )
 
     if change_reservation_status_by_id(
-        payload.id, "approved" if payload.approved else "rejected", admin.id or -1, payload.reason
+        payload.id,
+        "approved" if payload.approved else "rejected",
+        admin.id or -1,
+        payload.reason,
     ):
         classes = get_class()
         class_name = next(
@@ -997,16 +1049,23 @@ async def admin_create(
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
         return BasicResponse(success=False, message="Invalid email format.")
     if len(payload.password) < 6:
-        return BasicResponse(success=False, message="Password must be at least 6 characters.")
+        return BasicResponse(
+            success=False, message="Password must be at least 6 characters."
+        )
     if create_admin(
         name=payload.name, email=payload.email, password=password_hash(payload.password)
     ):
         return BasicResponse(success=True, message="Admin created successfully.")
     return BasicResponse(success=False, message="Failed to create admin.")
 
+
 @app.post("/admin/edit-password")
 @limiter.limit("5/second")
-async def admin_edit_password(request: Request, payload: AdminEditPasswordRequest, admin_login=Depends(get_current_user)):
+async def admin_edit_password(
+    request: Request,
+    payload: AdminEditPasswordRequest,
+    admin_login=Depends(get_current_user),
+):
     if not admin_login:
         return BasicResponse(success=False, message="User is not logged in.")
     admin = get_admin_by_id(payload.admin)
@@ -1016,6 +1075,7 @@ async def admin_edit_password(request: Request, payload: AdminEditPasswordReques
     if result:
         return BasicResponse(success=True, message="Password changed successfully.")
     return BasicResponse(success=False, message="Failed to change password.")
+
 
 @app.post("/admin/edit")
 @limiter.limit("5/second")
@@ -1031,11 +1091,14 @@ async def admin_edit(
         return BasicResponse(success=False, message="Email already in use.")
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
         return BasicResponse(success=False, message="Invalid email format.")
+    if admin.name == payload.name and admin.email == payload.email:
+        return BasicResponse(success=True, message="No changes detected.")
     admin.name = payload.name
     admin.email = payload.email
     if edit_admin(admin):
         return BasicResponse(success=True, message="Admin edited successfully.")
     return BasicResponse(success=False, message="Failed to edit admin.")
+
 
 @app.post("/admin/delete")
 @limiter.limit("5/second")
@@ -1050,6 +1113,7 @@ async def admin_delete(
     if delete_admin(admin):
         return BasicResponse(success=True, message="Admin deleted successfully.")
     return BasicResponse(success=False, message="Failed to delete admin.")
+
 
 @app.get("/analytic/get")
 async def analytic_get(
@@ -1131,7 +1195,6 @@ async def analytic_get(
         monthly_approvals.append(v[3])
         monthly_rejections.append(v[4])
 
-    process = psutil.Process()
     data = {
         "daily": {
             "reservations": daily_reservations,
@@ -1154,13 +1217,12 @@ async def analytic_get(
         },
         "today": {
             "reservations": daily_reservations[-1] if daily_reservations else 0,
-            "reservationCreations": daily_reservation_creations[-1] if daily_reservation_creations else 0,
+            "reservationCreations": (
+                daily_reservation_creations[-1] if daily_reservation_creations else 0
+            ),
             "requests": daily_requests[-1] if daily_requests else 0,
             "approvals": daily_approvals[-1] if daily_approvals else 0,
             "rejections": daily_rejections[-1] if daily_rejections else 0,
         },
-        "errorLogs": get_error_log_count(),
-        "cpu": process.cpu_percent(interval=0.1),
-        "memory": process.memory_info().rss,
     }
     return BasicResponse(success=True, data=data)

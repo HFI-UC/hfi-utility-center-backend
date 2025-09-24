@@ -57,8 +57,8 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
             campus = get_campus_by_id(room.campus) if room and room.campus else None
             ws.append([
                 reservation.id,
-                reservation.startTime,
-                reservation.endTime,
+                reservation.startTime.replace(tzinfo=None) if reservation.startTime else None,
+                reservation.endTime.replace(tzinfo=None) if reservation.endTime else None,
                 reservation.studentName,
                 reservation.studentId,
                 reservation.email,
@@ -66,7 +66,7 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
                 room.name if room else None,
                 class_name,
                 reservation.status.capitalize(),
-                reservation.createdAt,
+                reservation.createdAt.replace(tzinfo=None) if reservation.createdAt else None,
                 campus.name if campus else None,
             ])
         dims = {}

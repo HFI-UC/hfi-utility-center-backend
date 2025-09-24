@@ -39,7 +39,7 @@ def send_daily_reservation_report_email() -> None:
                 "Please find the attached reservation report for tomorrow.",
                 [
                     (
-                        f"reservation_report_{(datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%d')}.xlsx",
+                        f"reservation_{(datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%d')}.xlsx",
                         output,
                     )
                 ],
