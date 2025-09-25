@@ -1,5 +1,6 @@
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Any, List
+from typing import Any, List, Optional
 
 class ReservationCreateRequest(BaseModel):
     room: int
@@ -109,7 +110,19 @@ class AdminEditRequest(BaseModel):
     name: str
     email: str
 
-class BasicResponse(BaseModel):
-    success: bool
-    data: Any = None
-    message: str | None = None
+class BasicResponse(JSONResponse):
+    def __init__(
+        self,
+        success: bool,
+        message: Optional[str] = None,
+        data: Any = None,
+        status_code: int = 200,
+        **kwargs,
+    ):
+        content = {"success": success}
+        if message:
+            content["message"] = message
+        if data:
+            content["data"] = data
+            
+        super().__init__(content=content, status_code=status_code, **kwargs)

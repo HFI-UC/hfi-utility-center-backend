@@ -198,28 +198,25 @@ def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
 
 
-def create_room(name: str, campus: int) -> bool:
+def create_room(name: str, campus: int) -> None:
     with Session(engine) as session:
         room = Room(name=name, campus=campus)
         session.add(room)
         session.commit()
-    return True
 
 
-def create_campus(name: str) -> bool:
+def create_campus(name: str) -> None:
     with Session(engine) as session:
         campus = Campus(name=name)
         session.add(campus)
         session.commit()
-    return True
 
 
-def create_class(name: str, campus: int) -> bool:
+def create_class(name: str, campus: int) -> None:
     with Session(engine) as session:
         _class = Class(name=name, campus=campus)
         session.add(_class)
         session.commit()
-    return True
 
 
 def get_campus() -> Sequence[Campus]:
@@ -254,7 +251,7 @@ def get_room() -> Sequence[Room]:
         return rooms
 
 
-def create_reservation(request: ReservationCreateRequest) -> bool | int:
+def create_reservation(request: ReservationCreateRequest) -> int:
     with Session(engine) as session:
         reservation = Reservation(
             room=request.room,
@@ -295,12 +292,11 @@ def get_room_by_id(room_id: int) -> Room | None:
         return room
 
 
-def create_admin(email: str, name: str, password: str) -> bool:
+def create_admin(email: str, name: str, password: str) -> None:
     with Session(engine) as session:
         admin = Admin(email=email, name=name, password=password)
         session.add(admin)
         session.commit()
-    return True
 
 
 def get_admin_login_by_cookie(cookie: str) -> AdminLogin | None:
@@ -346,7 +342,7 @@ def get_reservation(
         return reservations
 
 
-def create_admin_login(email: str, cookie: str) -> bool:
+def create_admin_login(email: str, cookie: str) -> None:
     with Session(engine) as session:
         user_login = AdminLogin(
             email=email,
@@ -355,7 +351,6 @@ def create_admin_login(email: str, cookie: str) -> bool:
         )
         session.add(user_login)
         session.commit()
-        return True
 
 
 def get_future_reservations() -> Sequence[Reservation]:
@@ -389,7 +384,7 @@ def get_future_reservations_by_approver_id(approver_id: int) -> Sequence[Reserva
 
 def change_reservation_status_by_id(
     id: int, status: str, admin: int, reason: str | None = None
-) -> bool:
+) -> None:
     with Session(engine) as session:
         reservation = session.exec(
             select(Reservation).where(Reservation.id == id)
@@ -410,20 +405,17 @@ def change_reservation_status_by_id(
                 0,
                 0,
             )
-            return True
-        return False
 
 
 def create_reservation_operation_log(
     admin: int, reservation: int, operation: str, reason: str | None = None
-) -> bool:
+) -> None:
     with Session(engine) as session:
         log = ReservationOperationLog(
             admin=admin, reservation=reservation, operation=operation, reason=reason
         )
         session.add(log)
         session.commit()
-        return True
 
 
 def update_analytic(
@@ -433,7 +425,7 @@ def update_analytic(
     rejections: int,
     reservationCreations: int,
     requests: int,
-) -> bool:
+) -> None:
     with Session(engine) as session:
         analytic = session.exec(
             select(Analytic).where(
@@ -456,7 +448,7 @@ def update_analytic(
             )
             session.add(analytic)
             session.commit()
-            return True
+            return
         if analytic:
             analytic.reservations += reservations
             analytic.approvals += approvals
@@ -464,8 +456,6 @@ def update_analytic(
             analytic.reservationCreations += reservationCreations
             analytic.requests += requests
             session.commit()
-            return True
-        return False
 
 
 def get_analytic_by_date(date: datetime) -> Analytic | None:
@@ -534,7 +524,7 @@ def get_class_by_id(id: int) -> Class | None:
         return _class
 
 
-def delete_campus(campus: Campus) -> bool:
+def delete_campus(campus: Campus) -> None:
     with Session(engine) as session:
         with Session(engine) as session:
             rooms = session.exec(select(Room).where(Room.campus == campus.id)).all()
@@ -548,17 +538,15 @@ def delete_campus(campus: Campus) -> bool:
                 delete_class(_class)
         session.delete(campus)
         session.commit()
-        return True
 
 
-def delete_class(_class: Class) -> bool:
+def delete_class(_class: Class) -> None:
     with Session(engine) as session:
         session.delete(_class)
         session.commit()
-        return True
 
 
-def delete_room(room: Room) -> bool:
+def delete_room(room: Room) -> None:
     with Session(engine) as session:
         with Session(engine) as session:
             policies = session.exec(
@@ -574,33 +562,29 @@ def delete_room(room: Room) -> bool:
                 delete_room_approver(approver)
         session.delete(room)
         session.commit()
-        return True
 
 
-def delete_policy(policy: RoomPolicy) -> bool:
+def delete_policy(policy: RoomPolicy) -> None:
     with Session(engine) as session:
         session.delete(policy)
         session.commit()
-        return True
 
 
-def delete_room_approver(approver: RoomApprover) -> bool:
+def delete_room_approver(approver: RoomApprover) -> None:
     with Session(engine) as session:
         session.delete(approver)
         session.commit()
-        return True
 
 
 def create_policy(
     room: int, days: List[int], startTime: List[int], endTime: List[int]
-) -> bool:
+) -> None:
     with Session(engine) as session:
         policy = RoomPolicy(
             room=room, days=days, startTime=startTime, endTime=endTime
         )
         session.add(policy)
         session.commit()
-        return True
 
 
 def get_policy_by_id(id: int) -> RoomPolicy | None:
@@ -611,40 +595,35 @@ def get_policy_by_id(id: int) -> RoomPolicy | None:
         return policy
 
 
-def toggle_policy(policy: RoomPolicy) -> bool:
+def toggle_policy(policy: RoomPolicy) -> None:
     with Session(engine) as session:
         policy.enabled = not policy.enabled
         session.add(policy)
         session.commit()
-        return True
 
 
-def edit_policy(policy: RoomPolicy) -> bool:
+def edit_policy(policy: RoomPolicy) -> None:
     with Session(engine) as session:
         session.add(policy)
         session.commit()
-        return True
 
 
-def edit_room(room: Room) -> bool:
+def edit_room(room: Room) -> None:
     with Session(engine) as session:
         session.add(room)
         session.commit()
-        return True
 
 
-def edit_campus(campus: Campus) -> bool:
+def edit_campus(campus: Campus) -> None:
     with Session(engine) as session:
         session.add(campus)
         session.commit()
-        return True
 
 
-def edit_class(_class: Class) -> bool:
+def edit_class(_class: Class) -> None:
     with Session(engine) as session:
         session.add(_class)
         session.commit()
-        return True
 
 
 def get_temp_admin_login_by_token(token: str) -> TempAdminLogin | None:
@@ -655,11 +634,10 @@ def get_temp_admin_login_by_token(token: str) -> TempAdminLogin | None:
         return temp_admin_login
 
 
-def delete_temp_admin_login(temp_admin_login: TempAdminLogin) -> bool:
+def delete_temp_admin_login(temp_admin_login: TempAdminLogin) -> None:
     with Session(engine) as session:
         session.delete(temp_admin_login)
         session.commit()
-        return True
 
 
 def get_admin_by_id(admin_id: int) -> Admin | None:
@@ -670,12 +648,11 @@ def get_admin_by_id(admin_id: int) -> Admin | None:
         return admin
 
 
-def create_room_approver(room_id: int, admin_id: int) -> bool:
+def create_room_approver(room_id: int, admin_id: int) -> None:
     with Session(engine) as session:
         approver = RoomApprover(room=room_id, admin=admin_id)
         session.add(approver)
         session.commit()
-        return True
 
 
 def get_room_approvers() -> Sequence[RoomApprover]:
@@ -714,12 +691,11 @@ def get_admins() -> Sequence[Admin]:
         return admins
 
 
-def create_temp_admin_login(email: str, token: str) -> bool:
+def create_temp_admin_login(email: str, token: str) -> None:
     with Session(engine) as session:
         temp_admin_login = TempAdminLogin(email=email, token=token)
         session.add(temp_admin_login)
         session.commit()
-        return True
 
 
 def get_reservations_by_time_range_and_room(
@@ -735,7 +711,7 @@ def get_reservations_by_time_range_and_room(
         return reservations
 
 
-def delete_admin(admin: Admin) -> bool:
+def delete_admin(admin: Admin) -> None:
     with Session(engine) as session:
         with Session(engine) as session:
             approvers = session.exec(
@@ -746,28 +722,25 @@ def delete_admin(admin: Admin) -> bool:
                 delete_room_approver(approver)
         session.delete(admin)
         session.commit()
-        return True
 
 
-def change_admin_password(admin_id: int, new_password: str) -> bool:
+def change_admin_password(admin_id: int, new_password: str) -> None:
     with Session(engine) as session:
         admin = session.exec(
             select(Admin).where(Admin.id == admin_id)
         ).one_or_none()
         if not admin:
-            return False
+            return
         admin.password = new_password
         session.add(admin)
         session.commit()
-        return True
 
 
-def create_access_log(log: AccessLog) -> bool:
+def create_access_log(log: AccessLog) -> None:
     with Session(engine) as session:
         session.add(log)
         session.commit()
         session.refresh(log)
-        return True
 
 
 def get_error_log_count() -> int:
@@ -776,8 +749,7 @@ def get_error_log_count() -> int:
         return len(data)
 
 
-def edit_admin(admin: Admin) -> bool:
+def edit_admin(admin: Admin) -> None:
     with Session(engine) as session:
         session.add(admin)
         session.commit()
-        return True

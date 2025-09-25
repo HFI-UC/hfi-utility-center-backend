@@ -1,10 +1,9 @@
-from logging import log
 from fastapi import Depends, FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import Receive, Scope, Send, Message
 from fastapi.requests import Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from slowapi import _rate_limit_exceeded_handler, Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -20,7 +19,6 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import uuid
-import psutil
 import hashlib
 import random
 import bcrypt
@@ -54,17 +52,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # ty
 
 
 @app.exception_handler(Exception)
-async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+async def generic_exception_handler(request: Request, exc: Exception) -> BasicResponse:
     scope = request.scope
     _uuid = scope.get("state", {}).get("request_id", str(uuid.uuid4()))
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "message": f"An internal server error occurred. Please contact support with request ID: {_uuid}",
-        },
-    )
-
+    return BasicResponse(success=False, message=f"An internal server error occurred. Please contact support with request ID: {_uuid}", status_code=500)
 
 class LogMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp):
@@ -118,8 +109,12 @@ class LogMiddleware(BaseHTTPMiddleware):
             response_time_ms = int((time.time() - start_time) * 1000)
             headers = dict((k.lower(), v) for k, v in scope.get("headers", []))
             ua = headers.get(b"user-agent", b"").decode()
-            ip = headers.get(b"x-forwarded-for", b"").decode()
             client = scope.get("client") or ("", 0)
+            ip = headers.get(b"x-forwarded-for")
+            if ip:
+                ip = ip.decode()
+            else:
+                ip = client[0]
             try:
                 payload = req_body.decode("utf-8")
             except UnicodeDecodeError:
@@ -127,7 +122,7 @@ class LogMiddleware(BaseHTTPMiddleware):
             log = AccessLog(
                 userAgent=ua,
                 uuid=_uuid,
-                ip=ip,
+                ip=ip or client[0],
                 port=client[1],
                 url=scope.get("path", ""),
                 method=scope.get("method", ""),
@@ -195,7 +190,7 @@ async def campus_delete(
 ) -> BasicResponse:
     campus = get_campus_by_id(payload.id)
     if not campus:
-        return BasicResponse(success=False, message="Campus not found.")
+        return BasicResponse(success=False, message="Campus not found.", status_code=404)
     delete_campus(campus)
     return BasicResponse(success=True, message="Campus deleted successfully.")
 
@@ -205,7 +200,7 @@ async def campus_delete(
 async def room_delete(request: Request, payload: RoomDeleteRequest) -> BasicResponse:
     room = get_room_by_id(payload.id)
     if not room:
-        return BasicResponse(success=False, message="Room not found.")
+        return BasicResponse(success=False, message="Room not found.", status_code=404)
     delete_room(room)
     return BasicResponse(success=True, message="Room deleted successfully.")
 
@@ -215,7 +210,7 @@ async def room_delete(request: Request, payload: RoomDeleteRequest) -> BasicResp
 async def class_delete(request: Request, payload: ClassDeleteRequest) -> BasicResponse:
     _class = get_class_by_id(payload.id)
     if not _class:
-        return BasicResponse(success=False, message="Class not found.")
+        return BasicResponse(success=False, message="Class not found.", status_code=404)
     delete_class(_class)
     return BasicResponse(success=True, message="Class deleted successfully.")
 
@@ -228,7 +223,7 @@ async def reservation_create(
     background_task: BackgroundTasks,
 ) -> BasicResponse:
     if not verify_turnstile_token(payload.turnstileToken):
-        return BasicResponse(success=False, message="Turnstile verification failed.")
+        return BasicResponse(success=False, message="Turnstile verification failed.", status_code=403)
     reservations = get_reservation_by_room_id(payload.room)
     room = get_room_by_id(payload.room)
     errors = []
@@ -238,7 +233,7 @@ async def reservation_create(
     if not _class:
         errors.append("Class not found.")
     if errors:
-        return BasicResponse(success=False, message="\n".join(errors))
+        return BasicResponse(success=False, message="\n".join(errors), status_code=400)
 
     def validate_time_conflict(time: datetime) -> bool:
         for reservation in reservations:
@@ -304,15 +299,13 @@ async def reservation_create(
         ):
             errors.append("Start or end time conflicts with existing reservation.")
     if errors:
-        return BasicResponse(success=False, message="\n".join(errors))
+        return BasicResponse(success=False, message="\n".join(errors), status_code=400)
 
     approvers = get_room_approvers_by_room_id(room.id if room and room.id else -1)
     if not approvers:
-        return BasicResponse(success=False, message="No approvers found.")
-
+        return BasicResponse(success=False, message="No approvers found.", status_code=404)
+    
     result = create_reservation(payload)
-    if not result:
-        return BasicResponse(success=False, message="Failed to create reservation.")
 
     background_task.add_task(
         send_normal_update_email,
@@ -421,19 +414,15 @@ async def reservation_get(
 @limiter.limit("5/second")
 async def admin_login(
     request: Request, payload: AdminLoginRequest, admin_login=Depends(get_current_user)
-) -> JSONResponse:
+) -> BasicResponse:
     if admin_login:
-        return JSONResponse(
-            BasicResponse(success=False, message="User already logged in.").model_dump()
-        )
+        return BasicResponse(success=False, message="User already logged in.")
 
     if payload.token:
         temp_admin_login = get_temp_admin_login_by_token(payload.token)
         if not temp_admin_login:
-            return JSONResponse(
-                BasicResponse(
-                    success=False, message="Invalid token or token expired."
-                ).model_dump()
+            return BasicResponse(
+                success=False, message="Invalid token or token expired."
             )
         cookie = hashlib.md5(
             (
@@ -445,30 +434,19 @@ async def admin_login(
         ).hexdigest()
         create_admin_login(temp_admin_login.email, cookie)
         delete_temp_admin_login(temp_admin_login)
-        response = JSONResponse(
-            BasicResponse(success=True, message="Login successful.").model_dump()
-        )
+        response = BasicResponse(success=True, message="Login successful.")
+
         response.set_cookie("UCCOOKIE", cookie)
         return response
     if not payload.email or not payload.password:
-        return JSONResponse(
-            BasicResponse(
-                success=False, message="Email and password are required."
-            ).model_dump()
-        )
+        return BasicResponse(success=False, message="Email and password are required.")
+
     if not payload.turnstileToken or not verify_turnstile_token(payload.turnstileToken):
-        return JSONResponse(
-            BasicResponse(
-                success=False, message="Turnstile verification failed."
-            ).model_dump()
-        )
+        return BasicResponse(success=False, message="Turnstile verification failed.")
+
     admin = get_admin_by_email(payload.email)
     if not admin or not verify_password(payload.password, admin.password):
-        return JSONResponse(
-            BasicResponse(
-                success=False, message="Invalid email or password."
-            ).model_dump()
-        )
+        return BasicResponse(success=False, message="Invalid email or password.")
     cookie = hashlib.md5(
         (
             payload.email
@@ -478,9 +456,7 @@ async def admin_login(
         ).encode()
     ).hexdigest()
     create_admin_login(payload.email, cookie)
-    response = JSONResponse(
-        BasicResponse(success=True, message="Login successful.").model_dump()
-    )
+    response = BasicResponse(success=True, message="Login successful.")
     response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite="none", secure=True)
     return response
 
@@ -489,14 +465,10 @@ async def admin_login(
 @limiter.limit("5/second")
 async def admin_logout(
     request: Request, user_login=Depends(get_current_user)
-) -> JSONResponse:
+) -> BasicResponse:
     if not user_login:
-        return JSONResponse(
-            BasicResponse(success=False, message="User is not logged in.").model_dump()
-        )
-    response = JSONResponse(
-        BasicResponse(success=True, message="Logout successful.").model_dump()
-    )
+        return BasicResponse(success=False, message="User is not logged in.")
+    response = BasicResponse(success=True, message="Logout successful.")
     response.delete_cookie("UCCOOKIE")
     return response
 
@@ -596,41 +568,40 @@ async def reservation_approval(
             success=False, message="User is not authorized to approve this reservation."
         )
 
-    if change_reservation_status_by_id(
+    change_reservation_status_by_id(
         payload.id,
         "approved" if payload.approved else "rejected",
         admin.id or -1,
         payload.reason,
-    ):
-        classes = get_class()
-        class_name = next(
-            (cls.name for cls in classes if cls.id == reservation.classId), None
+    )
+    classes = get_class()
+    class_name = next(
+        (cls.name for cls in classes if cls.id == reservation.classId), None
+    )
+    room = get_room_by_id(reservation.room)
+    if payload.approved:
+        background_task.add_task(
+            send_reservation_approval_email,
+            email_title="Reservation Approval",
+            title="Your reservation has been approved!",
+            email=reservation.email,
+            details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been approved. Below is the detailed information.",
+            user=reservation.studentName,
+            room=room.name if room else "",
+            class_name=class_name or "",
+            student_id=reservation.studentId,
+            reason=reservation.reason,
+            time=f"{reservation.startTime.strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.strftime('%H:%M')}",
         )
-        room = get_room_by_id(reservation.room)
-        if payload.approved:
-            background_task.add_task(
-                send_reservation_approval_email,
-                email_title="Reservation Approval",
-                title="Your reservation has been approved!",
-                email=reservation.email,
-                details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been approved. Below is the detailed information.",
-                user=reservation.studentName,
-                room=room.name if room else "",
-                class_name=class_name or "",
-                student_id=reservation.studentId,
-                reason=reservation.reason,
-                time=f"{reservation.startTime.strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.strftime('%H:%M')}",
-            )
-        else:
-            background_task.add_task(
-                send_normal_update_email,
-                email_title="Reservation Rejected",
-                title="Your reservation has been rejected.",
-                email=reservation.email,
-                details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected. Reason: {payload.reason}",
-            )
-        return BasicResponse(success=True, message="Reservation updated successfully.")
-    return BasicResponse(success=False, message="Failed to update reservation.")
+    else:
+        background_task.add_task(
+            send_normal_update_email,
+            email_title="Reservation Rejected",
+            title="Your reservation has been rejected.",
+            email=reservation.email,
+            details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected. Reason: {payload.reason}",
+        )
+    return BasicResponse(success=True, message="Reservation updated successfully.")
 
 
 @app.get("/reservation/all")
@@ -681,26 +652,17 @@ async def reservation_export(
     request: Request,
     payload: ReservationExportRequest,
     admin_login=Depends(get_current_user),
-) -> StreamingResponse | JSONResponse:
+) -> StreamingResponse | BasicResponse:
     if not admin_login:
-        return JSONResponse(
-            status_code=200,
-            content={"success": False, "message": "User is not logged in."},
-        )
+        return BasicResponse(success=False, message="User is not logged in.")
     if payload.startTime and payload.endTime and payload.startTime > payload.endTime:
-        return JSONResponse(
-            status_code=200,
-            content={"success": False, "message": "Invalid time range."},
-        )
+        return BasicResponse(success=False, message="Invalid time range.")
     reservations = get_reservations_by_time_range(
         datetime.fromtimestamp(payload.startTime) if payload.startTime else None,
         datetime.fromtimestamp(payload.endTime) if payload.endTime else None,
     )
     if not reservations:
-        return JSONResponse(
-            status_code=200,
-            content={"success": False, "message": "No reservations found."},
-        )
+        return BasicResponse(success=False, message="No reservations found.")
     workbook = get_exported_xlsx(reservations)
 
     output = BytesIO()
@@ -725,10 +687,8 @@ async def class_create(
     campus = get_campus_by_id(payload.campus)
     if not campus:
         return BasicResponse(success=False, message="Invalid campus.")
-    success = create_class(name=payload.name, campus=payload.campus)
-    if success:
-        return BasicResponse(success=True, message="Class created successfully.")
-    return BasicResponse(success=False, message="Failed to create class.")
+    create_class(name=payload.name, campus=payload.campus)
+    return BasicResponse(success=True, message="Class created successfully.")
 
 
 @app.post("/campus/create")
@@ -741,10 +701,8 @@ async def campus_create(
     if not admin_login:
         return BasicResponse(success=False, message="User is not logged in.")
 
-    success = create_campus(name=payload.name)
-    if success:
-        return BasicResponse(success=True, message="Campus created successfully.")
-    return BasicResponse(success=False, message="Failed to create campus.")
+    create_campus(name=payload.name)
+    return BasicResponse(success=True, message="Campus created successfully.")
 
 
 @app.post("/room/create")
@@ -757,10 +715,8 @@ async def room_create(
     campus = get_campus_by_id(payload.campus)
     if not campus:
         return BasicResponse(success=False, message="Invalid campus.")
-    success = create_room(name=payload.name, campus=payload.campus)
-    if success:
-        return BasicResponse(success=True, message="Room created successfully.")
-    return BasicResponse(success=False, message="Failed to create room.")
+    create_room(name=payload.name, campus=payload.campus)
+    return BasicResponse(success=True, message="Room created successfully.")
 
 
 @app.get("/policy/list")
@@ -797,15 +753,13 @@ async def policy_create(
     ):
         return BasicResponse(success=False, message="Invalid end times.")
 
-    success = create_policy(
+    create_policy(
         room=payload.room,
         days=sorted(payload.days),
         startTime=payload.startTime,
         endTime=payload.endTime,
     )
-    if success:
-        return BasicResponse(success=True, message="Policy created successfully.")
-    return BasicResponse(success=False, message="Failed to create policy.")
+    return BasicResponse(success=True, message="Policy created successfully.")
 
 
 @app.post("/policy/delete")
@@ -821,10 +775,8 @@ async def policy_delete(
     policy = get_policy_by_id(payload.id)
     if not policy:
         return BasicResponse(success=False, message="Policy not found.")
-    success = delete_policy(policy)
-    if success:
-        return BasicResponse(success=True, message="Policy deleted successfully.")
-    return BasicResponse(success=False, message="Failed to delete policy.")
+    delete_policy(policy)
+    return BasicResponse(success=True, message="Policy deleted successfully.")
 
 
 @app.post("/policy/toggle")
@@ -840,10 +792,8 @@ async def policy_toggle(
     policy = get_policy_by_id(payload.id)
     if not policy:
         return BasicResponse(success=False, message="Policy not found.")
-    success = toggle_policy(policy)
-    if success:
-        return BasicResponse(success=True, message="Policy toggled successfully.")
-    return BasicResponse(success=False, message="Failed to toggle policy.")
+    toggle_policy(policy)
+    return BasicResponse(success=True, message="Policy toggled successfully.")
 
 
 @app.post("/policy/edit")
@@ -886,10 +836,8 @@ async def policy_edit(
     policy.days = payload.days
     policy.startTime = payload.startTime
     policy.endTime = payload.endTime
-    success = edit_policy(policy=policy)
-    if success:
-        return BasicResponse(success=True, message="Policy edited successfully.")
-    return BasicResponse(success=False, message="Failed to edit policy.")
+    edit_policy(policy=policy)
+    return BasicResponse(success=True, message="Policy edited successfully.")
 
 
 @app.post("/room/edit")
@@ -906,10 +854,8 @@ async def room_edit(
 
     room.name = payload.name
     room.campus = payload.campus
-    success = edit_room(room)
-    if success:
-        return BasicResponse(success=True, message="Room edited successfully.")
-    return BasicResponse(success=False, message="Failed to edit room.")
+    edit_room(room)
+    return BasicResponse(success=True, message="Room edited successfully.")
 
 
 @app.post("/campus/edit")
@@ -925,10 +871,8 @@ async def campus_edit(
         return BasicResponse(success=False, message="Campus not found.")
 
     campus.name = payload.name
-    success = edit_campus(campus)
-    if success:
-        return BasicResponse(success=True, message="Campus edited successfully.")
-    return BasicResponse(success=False, message="Failed to edit campus.")
+    edit_campus(campus)
+    return BasicResponse(success=True, message="Campus edited successfully.")
 
 
 @app.post("/class/edit")
@@ -944,10 +888,8 @@ async def class_edit(
         return BasicResponse(success=False, message="Class not found.")
 
     _class.name = payload.name
-    success = edit_class(_class)
-    if success:
-        return BasicResponse(success=True, message="Class edited successfully.")
-    return BasicResponse(success=False, message="Failed to edit class.")
+    edit_class(_class)
+    return BasicResponse(success=True, message="Class edited successfully.")
 
 
 @app.post("/approver/create")
@@ -973,12 +915,10 @@ async def approver_create(
             success=False, message="Admin is already an approver for this room."
         )
 
-    success = create_room_approver(room_id=payload.room, admin_id=payload.admin)
-    if success:
-        return BasicResponse(
-            success=True, message="Room approver created successfully."
-        )
-    return BasicResponse(success=False, message="Failed to create room approver.")
+    create_room_approver(room_id=payload.room, admin_id=payload.admin)
+    return BasicResponse(
+        success=True, message="Room approver created successfully."
+    )
 
 
 @app.get("/approver/list")
@@ -1007,12 +947,10 @@ async def approver_delete(
     if not approver:
         return BasicResponse(success=False, message="Approver not found.")
 
-    success = delete_room_approver(approver=approver)
-    if success:
-        return BasicResponse(
-            success=True, message="Room approver deleted successfully."
-        )
-    return BasicResponse(success=False, message="Failed to delete room approver.")
+    delete_room_approver(approver=approver)
+    return BasicResponse(
+        success=True, message="Room approver deleted successfully."
+    )
 
 
 @app.get("/admin/list")
@@ -1052,11 +990,10 @@ async def admin_create(
         return BasicResponse(
             success=False, message="Password must be at least 6 characters."
         )
-    if create_admin(
+    create_admin(
         name=payload.name, email=payload.email, password=password_hash(payload.password)
-    ):
-        return BasicResponse(success=True, message="Admin created successfully.")
-    return BasicResponse(success=False, message="Failed to create admin.")
+    )
+    return BasicResponse(success=True, message="Admin created successfully.")
 
 
 @app.post("/admin/edit-password")
@@ -1071,10 +1008,8 @@ async def admin_edit_password(
     admin = get_admin_by_id(payload.admin)
     if not admin:
         return BasicResponse(success=False, message="Admin not found.")
-    result = change_admin_password(payload.admin, password_hash(payload.newPassword))
-    if result:
-        return BasicResponse(success=True, message="Password changed successfully.")
-    return BasicResponse(success=False, message="Failed to change password.")
+    change_admin_password(payload.admin, password_hash(payload.newPassword))
+    return BasicResponse(success=True, message="Password changed successfully.")
 
 
 @app.post("/admin/edit")
@@ -1095,9 +1030,8 @@ async def admin_edit(
         return BasicResponse(success=True, message="No changes detected.")
     admin.name = payload.name
     admin.email = payload.email
-    if edit_admin(admin):
-        return BasicResponse(success=True, message="Admin edited successfully.")
-    return BasicResponse(success=False, message="Failed to edit admin.")
+    edit_admin(admin)
+    return BasicResponse(success=True, message="Admin edited successfully.")
 
 
 @app.post("/admin/delete")
@@ -1110,9 +1044,8 @@ async def admin_delete(
     admin = get_admin_by_id(payload.id)
     if not admin:
         return BasicResponse(success=False, message="Admin not found.")
-    if delete_admin(admin):
-        return BasicResponse(success=True, message="Admin deleted successfully.")
-    return BasicResponse(success=False, message="Failed to delete admin.")
+    delete_admin(admin)
+    return BasicResponse(success=True, message="Admin deleted successfully.")
 
 
 @app.get("/analytic/get")
