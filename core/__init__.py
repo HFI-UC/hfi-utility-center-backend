@@ -650,16 +650,17 @@ async def reservation_all(
 @limiter.limit("1/second")
 async def reservation_export(
     request: Request,
-    payload: ReservationExportRequest,
+    startTime: int = -1,
+    endTime: int = -1,
     admin_login=Depends(get_current_user),
 ) -> StreamingResponse | BasicResponse:
     if not admin_login:
         return BasicResponse(success=False, message="User is not logged in.", status_code=401)
-    if payload.startTime != -1 and payload.endTime != -1 and payload.startTime > payload.endTime:
+    if startTime != -1 and endTime != -1 and startTime > endTime:
         return BasicResponse(success=False, message="Invalid time range.", status_code=400)
     reservations = get_reservations_by_time_range(
-        datetime.fromtimestamp(payload.startTime) if payload.startTime != -1 else None,
-        datetime.fromtimestamp(payload.endTime) if payload.endTime != -1 else None,
+        datetime.fromtimestamp(startTime) if startTime != -1 else None,
+        datetime.fromtimestamp(endTime) if endTime != -1 else None,
     )
     if not reservations:
         return BasicResponse(success=False, message="No reservations found.", status_code=404)
