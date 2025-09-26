@@ -165,48 +165,21 @@ def get_current_user(request: Request) -> AdminLogin | None:
 @app.get("/room/list")
 @limiter.limit("5/second")
 async def room_list(request: Request) -> BasicResponse:
-    rooms = get_room()
-    data = [
-        {
-            "id": r.id,
-            "name": r.name,
-            "campus": r.campus,
-            "createdAt": (lambda _ts=r.createdAt: int(_ts.timestamp()) if _ts else None)(),
-        }
-        for r in rooms
-    ]
+    data = get_room()
     return BasicResponse(success=True, data=data)
 
 
 @app.get("/campus/list")
 @limiter.limit("5/second")
 async def campus_list(request: Request) -> BasicResponse:
-    campuses = get_campus()
-    data = [
-        {
-            "id": c.id,
-            "name": c.name,
-            "isPrivileged": c.isPrivileged,
-            "createdAt": (lambda _ts=c.createdAt: int(_ts.timestamp()) if _ts else None)(),
-        }
-        for c in campuses
-    ]
+    data = get_campus()
     return BasicResponse(success=True, data=data)
 
 
 @app.get("/class/list")
 @limiter.limit("5/second")
 async def class_list(request: Request) -> BasicResponse:
-    classes = get_class()
-    data = [
-        {
-            "id": c.id,
-            "name": c.name,
-            "campus": c.campus,
-            "createdAt": (lambda _ts=c.createdAt: int(_ts.timestamp()) if _ts else None)(),
-        }
-        for c in classes
-    ]
+    data = get_class()
     return BasicResponse(success=True, data=data)
 
 
@@ -673,8 +646,7 @@ async def reservation_all(
         )
     return BasicResponse(success=True, data=res)
 
-
-@app.post("/reservation/export", response_model=None)
+@app.get("/reservation/export", response_model=None)
 @limiter.limit("1/second")
 async def reservation_export(
     request: Request,
@@ -683,11 +655,11 @@ async def reservation_export(
 ) -> StreamingResponse | BasicResponse:
     if not admin_login:
         return BasicResponse(success=False, message="User is not logged in.", status_code=401)
-    if payload.startTime and payload.endTime and payload.startTime > payload.endTime:
+    if payload.startTime != -1 and payload.endTime != -1 and payload.startTime > payload.endTime:
         return BasicResponse(success=False, message="Invalid time range.", status_code=400)
     reservations = get_reservations_by_time_range(
-        datetime.fromtimestamp(payload.startTime) if payload.startTime else None,
-        datetime.fromtimestamp(payload.endTime) if payload.endTime else None,
+        datetime.fromtimestamp(payload.startTime) if payload.startTime != -1 else None,
+        datetime.fromtimestamp(payload.endTime) if payload.endTime != -1 else None,
     )
     if not reservations:
         return BasicResponse(success=False, message="No reservations found.", status_code=404)
@@ -1076,13 +1048,11 @@ async def admin_delete(
     return BasicResponse(success=True, message="Admin deleted successfully.")
 
 
-@app.get("/analytic/get")
-async def analytic_get(
-    request: Request, admin_login=Depends(get_current_user)
+@app.get("/analytic/general")
+@limiter.limit("1/second")
+async def analytic_general(
+    request: Request
 ) -> BasicResponse:
-    if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
-
     daily_reservations = []
     daily_reservation_creations = []
     daily_requests = []
