@@ -385,7 +385,8 @@ async def reservation_get(
     request: Request, payload: ReservationGetRequest
 ) -> BasicResponse:
     if payload.room and not get_room_by_id(payload.room):
-        return BasicResponse(success=False, message="Room not found.")
+        return BasicResponse(success=False, message="Room not found.", status_code=404)
+    
     reservations = get_reservation(payload.keyword, payload.room, payload.status)
     classes = get_class()
     res = []
@@ -416,13 +417,13 @@ async def admin_login(
     request: Request, payload: AdminLoginRequest, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if admin_login:
-        return BasicResponse(success=False, message="User already logged in.")
+        return BasicResponse(success=False, message="User already logged in.", status_code=400)
 
     if payload.token:
         temp_admin_login = get_temp_admin_login_by_token(payload.token)
         if not temp_admin_login:
             return BasicResponse(
-                success=False, message="Invalid token or token expired."
+                success=False, message="Invalid token or token expired.", status_code=400
             )
         cookie = hashlib.md5(
             (
@@ -439,14 +440,14 @@ async def admin_login(
         response.set_cookie("UCCOOKIE", cookie)
         return response
     if not payload.email or not payload.password:
-        return BasicResponse(success=False, message="Email and password are required.")
+        return BasicResponse(success=False, message="Email and password are required.", status_code=400)
 
     if not payload.turnstileToken or not verify_turnstile_token(payload.turnstileToken):
-        return BasicResponse(success=False, message="Turnstile verification failed.")
+        return BasicResponse(success=False, message="Turnstile verification failed.", status_code=403)
 
     admin = get_admin_by_email(payload.email)
     if not admin or not verify_password(payload.password, admin.password):
-        return BasicResponse(success=False, message="Invalid email or password.")
+        return BasicResponse(success=False, message="Invalid email or password.", status_code=401)
     cookie = hashlib.md5(
         (
             payload.email
@@ -467,7 +468,7 @@ async def admin_logout(
     request: Request, user_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not user_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
     response = BasicResponse(success=True, message="Logout successful.")
     response.delete_cookie("UCCOOKIE")
     return response
@@ -480,7 +481,7 @@ async def admin_check_login(
 ) -> BasicResponse:
     if user_login:
         return BasicResponse(success=True)
-    return BasicResponse(success=False)
+    return BasicResponse(success=False, status_code=400)
 
 
 @app.get("/reservation/future")
@@ -489,7 +490,7 @@ async def reservation_future(
     request: Request, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
     admin = get_admin_by_email(admin_login.email)
     future_reservations = get_future_reservations_by_approver_id(
         admin.id if admin and admin.id is not None else -1
@@ -530,14 +531,14 @@ async def reservation_approval(
     admin_login=Depends(get_current_user),
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     reservation = get_reservation_by_id(payload.id)
 
     if not reservation:
-        return BasicResponse(success=False, message="Reservation not found.")
+        return BasicResponse(success=False, message="Reservation not found.", status_code=404)
     if not payload.approved and not payload.reason:
-        return BasicResponse(success=False, message="Reason is required for rejection.")
+        return BasicResponse(success=False, message="Reason is required for rejection.", status_code=400)
     if reservation.startTime < datetime.now(timezone.utc):
         return BasicResponse(
             success=False, message="Cannot change status of past reservations."
@@ -550,22 +551,22 @@ async def reservation_approval(
         )
 
     if not check_status():
-        return BasicResponse(success=False, message="Invalid approval request.")
+        return BasicResponse(success=False, message="Invalid approval request.", status_code=400)
 
     admin = get_admin_by_email(admin_login.email)
     if not admin:
-        return BasicResponse(success=False, message="User is not a room approver.")
+        return BasicResponse(success=False, message="User is not a room approver.", status_code=403)
     approvers = get_room_approvers_by_admin_id(
         admin.id if admin and admin.id is not None else -1
     )
 
     if not approvers:
-        return BasicResponse(success=False, message="User is not a room approver.")
+        return BasicResponse(success=False, message="User is not a room approver.", status_code=403)
     authorized = all(approver.admin == admin.id for approver in approvers)
 
     if not authorized:
         return BasicResponse(
-            success=False, message="User is not authorized to approve this reservation."
+            success=False, message="User is not authorized to approve this reservation.", status_code=403
         )
 
     change_reservation_status_by_id(
@@ -610,7 +611,7 @@ async def reservation_all(
     request: Request, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     all_reservations = get_all_reservations()
     classes = get_class()
@@ -654,15 +655,15 @@ async def reservation_export(
     admin_login=Depends(get_current_user),
 ) -> StreamingResponse | BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
     if payload.startTime and payload.endTime and payload.startTime > payload.endTime:
-        return BasicResponse(success=False, message="Invalid time range.")
+        return BasicResponse(success=False, message="Invalid time range.", status_code=400)
     reservations = get_reservations_by_time_range(
         datetime.fromtimestamp(payload.startTime) if payload.startTime else None,
         datetime.fromtimestamp(payload.endTime) if payload.endTime else None,
     )
     if not reservations:
-        return BasicResponse(success=False, message="No reservations found.")
+        return BasicResponse(success=False, message="No reservations found.", status_code=404)
     workbook = get_exported_xlsx(reservations)
 
     output = BytesIO()
@@ -683,10 +684,10 @@ async def class_create(
     request: Request, payload: ClassCreateRequest, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
     campus = get_campus_by_id(payload.campus)
     if not campus:
-        return BasicResponse(success=False, message="Invalid campus.")
+        return BasicResponse(success=False, message="Invalid campus.", status_code=400)
     create_class(name=payload.name, campus=payload.campus)
     return BasicResponse(success=True, message="Class created successfully.")
 
@@ -699,7 +700,7 @@ async def campus_create(
     admin_login=Depends(get_current_user),
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     create_campus(name=payload.name)
     return BasicResponse(success=True, message="Campus created successfully.")
@@ -711,10 +712,10 @@ async def room_create(
     request: Request, payload: RoomCreateRequest, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
     campus = get_campus_by_id(payload.campus)
     if not campus:
-        return BasicResponse(success=False, message="Invalid campus.")
+        return BasicResponse(success=False, message="Invalid campus.", status_code=400)
     create_room(name=payload.name, campus=payload.campus)
     return BasicResponse(success=True, message="Room created successfully.")
 
@@ -734,24 +735,24 @@ async def policy_create(
     admin_login=Depends(get_current_user),
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     if not all(6 >= day >= 0 for day in payload.days) or len(payload.days) > 7:
-        return BasicResponse(success=False, message="Invalid days.")
+        return BasicResponse(success=False, message="Invalid days.", status_code=400)
 
     if (
         not len(payload.startTime) == 2
         or not 23 >= payload.startTime[0] >= 0
         or not 59 >= payload.startTime[1] >= 0
     ):
-        return BasicResponse(success=False, message="Invalid start times.")
+        return BasicResponse(success=False, message="Invalid start times.", status_code=400)
 
     if (
         not len(payload.endTime) == 2
         or not 23 >= payload.endTime[0] >= 0
         or not 59 >= payload.endTime[1] >= 0
     ):
-        return BasicResponse(success=False, message="Invalid end times.")
+        return BasicResponse(success=False, message="Invalid end times.", status_code=400)
 
     create_policy(
         room=payload.room,
@@ -770,11 +771,11 @@ async def policy_delete(
     admin_login=Depends(get_current_user),
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     policy = get_policy_by_id(payload.id)
     if not policy:
-        return BasicResponse(success=False, message="Policy not found.")
+        return BasicResponse(success=False, message="Policy not found.", status_code=404)
     delete_policy(policy)
     return BasicResponse(success=True, message="Policy deleted successfully.")
 
@@ -787,11 +788,11 @@ async def policy_toggle(
     admin_login=Depends(get_current_user),
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     policy = get_policy_by_id(payload.id)
     if not policy:
-        return BasicResponse(success=False, message="Policy not found.")
+        return BasicResponse(success=False, message="Policy not found.", status_code=404)
     toggle_policy(policy)
     return BasicResponse(success=True, message="Policy toggled successfully.")
 
@@ -804,28 +805,28 @@ async def policy_edit(
     admin_login=Depends(get_current_user),
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     policy = get_policy_by_id(payload.id)
     if not policy:
-        return BasicResponse(success=False, message="Policy not found.")
+        return BasicResponse(success=False, message="Policy not found.", status_code=404)
 
     if not all(6 >= day >= 0 for day in payload.days) or len(payload.days) > 7:
-        return BasicResponse(success=False, message="Invalid days.")
+        return BasicResponse(success=False, message="Invalid days.", status_code=400)
 
     if (
         not len(payload.startTime) == 2
         or not 23 >= payload.startTime[0] >= 0
         or not 59 >= payload.startTime[1] >= 0
     ):
-        return BasicResponse(success=False, message="Invalid start times.")
+        return BasicResponse(success=False, message="Invalid start times.", status_code=400)
 
     if (
         not len(payload.endTime) == 2
         or not 23 >= payload.endTime[0] >= 0
         or not 59 >= payload.endTime[1] >= 0
     ):
-        return BasicResponse(success=False, message="Invalid end times.")
+        return BasicResponse(success=False, message="Invalid end times.", status_code=400)
 
     if (
         policy.days == payload.days
@@ -846,11 +847,11 @@ async def room_edit(
     request: Request, payload: RoomEditRequest, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     room = get_room_by_id(payload.id)
     if not room:
-        return BasicResponse(success=False, message="Room not found.")
+        return BasicResponse(success=False, message="Room not found.", status_code=404)
 
     room.name = payload.name
     room.campus = payload.campus
@@ -864,11 +865,11 @@ async def campus_edit(
     request: Request, payload: CampusEditRequest, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     campus = get_campus_by_id(payload.id)
     if not campus:
-        return BasicResponse(success=False, message="Campus not found.")
+        return BasicResponse(success=False, message="Campus not found.", status_code=404)
 
     campus.name = payload.name
     edit_campus(campus)
@@ -881,11 +882,11 @@ async def class_edit(
     request: Request, payload: ClassEditRequest, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     _class = get_class_by_id(payload.id)
     if not _class:
-        return BasicResponse(success=False, message="Class not found.")
+        return BasicResponse(success=False, message="Class not found.", status_code=404)
 
     _class.name = payload.name
     edit_class(_class)
@@ -900,19 +901,19 @@ async def approver_create(
     admin_login=Depends(get_current_user),
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     if not get_room_by_id(payload.room):
-        return BasicResponse(success=False, message="Room not found.")
+        return BasicResponse(success=False, message="Room not found.", status_code=404)
 
     if not get_admin_by_id(payload.admin):
-        return BasicResponse(success=False, message="Admin not found.")
+        return BasicResponse(success=False, message="Admin not found.", status_code=404)
 
     approvers = get_room_approvers_by_room_id(payload.room)
 
     if approvers and any(approver.admin == payload.admin for approver in approvers):
         return BasicResponse(
-            success=False, message="Admin is already an approver for this room."
+            success=False, message="Admin is already an approver for this room.", status_code=409
         )
 
     create_room_approver(room_id=payload.room, admin_id=payload.admin)
@@ -927,7 +928,7 @@ async def approver_list(
     request: Request, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     approvers = get_room_approvers()
     return BasicResponse(success=True, data=approvers)
@@ -941,11 +942,11 @@ async def approver_delete(
     admin_login=Depends(get_current_user),
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     approver = get_room_approver_by_id(payload.id)
     if not approver:
-        return BasicResponse(success=False, message="Approver not found.")
+        return BasicResponse(success=False, message="Approver not found.", status_code=404)
 
     delete_room_approver(approver=approver)
     return BasicResponse(
@@ -959,7 +960,7 @@ async def admin_list(
     request: Request, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     admins = get_admins()
     res = []
@@ -981,14 +982,14 @@ async def admin_create(
     request: Request, payload: AdminCreateRequest, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
     if get_admin_by_email(payload.email):
-        return BasicResponse(success=False, message="Admin already exists.")
+        return BasicResponse(success=False, message="Admin already exists.", status_code=409)
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
-        return BasicResponse(success=False, message="Invalid email format.")
+        return BasicResponse(success=False, message="Invalid email format.", status_code=400)
     if len(payload.password) < 6:
         return BasicResponse(
-            success=False, message="Password must be at least 6 characters."
+            success=False, message="Password must be at least 6 characters.", status_code=400
         )
     create_admin(
         name=payload.name, email=payload.email, password=password_hash(payload.password)
@@ -1004,10 +1005,10 @@ async def admin_edit_password(
     admin_login=Depends(get_current_user),
 ):
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
     admin = get_admin_by_id(payload.admin)
     if not admin:
-        return BasicResponse(success=False, message="Admin not found.")
+        return BasicResponse(success=False, message="Admin not found.", status_code=404)
     change_admin_password(payload.admin, password_hash(payload.newPassword))
     return BasicResponse(success=True, message="Password changed successfully.")
 
@@ -1018,14 +1019,14 @@ async def admin_edit(
     request: Request, payload: AdminEditRequest, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
     admin = get_admin_by_id(payload.id)
     if not admin:
-        return BasicResponse(success=False, message="Admin not found.")
+        return BasicResponse(success=False, message="Admin not found.", status_code=404)
     if admin.email != payload.email and get_admin_by_email(payload.email):
-        return BasicResponse(success=False, message="Email already in use.")
+        return BasicResponse(success=False, message="Email already in use.", status_code=409)
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
-        return BasicResponse(success=False, message="Invalid email format.")
+        return BasicResponse(success=False, message="Invalid email format.", status_code=400)
     if admin.name == payload.name and admin.email == payload.email:
         return BasicResponse(success=True, message="No changes detected.")
     admin.name = payload.name
@@ -1040,10 +1041,10 @@ async def admin_delete(
     request: Request, payload: AdminDeleteRequest, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
     admin = get_admin_by_id(payload.id)
     if not admin:
-        return BasicResponse(success=False, message="Admin not found.")
+        return BasicResponse(success=False, message="Admin not found.", status_code=404)
     delete_admin(admin)
     return BasicResponse(success=True, message="Admin deleted successfully.")
 
@@ -1053,7 +1054,7 @@ async def analytic_get(
     request: Request, admin_login=Depends(get_current_user)
 ) -> BasicResponse:
     if not admin_login:
-        return BasicResponse(success=False, message="User is not logged in.")
+        return BasicResponse(success=False, message="User is not logged in.", status_code=401)
 
     daily_reservations = []
     daily_reservation_creations = []

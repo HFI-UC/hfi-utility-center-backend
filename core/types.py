@@ -119,7 +119,7 @@ class BasicResponse(JSONResponse):
         status_code: int = 200,
         **kwargs,
     ):
-        content = {"success": success}
+        content: dict[str, Any] = {"success": success}
         if message:
             content["message"] = message
         if data:
