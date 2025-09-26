@@ -1,6 +1,8 @@
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Mapping
+from collections.abc import Iterable
 
 class ReservationCreateRequest(BaseModel):
     room: int
@@ -111,18 +113,39 @@ class AdminEditRequest(BaseModel):
     email: str
 
 class BasicResponse(JSONResponse):
+    """Unified API response wrapper.
+
+    Improvements:
+    - Always returns keys: success, message (when provided), data (always present; null or list/dict/primitive), status (HTTP code not duplicated in payload).
+    - Properly serializes SQLModel, Pydantic models, datetime, UUID, etc. via jsonable_encoder.
+    - Treats empty containers ([], {}, 0) as legitimate data instead of omitting them.
+    - Accepts headers/cookies passthrough through **kwargs like standard JSONResponse.
+    """
+
     def __init__(
         self,
         success: bool,
         message: Optional[str] = None,
         data: Any = None,
         status_code: int = 200,
+        include_none: bool = False,
         **kwargs,
-    ):
-        content: dict[str, Any] = {"success": success}
-        if message:
+    ) -> None:
+        # Ensure data key exists even when None for consistency on client side.
+        if data is None and include_none:
+            serialized_data = None
+        else:
+            try:
+                serialized_data = jsonable_encoder(data)
+            except Exception:
+                # Fallback best effort serialization
+                try:
+                    serialized_data = str(data)
+                except Exception:
+                    serialized_data = None
+
+        content: dict[str, Any] = {"success": success, "data": serialized_data}
+        if message is not None:
             content["message"] = message
-        if data:
-            content["data"] = data
-            
+
         super().__init__(content=content, status_code=status_code, **kwargs)

@@ -165,21 +165,48 @@ def get_current_user(request: Request) -> AdminLogin | None:
 @app.get("/room/list")
 @limiter.limit("5/second")
 async def room_list(request: Request) -> BasicResponse:
-    data = get_room()
+    rooms = get_room()
+    data = [
+        {
+            "id": r.id,
+            "name": r.name,
+            "campus": r.campus,
+            "createdAt": (lambda _ts=r.createdAt: int(_ts.timestamp()) if _ts else None)(),
+        }
+        for r in rooms
+    ]
     return BasicResponse(success=True, data=data)
 
 
 @app.get("/campus/list")
 @limiter.limit("5/second")
 async def campus_list(request: Request) -> BasicResponse:
-    data = get_campus()
+    campuses = get_campus()
+    data = [
+        {
+            "id": c.id,
+            "name": c.name,
+            "isPrivileged": c.isPrivileged,
+            "createdAt": (lambda _ts=c.createdAt: int(_ts.timestamp()) if _ts else None)(),
+        }
+        for c in campuses
+    ]
     return BasicResponse(success=True, data=data)
 
 
 @app.get("/class/list")
 @limiter.limit("5/second")
 async def class_list(request: Request) -> BasicResponse:
-    data = get_class()
+    classes = get_class()
+    data = [
+        {
+            "id": c.id,
+            "name": c.name,
+            "campus": c.campus,
+            "createdAt": (lambda _ts=c.createdAt: int(_ts.timestamp()) if _ts else None)(),
+        }
+        for c in classes
+    ]
     return BasicResponse(success=True, data=data)
 
 
