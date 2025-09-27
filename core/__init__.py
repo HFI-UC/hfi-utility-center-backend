@@ -1169,10 +1169,10 @@ async def analytics_overview_export(
         return BasicResponse(success=False, message="Turnstile verification failed.", status_code=403)
     export_uuid = uuid.uuid4()
     if type == "pdf":
-        get_exported_pdf(f"{frontend_url}/reservation/analytics/raw/overview", f"cache/overview_{export_uuid}.pdf")
+        await get_exported_pdf(f"{frontend_url}/reservation/analytics/raw/overview", f"cache/overview_{export_uuid}.pdf")
         return FileResponse(f"cache/overview_{export_uuid}.pdf", media_type="application/pdf")
     elif type == "png":
-        get_screenshot(f"{frontend_url}/reservation/analytics/raw/overview", f"cache/overview_{export_uuid}.png")
+        await get_screenshot(f"{frontend_url}/reservation/analytics/raw/overview", f"cache/overview_{export_uuid}.png")
         return FileResponse(f"cache/overview_{export_uuid}.png", media_type="image/png")
     return BasicResponse(success=False, message="Invalid export type.", status_code=400)
     
