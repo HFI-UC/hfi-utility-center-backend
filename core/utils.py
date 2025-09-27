@@ -132,7 +132,7 @@ async def get_exported_pdf(url: str, output: str, device_scale: int = 2) -> None
             format="A4",
             print_background=True,
             prefer_css_page_size=True,
-            margin={"bottom": "12mm", "top": "12mm"},
+            margin={ "bottom": "6mm", "top": "6mm" }
         )
         await browser.close()
 
@@ -147,5 +147,8 @@ async def get_screenshot(url: str, output: str, device_scale: int = 2) -> None:
         page = await context.new_page()
         await page.goto(url, wait_until="networkidle")
         await page.emulate_media(media="print")
-        await page.screenshot(path=output, full_page=True)
+        await page.screenshot(
+            path=output,
+            full_page=True,
+        )
         await browser.close()

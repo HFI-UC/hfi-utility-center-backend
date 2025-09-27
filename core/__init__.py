@@ -15,7 +15,7 @@ from core.types import *
 from core.email import *
 from core.utils import *
 from core.schedulers import *
-from datetime import _Date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import uuid
@@ -1176,7 +1176,7 @@ async def analytics_overview(request: Request) -> BasicResponse:
     now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     start = now - timedelta(days=365)
     analytics = get_analytics_between(start, now)
-    analytics_by_date: dict[_Date, Analytic] = {
+    analytics_by_date: dict[Any, Analytic] = {
         a.date.date(): a for a in analytics
     }
     for i in range(30):
@@ -1270,12 +1270,12 @@ async def analytics_overview(request: Request) -> BasicResponse:
 async def analytics_overview_export(
     request: Request,
     type: str,
-    turnstileToken: str,
+    # turnstileToken: str,
 ) -> FileResponse | BasicResponse:
-    if not verify_turnstile_token(turnstileToken):
-        return BasicResponse(
-            success=False, message="Turnstile verification failed.", status_code=403
-        )
+    # if not verify_turnstile_token(turnstileToken):
+    #     return BasicResponse(
+    #         success=False, message="Turnstile verification failed.", status_code=403
+    #     )
     export_uuid = uuid.uuid4()
     if type == "pdf":
         await get_exported_pdf(
