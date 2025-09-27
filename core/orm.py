@@ -475,9 +475,7 @@ def get_analytics_between(start: datetime, end: datetime) -> Sequence[Analytic]:
     s = start.astimezone(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    e = end.astimezone(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    e = end.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     with Session(engine) as session:
         analytics = session.exec(
             select(Analytic).where(Analytic.date >= s).where(Analytic.date <= e)
@@ -528,9 +526,7 @@ def delete_campus(campus: Campus) -> None:
     with Session(engine) as session:
         with Session(engine) as session:
             rooms = session.exec(select(Room).where(Room.campus == campus.id)).all()
-            classes = session.exec(
-                select(Class).where(Class.campus == campus.id)
-            ).all()
+            classes = session.exec(select(Class).where(Class.campus == campus.id)).all()
             session.close()
             for room in rooms:
                 delete_room(room)
@@ -580,9 +576,7 @@ def create_policy(
     room: int, days: List[int], startTime: List[int], endTime: List[int]
 ) -> None:
     with Session(engine) as session:
-        policy = RoomPolicy(
-            room=room, days=days, startTime=startTime, endTime=endTime
-        )
+        policy = RoomPolicy(room=room, days=days, startTime=startTime, endTime=endTime)
         session.add(policy)
         session.commit()
 
@@ -642,9 +636,7 @@ def delete_temp_admin_login(temp_admin_login: TempAdminLogin) -> None:
 
 def get_admin_by_id(admin_id: int) -> Admin | None:
     with Session(engine) as session:
-        admin = session.exec(
-            select(Admin).where(Admin.id == admin_id)
-        ).one_or_none()
+        admin = session.exec(select(Admin).where(Admin.id == admin_id)).one_or_none()
         return admin
 
 
@@ -726,9 +718,7 @@ def delete_admin(admin: Admin) -> None:
 
 def change_admin_password(admin_id: int, new_password: str) -> None:
     with Session(engine) as session:
-        admin = session.exec(
-            select(Admin).where(Admin.id == admin_id)
-        ).one_or_none()
+        admin = session.exec(select(Admin).where(Admin.id == admin_id)).one_or_none()
         if not admin:
             return
         admin.password = new_password

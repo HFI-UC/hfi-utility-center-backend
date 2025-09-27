@@ -7,6 +7,7 @@ from typing import Sequence
 from playwright.async_api import async_playwright
 import httpx
 
+
 def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
     classes = get_class()
 
@@ -27,12 +28,11 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
         "Class Name",
         "Status",
         "Creation Time",
-        "Campus Name"
+        "Campus Name",
     ]
     groups = {}
     for reservation in reservations:
         groups.setdefault(reservation.room, []).append(reservation)
-
 
     used = set()
     for room_id, reservations in groups.items():
@@ -44,7 +44,7 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
         while sheet_name in used:
             suffix = f"-{i}"
             if len(base) + len(suffix) > 31:
-                sheet_name = base[:31 - len(suffix)] + suffix
+                sheet_name = base[: 31 - len(suffix)] + suffix
             else:
                 sheet_name = base + suffix
             i += 1
@@ -54,31 +54,52 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
         ws.append(headers)
 
         for reservation in reservations:
-            class_name = next((cls.name for cls in classes if cls.id == reservation.classId), None)
+            class_name = next(
+                (cls.name for cls in classes if cls.id == reservation.classId), None
+            )
             campus = get_campus_by_id(room.campus) if room and room.campus else None
-            ws.append([
-                reservation.id,
-                reservation.startTime.replace(tzinfo=None) if reservation.startTime else None,
-                reservation.endTime.replace(tzinfo=None) if reservation.endTime else None,
-                reservation.studentName,
-                reservation.studentId,
-                reservation.email,
-                reservation.reason,
-                room.name if room else None,
-                class_name,
-                reservation.status.capitalize(),
-                reservation.createdAt.replace(tzinfo=None) if reservation.createdAt else None,
-                campus.name if campus else None,
-            ])
+            ws.append(
+                [
+                    reservation.id,
+                    (
+                        reservation.startTime.replace(tzinfo=None)
+                        if reservation.startTime
+                        else None
+                    ),
+                    (
+                        reservation.endTime.replace(tzinfo=None)
+                        if reservation.endTime
+                        else None
+                    ),
+                    reservation.studentName,
+                    reservation.studentId,
+                    reservation.email,
+                    reservation.reason,
+                    room.name if room else None,
+                    class_name,
+                    reservation.status.capitalize(),
+                    (
+                        reservation.createdAt.replace(tzinfo=None)
+                        if reservation.createdAt
+                        else None
+                    ),
+                    campus.name if campus else None,
+                ]
+            )
         dims = {}
         for row in ws.rows:
             for cell in row:
                 if cell.value:
-                    col_letter = getattr(cell, "column_letter", None) or get_column_letter(cell.column or -1)
-                    dims[col_letter] = max(dims.get(col_letter, 0), len(str(cell.value))) + 2
+                    col_letter = getattr(
+                        cell, "column_letter", None
+                    ) or get_column_letter(cell.column or -1)
+                    dims[col_letter] = (
+                        max(dims.get(col_letter, 0), len(str(cell.value))) + 2
+                    )
         for col, value in dims.items():
             ws.column_dimensions[col].width = value
     return workbook
+
 
 def verify_turnstile_token(token: str) -> bool:
     try:
@@ -95,6 +116,7 @@ def verify_turnstile_token(token: str) -> bool:
     except Exception:
         return False
 
+
 async def get_exported_pdf(url: str, output: str, device_scale: int = 2) -> None:
     async with async_playwright() as p:
         browser = await p.chromium.launch()
@@ -110,9 +132,10 @@ async def get_exported_pdf(url: str, output: str, device_scale: int = 2) -> None
             format="A4",
             print_background=True,
             prefer_css_page_size=True,
-            margin={"bottom": "12mm", "top": "12mm"}
+            margin={"bottom": "12mm", "top": "12mm"},
         )
         await browser.close()
+
 
 async def get_screenshot(url: str, output: str, device_scale: int = 2) -> None:
     async with async_playwright() as p:
