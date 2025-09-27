@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import Receive, Scope, Send, Message
 from fastapi.requests import Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from slowapi import _rate_limit_exceeded_handler, Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -25,7 +25,7 @@ import bcrypt
 import re
 import traceback
 import time
-
+import uuid
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -1049,9 +1049,9 @@ async def admin_delete(
     return BasicResponse(success=True, message="Admin deleted successfully.")
 
 
-@app.get("/analytic/general")
+@app.get("/analytics/overview")
 @limiter.limit("1/second")
-async def analytic_general(
+async def analytics_overview(
     request: Request
 ) -> BasicResponse:
     daily_reservations = []
@@ -1158,3 +1158,21 @@ async def analytic_general(
         },
     }
     return BasicResponse(success=True, data=data)
+
+@app.get("/analytics/overview/export", response_model=None)
+async def analytics_overview_export(
+    request: Request,
+    type: str,
+    turnstileToken: str
+) -> FileResponse | BasicResponse:
+    if not verify_turnstile_token(turnstileToken):
+        return BasicResponse(success=False, message="Turnstile verification failed.", status_code=403)
+    export_uuid = uuid.uuid4()
+    if type == "pdf":
+        get_exported_pdf(f"{frontend_url}/reservation/analytics/raw/overview", f"cache/overview_{export_uuid}.pdf")
+        return FileResponse(f"cache/overview_{export_uuid}.pdf", media_type="application/pdf")
+    elif type == "png":
+        get_screenshot(f"{frontend_url}/reservation/analytics/raw/overview", f"cache/overview_{export_uuid}.png")
+        return FileResponse(f"cache/overview_{export_uuid}.png", media_type="image/png")
+    return BasicResponse(success=False, message="Invalid export type.", status_code=400)
+    

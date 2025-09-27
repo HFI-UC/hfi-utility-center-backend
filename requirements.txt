@@ -79,7 +79,7 @@ et-xmlfile==2.0.0 ; python_version >= "3.12" and python_version < "4.0" \
 fastapi==0.116.1 ; python_version >= "3.12" and python_version < "4.0" \
     --hash=sha256:c46ac7c312df840f0c9e220f7964bada936781bc4e2e6eb71f1c4d7553786565 \
     --hash=sha256:ed52cbf946abfd70c5a0dccb24673f0670deeb517a88b3544d03c2a6bf283143
-greenlet==3.2.4 ; python_version < "3.14" and (platform_machine == "aarch64" or platform_machine == "ppc64le" or platform_machine == "x86_64" or platform_machine == "amd64" or platform_machine == "AMD64" or platform_machine == "win32" or platform_machine == "WIN32") and python_version >= "3.12" \
+greenlet==3.2.4 ; python_version >= "3.12" and python_version < "4.0" \
     --hash=sha256:00fadb3fedccc447f517ee0d3fd8fe49eae949e1cd0f6a611818f4f6fb7dc83b \
     --hash=sha256:061dc4cf2c34852b052a8620d40f36324554bc192be474b9e9770e8c042fd735 \
     --hash=sha256:0db5594dce18db94f7d1650d7489909b57afde4c580806b8d9203b6e79cdc079 \
@@ -155,6 +155,15 @@ openpyxl==3.1.5 ; python_version >= "3.12" and python_version < "4.0" \
 packaging==25.0 ; python_version >= "3.12" and python_version < "4.0" \
     --hash=sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484 \
     --hash=sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f
+playwright==1.55.0 ; python_version >= "3.12" and python_version < "4.0" \
+    --hash=sha256:012dc89ccdcbd774cdde8aeee14c08e0dd52ddb9135bf10e9db040527386bd76 \
+    --hash=sha256:25b0d6b3fd991c315cca33c802cf617d52980108ab8431e3e1d37b5de755c10e \
+    --hash=sha256:29a0777c4ce1273acf90c87e4ae2fe0130182100d99bcd2ae5bf486093044838 \
+    --hash=sha256:29e6d1558ad9d5b5c19cbec0a72f6a2e35e6353cd9f262e22148685b86759f90 \
+    --hash=sha256:7eb5956473ca1951abb51537e6a0da55257bb2e25fc37c2b75af094a5c93736c \
+    --hash=sha256:8290cf27a5d542e2682ac274da423941f879d07b001f6575a5a3a257b1d4ba1c \
+    --hash=sha256:c6d4d8f6f8c66c483b0835569c7f0caa03230820af8e500c181c93509c92d831 \
+    --hash=sha256:d7da108a95001e412effca4f7610de79da1637ccdf670b1ae3fdc08b9694c034
 psutil==7.0.0 ; python_version >= "3.12" and python_version < "4.0" \
     --hash=sha256:101d71dc322e3cffd7cea0650b09b3d08b8e7c4109dd6809fe452dfd00e58b25 \
     --hash=sha256:1e744154a6580bc968a0195fd25e80432d3afec619daf145b9e5ba16cc1d688e \
@@ -280,6 +289,9 @@ pydantic-core==2.33.2 ; python_version >= "3.12" and python_version < "4.0" \
 pydantic==2.11.7 ; python_version >= "3.12" and python_version < "4.0" \
     --hash=sha256:d989c3c6cb79469287b1569f7447a17848c998458d49ebe294e975b9baf0f0db \
     --hash=sha256:dde5df002701f6de26248661f6835bbe296a47bf73990135c7d07ce741b9623b
+pyee==13.0.0 ; python_version >= "3.12" and python_version < "4.0" \
+    --hash=sha256:48195a3cddb3b1515ce0695ed76036b5ccc2ef3a9f963ff9f77aec0139845498 \
+    --hash=sha256:b391e3c5a434d1f5118a25615001dbc8f669cf410ab67d04c4d4e07c55481c37
 pymysql==1.1.2 ; python_version >= "3.12" and python_version < "4.0" \
     --hash=sha256:4961d3e165614ae65014e361811a724e2044ad3ea3739de9903ae7c21f539f03 \
     --hash=sha256:e6b1d89711dd51f8f74b1631fe08f039e7d76cf67a42a323d3178f0f25762ed9

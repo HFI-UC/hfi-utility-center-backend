@@ -4,6 +4,7 @@ from openpyxl.utils import get_column_letter
 from core.orm import *
 from core.env import *
 from typing import Sequence
+from playwright.sync_api import sync_playwright
 import httpx
 
 def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
@@ -93,3 +94,34 @@ def verify_turnstile_token(token: str) -> bool:
                 return False
     except Exception:
         return False
+
+def get_exported_pdf(url: str, output: str, device_scale: int = 2) -> None:
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        context = browser.new_context(
+            viewport={"width": 800, "height": 900},
+            device_scale_factor=device_scale,
+        )
+        page = context.new_page()
+        page.goto(url, wait_until="networkidle")
+        page.emulate_media(media="print")
+        page.pdf(
+            path=output,
+            format="A4",
+            print_background=True,
+            prefer_css_page_size=True,
+        )
+        browser.close()
+
+def get_screenshot(url: str, output: str, device_scale: int = 2) -> None:
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        context = browser.new_context(
+            viewport={"width": 800, "height": 900},
+            device_scale_factor=device_scale,
+        )
+        page = context.new_page()
+        page.goto(url, wait_until="networkidle")
+        page.emulate_media(media="print")
+        page.screenshot(path=output, full_page=True)
+        browser.close()

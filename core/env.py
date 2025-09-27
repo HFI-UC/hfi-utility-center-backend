@@ -13,3 +13,4 @@ cloudflare_secret = os.getenv("CLOUDFLARE_SECRET") or ""
 port = int(os.getenv("PORT") or 8000)
 debug = os.getenv("DEBUG", "false").lower() == "true"
 daily_report_recipients: list[str] = json.loads(os.getenv("DAILY_REPORT_RECIPIENTS") or "[]")
+frontend_url = os.getenv("FRONTEND_URL") or ""
