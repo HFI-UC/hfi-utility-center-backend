@@ -109,7 +109,8 @@ async def get_exported_pdf(url: str, output: str, device_scale: int = 2) -> None
             path=output,
             format="A4",
             print_background=True,
-            # prefer_css_page_size=True,
+            prefer_css_page_size=True,
+            margin={"bottom": "12mm", "top": "12mm"}
         )
         await browser.close()
 
