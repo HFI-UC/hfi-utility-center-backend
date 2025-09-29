@@ -1,7 +1,11 @@
-from fastapi.responses import JSONResponse
+from datetime import datetime
+from typing import Any, Generic, List, Optional, TypeVar
+
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel
-from typing import Any, List, Optional
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict
+
+T = TypeVar("T")
 
 
 class ReservationCreateRequest(BaseModel):
@@ -135,26 +139,141 @@ class AdminEditRequest(BaseModel):
     email: str
 
 
-class BasicResponse(JSONResponse):
+class FromAttributesModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CampusListResponse(FromAttributesModel):
+    id: int | None
+    name: str
+    isPrivileged: bool = False
+    createdAt: datetime | None = None
+
+
+class RoomListResponse(FromAttributesModel):
+    id: int | None
+    name: str
+    campus: int | None
+    createdAt: datetime | None = None
+
+
+class ClassListResponse(FromAttributesModel):
+    id: int | None
+    name: str
+    campus: int | None
+    createdAt: datetime | None = None
+
+
+class PolicyListResponse(FromAttributesModel):
+    id: int | None
+    room: int | None
+    days: List[int]
+    startTime: List[int]
+    endTime: List[int]
+    enabled: bool
+
+
+class ApproverListResponse(FromAttributesModel):
+    id: int | None
+    room: int | None
+    admin: int | None
+
+
+class AdminListResponse(FromAttributesModel):
+    id: int | None
+    name: str
+    email: str
+    createdAt: datetime | None = None
+
+
+class ReservationBase(FromAttributesModel):
+    id: int | None
+    startTime: datetime
+    endTime: datetime
+    studentName: str
+    email: str
+    reason: str
+    status: str
+
+
+class ReservationGetResponse(ReservationBase):
+    className: str | None = None
+    roomName: str | None = None
+
+
+class ReservationFutureResponse(ReservationBase):
+    studentId: str
+    className: str | None = None
+    roomName: str | None = None
+    createdAt: int
+    campusName: str | None = None
+
+
+class ReservationAllResponse(ReservationBase):
+    studentId: str
+    className: str | None = None
+    roomName: str | None = None
+    createdAt: datetime
+    campusName: str | None = None
+    latestExecutor: str | None = None
+
+
+class ReservationCreateResponse(BaseModel):
+    reservationId: int
+
+
+class AnalyticsOverviewDailyDetail(BaseModel):
+    reservations: List[int]
+    reservationCreations: List[int]
+    requests: List[int]
+    approvals: List[int]
+    rejections: List[int]
+
+
+class AnalyticsOverviewWeeklyDetail(BaseModel):
+    reservations: List[int]
+    reservationCreations: List[int]
+    approvals: List[int]
+    rejections: List[int]
+
+
+class AnalyticsOverviewMonthlyDetail(BaseModel):
+    reservations: List[int]
+    reservationCreations: List[int]
+    approvals: List[int]
+    rejections: List[int]
+
+
+class AnalyticsOverviewTodayDetail(BaseModel):
+    reservations: int
+    reservationCreations: int
+    requests: int
+    approvals: int
+    rejections: int
+
+
+class AnalyticsOverviewResponse(BaseModel):
+    daily: AnalyticsOverviewDailyDetail
+    weekly: AnalyticsOverviewWeeklyDetail
+    monthly: AnalyticsOverviewMonthlyDetail
+    today: AnalyticsOverviewTodayDetail
+
+
+class BasicResponseBody(BaseModel, Generic[T]):
+    success: bool
+    data: Optional[T] = None
+    message: Optional[str] = None
+
+
+class BasicResponse(JSONResponse, Generic[T]):
     def __init__(
         self,
         success: bool,
         message: Optional[str] = None,
-        data: Any = None,
+        data: Optional[T] = None,
         status_code: int = 200,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
-        serialized_data = None
-        try:
-            serialized_data = jsonable_encoder(data)
-        except Exception:
-            try:
-                serialized_data = str(data)
-            except Exception:
-                serialized_data = None
-
-        content: dict[str, Any] = {"success": success, "data": serialized_data}
-        if message is not None:
-            content["message"] = message
-
+        body = BasicResponseBody[T](success=success, data=data, message=message)
+        content = jsonable_encoder(body.model_dump(exclude_none=True))
         super().__init__(content=content, status_code=status_code, **kwargs)

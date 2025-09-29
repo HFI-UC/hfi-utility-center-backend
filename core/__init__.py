@@ -1,9 +1,9 @@
-from fastapi import Depends, FastAPI, BackgroundTasks
+from fastapi import BackgroundTasks, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import Receive, Scope, Send, Message
 from fastapi.requests import Request
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import FileResponse
 from slowapi import _rate_limit_exceeded_handler, Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -16,7 +16,7 @@ from core.email import *
 from core.utils import *
 from core.schedulers import *
 from datetime import datetime, timedelta, timezone
-from io import BytesIO
+from typing import Any
 
 import uuid
 import hashlib
@@ -168,32 +168,71 @@ def get_current_user(request: Request) -> AdminLogin | None:
     return user_login
 
 
-@app.get("/room/list")
+@app.get(
+    "/room/list",
+    response_model=BasicResponseBody[list[RoomListResponse]],
+)
 @limiter.limit("5/second")
-async def room_list(request: Request) -> BasicResponse:
-    data = get_room()
+async def room_list(request: Request) -> BasicResponse[list[RoomListResponse]]:
+    rooms = get_room()
+    data = [
+        RoomListResponse(
+            id=room.id,
+            name=room.name,
+            campus=room.campusId,
+            createdAt=room.createdAt,
+        )
+        for room in rooms
+    ]
     return BasicResponse(success=True, data=data)
 
 
-@app.get("/campus/list")
+@app.get(
+    "/campus/list",
+    response_model=BasicResponseBody[list[CampusListResponse]],
+)
 @limiter.limit("5/second")
-async def campus_list(request: Request) -> BasicResponse:
-    data = get_campus()
+async def campus_list(request: Request) -> BasicResponse[list[CampusListResponse]]:
+    campuses = get_campus()
+    data = [
+        CampusListResponse(
+            id=campus.id,
+            name=campus.name,
+            isPrivileged=campus.isPrivileged,
+            createdAt=campus.createdAt,
+        )
+        for campus in campuses
+    ]
     return BasicResponse(success=True, data=data)
 
 
-@app.get("/class/list")
+@app.get(
+    "/class/list",
+    response_model=BasicResponseBody[list[ClassListResponse]],
+)
 @limiter.limit("5/second")
-async def class_list(request: Request) -> BasicResponse:
-    data = get_class()
+async def class_list(request: Request) -> BasicResponse[list[ClassListResponse]]:
+    classes = get_class()
+    data = [
+        ClassListResponse(
+            id=_class.id,
+            name=_class.name,
+            campus=_class.campusId,
+            createdAt=_class.createdAt,
+        )
+        for _class in classes
+    ]
     return BasicResponse(success=True, data=data)
 
 
-@app.post("/campus/delete")
+@app.post(
+    "/campus/delete",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def campus_delete(
     request: Request, payload: CampusDeleteRequest
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     campus = get_campus_by_id(payload.id)
     if not campus:
         return BasicResponse(
@@ -203,9 +242,14 @@ async def campus_delete(
     return BasicResponse(success=True, message="Campus deleted successfully.")
 
 
-@app.post("/room/delete")
+@app.post(
+    "/room/delete",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
-async def room_delete(request: Request, payload: RoomDeleteRequest) -> BasicResponse:
+async def room_delete(
+    request: Request, payload: RoomDeleteRequest
+) -> BasicResponse[Any]:
     room = get_room_by_id(payload.id)
     if not room:
         return BasicResponse(success=False, message="Room not found.", status_code=404)
@@ -213,9 +257,14 @@ async def room_delete(request: Request, payload: RoomDeleteRequest) -> BasicResp
     return BasicResponse(success=True, message="Room deleted successfully.")
 
 
-@app.post("/class/delete")
+@app.post(
+    "/class/delete",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
-async def class_delete(request: Request, payload: ClassDeleteRequest) -> BasicResponse:
+async def class_delete(
+    request: Request, payload: ClassDeleteRequest
+) -> BasicResponse[Any]:
     _class = get_class_by_id(payload.id)
     if not _class:
         return BasicResponse(success=False, message="Class not found.", status_code=404)
@@ -223,13 +272,16 @@ async def class_delete(request: Request, payload: ClassDeleteRequest) -> BasicRe
     return BasicResponse(success=True, message="Class deleted successfully.")
 
 
-@app.post("/reservation/create")
+@app.post(
+    "/reservation/create",
+    response_model=BasicResponseBody[ReservationCreateResponse],
+)
 @limiter.limit("5/second")
 async def reservation_create(
     request: Request,
     payload: ReservationCreateRequest,
     background_task: BackgroundTasks,
-) -> BasicResponse:
+) -> BasicResponse[ReservationCreateResponse]:
     if not verify_turnstile_token(payload.turnstileToken):
         return BasicResponse(
             success=False, message="Turnstile verification failed.", status_code=403
@@ -256,7 +308,7 @@ async def reservation_create(
 
     def validate_policy(_time: int) -> bool:
         if room:
-            policies = get_policy_by_room_id(room.id or -1)
+            policies = get_policy_by_room_id(room.id)
             time_obj = datetime.fromtimestamp(_time)
             day = time_obj.weekday()
             for policy in policies:
@@ -362,7 +414,9 @@ async def reservation_create(
                     details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected due to a higher priority reservation.",
                 )
         return BasicResponse(
-            success=True, message="Your reservation has been created and approved."
+            success=True,
+            message="Your reservation has been created and approved.",
+            data=ReservationCreateResponse(reservationId=result),
         )
 
     for approver in approvers:
@@ -388,46 +442,56 @@ async def reservation_create(
             link=f"{base_url}/admin/reservation/?token={token}",
         )
         create_temp_admin_login(admin.email, token)
-    return BasicResponse(success=True, message=f"Your reservation has been created.")
+    return BasicResponse(
+        success=True,
+        message="Your reservation has been created.",
+        data=ReservationCreateResponse(reservationId=result),
+    )
 
 
-@app.post("/reservation/get")
+@app.post(
+    "/reservation/get",
+    response_model=BasicResponseBody[list[ReservationGetResponse]],
+)
 @limiter.limit("5/second")
 async def reservation_get(
     request: Request, payload: ReservationGetRequest
-) -> BasicResponse:
+) -> BasicResponse[list[ReservationGetResponse]]:
     if payload.room and not get_room_by_id(payload.room):
         return BasicResponse(success=False, message="Room not found.", status_code=404)
 
     reservations = get_reservation(payload.keyword, payload.room, payload.status)
     classes = get_class()
-    res = []
+    res: list[ReservationGetResponse] = []
     for reservation in reservations:
         class_name = next(
             (cls.name for cls in classes if cls.id == reservation.classId), None
         )
-        room = get_room_by_id(reservation.room)
+        room = get_room_by_id(reservation.roomId)
         res.append(
-            {
-                "id": reservation.id,
-                "startTime": reservation.startTime,
-                "endTime": reservation.endTime,
-                "studentName": reservation.studentName,
-                "email": reservation.email,
-                "reason": reservation.reason,
-                "className": class_name,
-                "roomName": room.name if room else None,
-                "status": reservation.status,
-            }
+            ReservationGetResponse(
+                id=reservation.id,
+                startTime=reservation.startTime,
+                endTime=reservation.endTime,
+                studentName=reservation.studentName,
+                email=reservation.email,
+                reason=reservation.reason,
+                className=class_name,
+                roomName=room.name if room else None,
+                status=reservation.status,
+            )
         )
     return BasicResponse(success=True, data=res)
 
 
-@app.post("/admin/login")
+@app.post(
+    "/admin/login",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def admin_login(
     request: Request, payload: AdminLoginRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if admin_login:
         return BasicResponse(
             success=False, message="User already logged in.", status_code=400
@@ -484,11 +548,14 @@ async def admin_login(
     return response
 
 
-@app.get("/admin/logout")
+@app.get(
+    "/admin/logout",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def admin_logout(
     request: Request, user_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not user_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -498,21 +565,27 @@ async def admin_logout(
     return response
 
 
-@app.get("/admin/check-login")
+@app.get(
+    "/admin/check-login",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def admin_check_login(
     request: Request, user_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if user_login:
         return BasicResponse(success=True)
     return BasicResponse(success=False, status_code=400)
 
 
-@app.get("/reservation/future")
+@app.get(
+    "/reservation/future",
+    response_model=BasicResponseBody[list[ReservationFutureResponse]],
+)
 @limiter.limit("5/second")
 async def reservation_future(
     request: Request, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[list[ReservationFutureResponse]]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -522,40 +595,43 @@ async def reservation_future(
         admin.id if admin and admin.id is not None else -1
     )
     classes = get_class()
-    res = []
+    res: list[ReservationFutureResponse] = []
     for reservation in future_reservations:
         class_name = next(
             (cls.name for cls in classes if cls.id == reservation.classId), None
         )
-        room = get_room_by_id(reservation.room)
-        campus = get_campus_by_id(room.campus) if room and room.campus else None
+        room = get_room_by_id(reservation.roomId)
+        campus = get_campus_by_id(room.campusId) if room and room.campusId else None
         res.append(
-            {
-                "id": reservation.id,
-                "startTime": reservation.startTime,
-                "endTime": reservation.endTime,
-                "studentName": reservation.studentName,
-                "email": reservation.email,
-                "reason": reservation.reason,
-                "roomName": room.name if room else None,
-                "className": class_name,
-                "studentId": reservation.studentId,
-                "status": reservation.status,
-                "createdAt": int(reservation.createdAt.timestamp()),
-                "campusName": campus.name if campus else None,
-            }
+            ReservationFutureResponse(
+                id=reservation.id,
+                startTime=reservation.startTime,
+                endTime=reservation.endTime,
+                studentName=reservation.studentName,
+                email=reservation.email,
+                reason=reservation.reason,
+                roomName=room.name if room else None,
+                className=class_name,
+                studentId=reservation.studentId,
+                status=reservation.status,
+                createdAt=int(reservation.createdAt.timestamp()),
+                campusName=campus.name if campus else None,
+            )
         )
     return BasicResponse(success=True, data=res)
 
 
-@app.post("/reservation/approval")
+@app.post(
+    "/reservation/approval",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def reservation_approval(
     request: Request,
     payload: ReservationApproveRequest,
     background_task: BackgroundTasks,
     admin_login=Depends(get_current_user),
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -619,7 +695,7 @@ async def reservation_approval(
     class_name = next(
         (cls.name for cls in classes if cls.id == reservation.classId), None
     )
-    room = get_room_by_id(reservation.room)
+    room = get_room_by_id(reservation.roomId)
     if payload.approved:
         background_task.add_task(
             send_reservation_approval_email,
@@ -645,11 +721,14 @@ async def reservation_approval(
     return BasicResponse(success=True, message="Reservation updated successfully.")
 
 
-@app.get("/reservation/all")
+@app.get(
+    "/reservation/all",
+    response_model=BasicResponseBody[list[ReservationAllResponse]],
+)
 @limiter.limit("5/second")
 async def reservation_all(
     request: Request, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[list[ReservationAllResponse]]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -657,34 +736,34 @@ async def reservation_all(
 
     all_reservations = get_all_reservations()
     classes = get_class()
-    res = []
+    res: list[ReservationAllResponse] = []
     for reservation in all_reservations:
         class_name = next(
             (cls.name for cls in classes if cls.id == reservation.classId), None
         )
-        room = get_room_by_id(reservation.room)
-        campus = get_campus_by_id(room.campus) if room and room.campus else None
+        room = get_room_by_id(reservation.roomId)
+        campus = get_campus_by_id(room.campusId) if room and room.campus else None
         executor = (
-            get_admin_by_id(reservation.latestExecutor)
+            get_admin_by_id(reservation.latestExecutorId)
             if reservation.latestExecutor
             else None
         )
         res.append(
-            {
-                "id": reservation.id,
-                "startTime": reservation.startTime,
-                "endTime": reservation.endTime,
-                "studentName": reservation.studentName,
-                "studentId": reservation.studentId,
-                "email": reservation.email,
-                "reason": reservation.reason,
-                "roomName": room.name if room else None,
-                "className": class_name,
-                "status": reservation.status,
-                "createdAt": reservation.createdAt,
-                "campusName": campus.name if campus else None,
-                "latestExecutor": executor.email if executor else None,
-            }
+            ReservationAllResponse(
+                id=reservation.id,
+                startTime=reservation.startTime,
+                endTime=reservation.endTime,
+                studentName=reservation.studentName,
+                studentId=reservation.studentId,
+                email=reservation.email,
+                reason=reservation.reason,
+                roomName=room.name if room else None,
+                className=class_name,
+                status=reservation.status,
+                createdAt=reservation.createdAt,
+                campusName=campus.name if campus else None,
+                latestExecutor=executor.email if executor else None,
+            )
         )
     return BasicResponse(success=True, data=res)
 
@@ -696,7 +775,7 @@ async def reservation_export(
     startTime: int = -1,
     endTime: int = -1,
     admin_login=Depends(get_current_user),
-) -> FileResponse | BasicResponse:
+) -> FileResponse | BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -722,11 +801,14 @@ async def reservation_export(
     )
 
 
-@app.post("/class/create")
+@app.post(
+    "/class/create",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def class_create(
     request: Request, payload: ClassCreateRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -738,13 +820,16 @@ async def class_create(
     return BasicResponse(success=True, message="Class created successfully.")
 
 
-@app.post("/campus/create")
+@app.post(
+    "/campus/create",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def campus_create(
     request: Request,
     payload: CampusCreateRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -754,11 +839,14 @@ async def campus_create(
     return BasicResponse(success=True, message="Campus created successfully.")
 
 
-@app.post("/room/create")
+@app.post(
+    "/room/create",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def room_create(
     request: Request, payload: RoomCreateRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -770,20 +858,37 @@ async def room_create(
     return BasicResponse(success=True, message="Room created successfully.")
 
 
-@app.get("/policy/list")
+@app.get(
+    "/policy/list",
+    response_model=BasicResponseBody[list[PolicyListResponse]],
+)
 @limiter.limit("5/second")
-async def policy_list(request: Request) -> BasicResponse:
+async def policy_list(request: Request) -> BasicResponse[list[PolicyListResponse]]:
     policies = get_policy()
-    return BasicResponse(success=True, data=policies)
+    data = [
+        PolicyListResponse(
+            id=policy.id,
+            room=policy.roomId,
+            days=policy.days,
+            startTime=policy.startTime,
+            endTime=policy.endTime,
+            enabled=policy.enabled,
+        )
+        for policy in policies
+    ]
+    return BasicResponse(success=True, data=data)
 
 
-@app.post("/policy/create")
+@app.post(
+    "/policy/create",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def policy_create(
     request: Request,
     payload: RoomPolicyCreateRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -819,13 +924,16 @@ async def policy_create(
     return BasicResponse(success=True, message="Policy created successfully.")
 
 
-@app.post("/policy/delete")
+@app.post(
+    "/policy/delete",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def policy_delete(
     request: Request,
     payload: RoomPolicyDeleteRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -840,13 +948,16 @@ async def policy_delete(
     return BasicResponse(success=True, message="Policy deleted successfully.")
 
 
-@app.post("/policy/toggle")
+@app.post(
+    "/policy/toggle",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def policy_toggle(
     request: Request,
     payload: RoomPolicyToggleRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -861,13 +972,16 @@ async def policy_toggle(
     return BasicResponse(success=True, message="Policy toggled successfully.")
 
 
-@app.post("/policy/edit")
+@app.post(
+    "/policy/edit",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def policy_edit(
     request: Request,
     payload: RoomPolicyEditRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -913,11 +1027,14 @@ async def policy_edit(
     return BasicResponse(success=True, message="Policy edited successfully.")
 
 
-@app.post("/room/edit")
+@app.post(
+    "/room/edit",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def room_edit(
     request: Request, payload: RoomEditRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -928,16 +1045,19 @@ async def room_edit(
         return BasicResponse(success=False, message="Room not found.", status_code=404)
 
     room.name = payload.name
-    room.campus = payload.campus
+    room.campusId = payload.campus
     edit_room(room)
     return BasicResponse(success=True, message="Room edited successfully.")
 
 
-@app.post("/campus/edit")
+@app.post(
+    "/campus/edit",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def campus_edit(
     request: Request, payload: CampusEditRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -954,11 +1074,14 @@ async def campus_edit(
     return BasicResponse(success=True, message="Campus edited successfully.")
 
 
-@app.post("/class/edit")
+@app.post(
+    "/class/edit",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def class_edit(
     request: Request, payload: ClassEditRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -973,13 +1096,16 @@ async def class_edit(
     return BasicResponse(success=True, message="Class edited successfully.")
 
 
-@app.post("/approver/create")
+@app.post(
+    "/approver/create",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def approver_create(
     request: Request,
     payload: RoomApproverCreateRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1004,27 +1130,37 @@ async def approver_create(
     return BasicResponse(success=True, message="Room approver created successfully.")
 
 
-@app.get("/approver/list")
+@app.get(
+    "/approver/list",
+    response_model=BasicResponseBody[list[ApproverListResponse]],
+)
 @limiter.limit("5/second")
 async def approver_list(
     request: Request, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[list[ApproverListResponse]]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     approvers = get_room_approvers()
-    return BasicResponse(success=True, data=approvers)
+    data = [
+        ApproverListResponse(id=approver.id, room=approver.roomId, admin=approver.adminId)
+        for approver in approvers
+    ]
+    return BasicResponse(success=True, data=data)
 
 
-@app.post("/approver/delete")
+@app.post(
+    "/approver/delete",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def approver_delete(
     request: Request,
     payload: RoomApproverDeleteRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1040,35 +1176,40 @@ async def approver_delete(
     return BasicResponse(success=True, message="Room approver deleted successfully.")
 
 
-@app.get("/admin/list")
+@app.get(
+    "/admin/list",
+    response_model=BasicResponseBody[list[AdminListResponse]],
+)
 @limiter.limit("5/second")
 async def admin_list(
     request: Request, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[list[AdminListResponse]]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     admins = get_admins()
-    res = []
-    for admin in admins:
-        res.append(
-            {
-                "id": admin.id,
-                "name": admin.name,
-                "email": admin.email,
-                "createdAt": admin.createdAt,
-            }
+    res = [
+        AdminListResponse(
+            id=admin.id,
+            name=admin.name,
+            email=admin.email,
+            createdAt=admin.createdAt,
         )
+        for admin in admins
+    ]
     return BasicResponse(success=True, data=res)
 
 
-@app.post("/admin/create")
+@app.post(
+    "/admin/create",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def admin_create(
     request: Request, payload: AdminCreateRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1093,13 +1234,16 @@ async def admin_create(
     return BasicResponse(success=True, message="Admin created successfully.")
 
 
-@app.post("/admin/edit-password")
+@app.post(
+    "/admin/edit-password",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def admin_edit_password(
     request: Request,
     payload: AdminEditPasswordRequest,
     admin_login=Depends(get_current_user),
-):
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1111,11 +1255,14 @@ async def admin_edit_password(
     return BasicResponse(success=True, message="Password changed successfully.")
 
 
-@app.post("/admin/edit")
+@app.post(
+    "/admin/edit",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def admin_edit(
     request: Request, payload: AdminEditRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1139,11 +1286,14 @@ async def admin_edit(
     return BasicResponse(success=True, message="Admin edited successfully.")
 
 
-@app.post("/admin/delete")
+@app.post(
+    "/admin/delete",
+    response_model=BasicResponseBody[Any],
+)
 @limiter.limit("5/second")
 async def admin_delete(
     request: Request, payload: AdminDeleteRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse:
+) -> BasicResponse[Any]:
     if not admin_login:
         return BasicResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1155,9 +1305,14 @@ async def admin_delete(
     return BasicResponse(success=True, message="Admin deleted successfully.")
 
 
-@app.get("/analytics/overview")
+@app.get(
+    "/analytics/overview",
+    response_model=BasicResponseBody[AnalyticsOverviewResponse],
+)
 @limiter.limit("1/second")
-async def analytics_overview(request: Request) -> BasicResponse:
+async def analytics_overview(
+    request: Request,
+) -> BasicResponse[AnalyticsOverviewResponse]:
     daily_reservations: list[int] = []
     daily_reservation_creations: list[int] = []
     daily_requests: list[int] = []
@@ -1176,9 +1331,7 @@ async def analytics_overview(request: Request) -> BasicResponse:
     now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     start = now - timedelta(days=365)
     analytics = get_analytics_between(start, now)
-    analytics_by_date: dict[Any, Analytic] = {
-        a.date.date(): a for a in analytics
-    }
+    analytics_by_date: dict[Any, Analytic] = {a.date.date(): a for a in analytics}
     for i in range(30):
         d = (now - timedelta(days=29 - i)).date()
         a = analytics_by_date.get(d)
@@ -1233,49 +1386,53 @@ async def analytics_overview(request: Request) -> BasicResponse:
         monthly_approvals.append(v[3])
         monthly_rejections.append(v[4])
 
-    data = {
-        "daily": {
-            "reservations": daily_reservations,
-            "reservationCreations": daily_reservation_creations,
-            "requests": daily_requests,
-            "approvals": daily_approvals,
-            "rejections": daily_rejections,
-        },
-        "weekly": {
-            "reservations": weekly_reservations,
-            "reservationCreations": weekly_reservation_creations,
-            "approvals": weekly_approvals,
-            "rejections": weekly_rejections,
-        },
-        "monthly": {
-            "reservations": monthly_reservations,
-            "reservationCreations": monthly_reservation_creations,
-            "approvals": monthly_approvals,
-            "rejections": monthly_rejections,
-        },
-        "today": {
-            "reservations": daily_reservations[-1] if daily_reservations else 0,
-            "reservationCreations": (
+    data = AnalyticsOverviewResponse(
+        daily=AnalyticsOverviewDailyDetail(
+            reservations=daily_reservations,
+            reservationCreations=daily_reservation_creations,
+            requests=daily_requests,
+            approvals=daily_approvals,
+            rejections=daily_rejections,
+        ),
+        weekly=AnalyticsOverviewWeeklyDetail(
+            reservations=weekly_reservations,
+            reservationCreations=weekly_reservation_creations,
+            approvals=weekly_approvals,
+            rejections=weekly_rejections,
+        ),
+        monthly=AnalyticsOverviewMonthlyDetail(
+            reservations=monthly_reservations,
+            reservationCreations=monthly_reservation_creations,
+            approvals=monthly_approvals,
+            rejections=monthly_rejections,
+        ),
+        today=AnalyticsOverviewTodayDetail(
+            reservations=daily_reservations[-1] if daily_reservations else 0,
+            reservationCreations=(
                 daily_reservation_creations[-1] if daily_reservation_creations else 0
             ),
-            "requests": daily_requests[-1] if daily_requests else 0,
-            "approvals": daily_approvals[-1] if daily_approvals else 0,
-            "rejections": daily_rejections[-1] if daily_rejections else 0,
-        },
-    }
+            requests=daily_requests[-1] if daily_requests else 0,
+            approvals=daily_approvals[-1] if daily_approvals else 0,
+            rejections=daily_rejections[-1] if daily_rejections else 0,
+        ),
+    )
     return BasicResponse(success=True, data=data)
 
 
-@app.get("/analytics/overview/export", response_model=None)
+@app.get(
+    "/analytics/overview/export",
+    response_model=None
+)
+@limiter.limit("1/second")
 async def analytics_overview_export(
     request: Request,
     type: str,
-    # turnstileToken: str,
-) -> FileResponse | BasicResponse:
-    # if not verify_turnstile_token(turnstileToken):
-    #     return BasicResponse(
-    #         success=False, message="Turnstile verification failed.", status_code=403
-    #     )
+    turnstileToken: str,
+) -> FileResponse | BasicResponse[Any]:
+    if not verify_turnstile_token(turnstileToken):
+        return BasicResponse(
+            success=False, message="Turnstile verification failed.", status_code=403
+        )
     export_uuid = uuid.uuid4()
     if type == "pdf":
         await get_exported_pdf(

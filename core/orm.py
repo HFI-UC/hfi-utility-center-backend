@@ -12,21 +12,23 @@ from sqlmodel import (
     Column,
     BIGINT,
     func,
+    Relationship,
 )
 from core.env import *
 from typing import Sequence, List
 from core.types import *
-import traceback
 
 
 class Class(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str
-    campus: int
+    campusId: int | None = Field(default=None, foreign_key="campus.id")
     createdAt: datetime = Field(
         sa_column=Column(DateTime(timezone=True), server_default=func.now()),
         default_factory=None,
     )
+    campus: "Campus" = Relationship(back_populates="classes")
+    reservations: List["Reservation"] = Relationship(back_populates="class_")
 
 
 class Campus(SQLModel, table=True):
@@ -37,27 +39,35 @@ class Campus(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), server_default=func.now()),
         default_factory=None,
     )
+    classes: List["Class"] = Relationship(back_populates="campus")
+    rooms: List["Room"] = Relationship(back_populates="campus")
 
 
 class Room(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str
-    campus: int
+    campusId: int | None = Field(default=None, foreign_key="campus.id")
     createdAt: datetime | None = Field(
         sa_column=Column(DateTime(timezone=True), server_default=func.now()),
         default_factory=None,
     )
+    campus: "Campus" = Relationship(back_populates="rooms")
+    reservations: List["Reservation"] = Relationship(back_populates="room")
+    approvers: List["RoomApprover"] = Relationship(back_populates="room")
+    policies: List["RoomPolicy"] = Relationship(back_populates="room")
 
 
 class RoomApprover(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    room: int
-    admin: int
+    roomId: int | None = Field(default=None, foreign_key="room.id")
+    adminId: int | None = Field(default=None, foreign_key="admin.id")
+    room: "Room" = Relationship(back_populates="approvers")
+    admin: "Admin" = Relationship(back_populates="approvers")
 
 
 class Reservation(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    room: int
+    roomId: int | None = Field(default=None, foreign_key="room.id")
     startTime: datetime = Field(
         sa_column=Column(DateTime(timezone=True), server_default=func.now()),
         default_factory=None,
@@ -69,23 +79,28 @@ class Reservation(SQLModel, table=True):
     studentName: str
     email: str
     reason: str
-    classId: int
+    classId: int | None = Field(default=None, foreign_key="class.id")
     studentId: str
     status: str = "pending"
-    latestExecutor: int | None = Field(default=None)
+    latestExecutorId: int | None = Field(default=None, foreign_key="admin.id")
     createdAt: datetime = Field(
         sa_column=Column(DateTime(timezone=True), server_default=func.now()),
         default_factory=None,
     )
+    room: "Room" = Relationship(back_populates="reservations")
+    class_: "Class" = Relationship(back_populates="reservations")
+    logs: List["ReservationOperationLog"] = Relationship(back_populates="reservation")
+    latestExecutor: "Admin" = Relationship(back_populates="executed_reservations")
 
 
 class RoomPolicy(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    room: int
+    roomId: int | None = Field(default=None, foreign_key="room.id")
     days: List[int] = Field(sa_column=Column(JSON))
     startTime: List[int] = Field(sa_column=Column(JSON))
     endTime: List[int] = Field(sa_column=Column(JSON))
     enabled: bool = True
+    room: "Room" = Relationship(back_populates="policies")
 
 
 class Admin(SQLModel, table=True):
@@ -96,6 +111,13 @@ class Admin(SQLModel, table=True):
     createdAt: datetime = Field(
         sa_column=Column(DateTime(timezone=True), server_default=func.now()),
         default_factory=None,
+    )
+    approvers: List["RoomApprover"] = Relationship(back_populates="admin")
+    operationLogs: List["ReservationOperationLog"] = Relationship(
+        back_populates="admin"
+    )
+    executedReservations: List["Reservation"] = Relationship(
+        back_populates="latestExecutor"
     )
 
 
@@ -153,14 +175,16 @@ class ErrorLog(SQLModel, table=True):
 
 class ReservationOperationLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    admin: int
-    reservation: int
+    adminId: int | None = Field(default=None, foreign_key="admin.id")
+    reservationId: int | None = Field(default=None, foreign_key="reservation.id")
     operation: str
     reason: str | None = None
     time: datetime = Field(
         sa_column=Column(DateTime(timezone=True), server_default=func.now()),
         default_factory=None,
     )
+    admin: "Admin" = Relationship(back_populates="operation_logs")
+    reservation: "Reservation" = Relationship(back_populates="logs")
 
 
 class Analytic(SQLModel, table=True):
@@ -200,7 +224,7 @@ def create_db_and_tables() -> None:
 
 def create_room(name: str, campus: int) -> None:
     with Session(engine) as session:
-        room = Room(name=name, campus=campus)
+        room = Room(name=name, campusId=campus)
         session.add(room)
         session.commit()
 
@@ -214,7 +238,7 @@ def create_campus(name: str) -> None:
 
 def create_class(name: str, campus: int) -> None:
     with Session(engine) as session:
-        _class = Class(name=name, campus=campus)
+        _class = Class(name=name, campusId=campus)
         session.add(_class)
         session.commit()
 
@@ -231,10 +255,10 @@ def get_policy() -> Sequence[RoomPolicy]:
         return policies
 
 
-def get_policy_by_room_id(room_id: int) -> Sequence[RoomPolicy]:
+def get_policy_by_room_id(room_id: int | None) -> Sequence[RoomPolicy]:
     with Session(engine) as session:
         policies = session.exec(
-            select(RoomPolicy).where(RoomPolicy.room == room_id)
+            select(RoomPolicy).where(RoomPolicy.roomId == room_id)
         ).all()
         return policies
 
@@ -254,7 +278,7 @@ def get_room() -> Sequence[Room]:
 def create_reservation(request: ReservationCreateRequest) -> int:
     with Session(engine) as session:
         reservation = Reservation(
-            room=request.room,
+            roomId=request.room,
             startTime=datetime.fromtimestamp(request.startTime, tz=timezone.utc),
             endTime=datetime.fromtimestamp(request.endTime, tz=timezone.utc),
             studentName=request.studentName,
@@ -278,15 +302,15 @@ def create_reservation(request: ReservationCreateRequest) -> int:
         return reservation.id or -1
 
 
-def get_reservation_by_room_id(room_id: int) -> Sequence[Reservation]:
+def get_reservation_by_room_id(room_id: int | None) -> Sequence[Reservation]:
     with Session(engine) as session:
         reservations = session.exec(
-            select(Reservation).where(Reservation.room == room_id)
+            select(Reservation).where(Reservation.roomId == room_id)
         ).all()
         return reservations
 
 
-def get_room_by_id(room_id: int) -> Room | None:
+def get_room_by_id(room_id: int | None) -> Room | None:
     with Session(engine) as session:
         room = session.exec(select(Room).where(Room.id == room_id)).one_or_none()
         return room
@@ -321,20 +345,16 @@ def get_reservation(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(days=1)
         )
         if keyword:
-            room = session.exec(
-                select(Room).where(column("name").like(f"%{keyword}%"))
-            ).one_or_none()
-            if room and not room_id:
-                query = query.where(Reservation.room == room.id)
-            query = query.where(
+            query = query.join(Room).where(
                 or_(
                     column("email").like(f"%{keyword}%"),
                     column("reason").like(f"%{keyword}%"),
                     column("studentId").like(f"%{keyword}%"),
+                    column("room.name").like(f"%{keyword}%"),
                 )
             )
         if room_id:
-            query = query.where(Reservation.room == room_id)
+            query = query.where(Reservation.roomId == room_id)
         if status:
             query = query.where(Reservation.status == status)
         reservations = session.exec(query).all()
@@ -363,27 +383,20 @@ def get_future_reservations() -> Sequence[Reservation]:
         return reservations
 
 
-def get_future_reservations_by_approver_id(approver_id: int) -> Sequence[Reservation]:
+def get_future_reservations_by_approver_id(approver_id: int | None) -> Sequence[Reservation]:
     with Session(engine) as session:
-        approvers = session.exec(
-            select(RoomApprover).where(RoomApprover.admin == approver_id)
+        reservations = session.exec(
+            select(Reservation)
+            .join(Room)
+            .join(RoomApprover)
+            .where(Reservation.startTime >= datetime.now(timezone.utc))
+            .where(RoomApprover.adminId == approver_id)
         ).all()
-        reservations = []
-        if not approvers:
-            return reservations
-        for approver in approvers:
-            reservations.extend(
-                session.exec(
-                    select(Reservation)
-                    .where(Reservation.startTime >= datetime.now(timezone.utc))
-                    .where(Reservation.room == approver.room)
-                ).all()
-            )
         return reservations
 
 
 def change_reservation_status_by_id(
-    id: int, status: str, admin: int, reason: str | None = None
+    id: int | None, status: str, admin: int, reason: str | None = None
 ) -> None:
     with Session(engine) as session:
         reservation = session.exec(
@@ -391,7 +404,7 @@ def change_reservation_status_by_id(
         ).one_or_none()
         if reservation:
             reservation.status = status
-            reservation.latestExecutor = admin
+            reservation.latestExecutorId = admin
             session.commit()
             session.refresh(reservation)
             create_reservation_operation_log(
@@ -412,7 +425,7 @@ def create_reservation_operation_log(
 ) -> None:
     with Session(engine) as session:
         log = ReservationOperationLog(
-            admin=admin, reservation=reservation, operation=operation, reason=reason
+            adminId=admin, reservationId=reservation, operation=operation, reason=reason
         )
         session.add(log)
         session.commit()
@@ -483,7 +496,7 @@ def get_analytics_between(start: datetime, end: datetime) -> Sequence[Analytic]:
         return analytics
 
 
-def get_reservation_by_id(id: int) -> Reservation | None:
+def get_reservation_by_id(id: int | None) -> Reservation | None:
     with Session(engine) as session:
         reservation = session.exec(
             select(Reservation).where(Reservation.id == id)
@@ -491,7 +504,7 @@ def get_reservation_by_id(id: int) -> Reservation | None:
         return reservation
 
 
-def get_campus_by_id(id: int) -> Campus | None:
+def get_campus_by_id(id: int | None) -> Campus | None:
     with Session(engine) as session:
         campus = session.exec(select(Campus).where(Campus.id == id)).one_or_none()
         return campus
@@ -516,7 +529,7 @@ def get_reservations_by_time_range(
         return reservations
 
 
-def get_class_by_id(id: int) -> Class | None:
+def get_class_by_id(id: int | None) -> Class | None:
     with Session(engine) as session:
         _class = session.exec(select(Class).where(Class.id == id)).one_or_none()
         return _class
@@ -525,8 +538,8 @@ def get_class_by_id(id: int) -> Class | None:
 def delete_campus(campus: Campus) -> None:
     with Session(engine) as session:
         with Session(engine) as session:
-            rooms = session.exec(select(Room).where(Room.campus == campus.id)).all()
-            classes = session.exec(select(Class).where(Class.campus == campus.id)).all()
+            rooms = session.exec(select(Room).where(Room.campusId == campus.id)).all()
+            classes = session.exec(select(Class).where(Class.campusId == campus.id)).all()
             session.close()
             for room in rooms:
                 delete_room(room)
@@ -546,10 +559,10 @@ def delete_room(room: Room) -> None:
     with Session(engine) as session:
         with Session(engine) as session:
             policies = session.exec(
-                select(RoomPolicy).where(RoomPolicy.room == room.id)
+                select(RoomPolicy).where(RoomPolicy.roomId == room.id)
             ).all()
             approvers = session.exec(
-                select(RoomApprover).where(RoomApprover.room == room.id)
+                select(RoomApprover).where(RoomApprover.roomId == room.id)
             ).all()
             session.close()
             for policy in policies:
@@ -576,12 +589,14 @@ def create_policy(
     room: int, days: List[int], startTime: List[int], endTime: List[int]
 ) -> None:
     with Session(engine) as session:
-        policy = RoomPolicy(room=room, days=days, startTime=startTime, endTime=endTime)
+        policy = RoomPolicy(
+            roomId=room, days=days, startTime=startTime, endTime=endTime
+        )
         session.add(policy)
         session.commit()
 
 
-def get_policy_by_id(id: int) -> RoomPolicy | None:
+def get_policy_by_id(id: int | None) -> RoomPolicy | None:
     with Session(engine) as session:
         policy = session.exec(
             select(RoomPolicy).where(RoomPolicy.id == id)
@@ -634,7 +649,7 @@ def delete_temp_admin_login(temp_admin_login: TempAdminLogin) -> None:
         session.commit()
 
 
-def get_admin_by_id(admin_id: int) -> Admin | None:
+def get_admin_by_id(admin_id: int | None) -> Admin | None:
     with Session(engine) as session:
         admin = session.exec(select(Admin).where(Admin.id == admin_id)).one_or_none()
         return admin
@@ -642,7 +657,7 @@ def get_admin_by_id(admin_id: int) -> Admin | None:
 
 def create_room_approver(room_id: int, admin_id: int) -> None:
     with Session(engine) as session:
-        approver = RoomApprover(room=room_id, admin=admin_id)
+        approver = RoomApprover(roomId=room_id, adminId=admin_id)
         session.add(approver)
         session.commit()
 
@@ -653,7 +668,7 @@ def get_room_approvers() -> Sequence[RoomApprover]:
         return approvers
 
 
-def get_room_approver_by_id(id: int) -> RoomApprover | None:
+def get_room_approver_by_id(id: int | None) -> RoomApprover | None:
     with Session(engine) as session:
         approver = session.exec(
             select(RoomApprover).where(RoomApprover.id == id)
@@ -664,7 +679,7 @@ def get_room_approver_by_id(id: int) -> RoomApprover | None:
 def get_room_approvers_by_admin_id(admin_id: int) -> Sequence[RoomApprover] | None:
     with Session(engine) as session:
         approvers = session.exec(
-            select(RoomApprover).where(RoomApprover.admin == admin_id)
+            select(RoomApprover).where(RoomApprover.adminId == admin_id)
         ).all()
         return approvers
 
@@ -672,7 +687,7 @@ def get_room_approvers_by_admin_id(admin_id: int) -> Sequence[RoomApprover] | No
 def get_room_approvers_by_room_id(room_id: int) -> Sequence[RoomApprover] | None:
     with Session(engine) as session:
         approvers = session.exec(
-            select(RoomApprover).where(RoomApprover.room == room_id)
+            select(RoomApprover).where(RoomApprover.roomId == room_id)
         ).all()
         return approvers
 
@@ -694,7 +709,7 @@ def get_reservations_by_time_range_and_room(
     start: datetime | None, end: datetime | None, room_id: int
 ) -> Sequence[Reservation]:
     with Session(engine) as session:
-        query = select(Reservation).where(Reservation.room == room_id)
+        query = select(Reservation).where(Reservation.roomId == room_id)
         if start:
             query = query.where(Reservation.startTime >= start)
         if end:
@@ -707,7 +722,7 @@ def delete_admin(admin: Admin) -> None:
     with Session(engine) as session:
         with Session(engine) as session:
             approvers = session.exec(
-                select(RoomApprover).where(RoomApprover.admin == admin.id)
+                select(RoomApprover).where(RoomApprover.adminId == admin.id)
             ).all()
             session.close()
             for approver in approvers:
