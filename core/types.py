@@ -91,7 +91,7 @@ class Reservation(SQLModel, table=True):
         default_factory=None,
     )
     room: "Room" = Relationship(back_populates="reservations")
-    _class: "Class" = Relationship(back_populates="reservations")
+    class_: "Class" = Relationship(back_populates="reservations")
     logs: List["ReservationOperationLog"] = Relationship(back_populates="reservation")
     latestExecutor: "Admin" = Relationship(back_populates="executed_reservations")
 
@@ -186,7 +186,7 @@ class ReservationOperationLog(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), server_default=func.now()),
         default_factory=None,
     )
-    admin: "Admin" = Relationship(back_populates="operation_logs")
+    admin: "Admin" = Relationship(back_populates="operationLogs")
     reservation: "Reservation" = Relationship(back_populates="logs")
 
 
