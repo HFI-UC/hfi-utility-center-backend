@@ -25,7 +25,6 @@ import bcrypt
 import re
 import traceback
 import time
-import uuid
 
 
 @asynccontextmanager
@@ -53,10 +52,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # ty
 
 
 @app.exception_handler(Exception)
-async def generic_exception_handler(request: Request, exc: Exception) -> BasicResponse:
+async def generic_exception_handler(request: Request, exc: Exception) -> ApiResponse:
     scope = request.scope
     _uuid = scope.get("state", {}).get("request_id", str(uuid.uuid4()))
-    return BasicResponse(
+    return ApiResponse(
         success=False,
         message=f"An internal server error occurred. Please contact support with request ID: {_uuid}",
         status_code=500,
@@ -170,32 +169,33 @@ def get_current_user(request: Request) -> AdminLogin | None:
 
 @app.get(
     "/room/list",
-    response_model=BasicResponseBody[list[RoomListResponse]],
+    response_model=ApiResponseBody[list[RoomResponse]],
 )
 @limiter.limit("5/second")
-async def room_list(request: Request) -> BasicResponse[list[RoomListResponse]]:
+async def room_list(request: Request) -> ApiResponse[list[RoomResponse]]:
     rooms = get_room()
     data = [
-        RoomListResponse(
+        RoomResponse(
             id=room.id,
             name=room.name,
             campus=room.campusId,
             createdAt=room.createdAt,
+            policies=[RoomPolicyResponseBase.model_validate(policy) for policy in room.policies]
         )
         for room in rooms
     ]
-    return BasicResponse(success=True, data=data)
+    return ApiResponse(success=True, data=data)
 
 
 @app.get(
     "/campus/list",
-    response_model=BasicResponseBody[list[CampusListResponse]],
+    response_model=ApiResponseBody[list[CampusResponse]],
 )
 @limiter.limit("5/second")
-async def campus_list(request: Request) -> BasicResponse[list[CampusListResponse]]:
+async def campus_list(request: Request) -> ApiResponse[list[CampusResponse]]:
     campuses = get_campus()
     data = [
-        CampusListResponse(
+        CampusResponse(
             id=campus.id,
             name=campus.name,
             isPrivileged=campus.isPrivileged,
@@ -203,18 +203,17 @@ async def campus_list(request: Request) -> BasicResponse[list[CampusListResponse
         )
         for campus in campuses
     ]
-    return BasicResponse(success=True, data=data)
-
+    return ApiResponse(success=True, data=data)
 
 @app.get(
     "/class/list",
-    response_model=BasicResponseBody[list[ClassListResponse]],
+    response_model=ApiResponseBody[list[ClassResponse]],
 )
 @limiter.limit("5/second")
-async def class_list(request: Request) -> BasicResponse[list[ClassListResponse]]:
+async def class_list(request: Request) -> ApiResponse[list[ClassResponse]]:
     classes = get_class()
     data = [
-        ClassListResponse(
+        ClassResponse(
             id=_class.id,
             name=_class.name,
             campus=_class.campusId,
@@ -222,68 +221,68 @@ async def class_list(request: Request) -> BasicResponse[list[ClassListResponse]]
         )
         for _class in classes
     ]
-    return BasicResponse(success=True, data=data)
+    return ApiResponse(success=True, data=data)
 
 
 @app.post(
     "/campus/delete",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def campus_delete(
     request: Request, payload: CampusDeleteRequest
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     campus = get_campus_by_id(payload.id)
     if not campus:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Campus not found.", status_code=404
         )
     delete_campus(campus)
-    return BasicResponse(success=True, message="Campus deleted successfully.")
+    return ApiResponse(success=True, message="Campus deleted successfully.")
 
 
 @app.post(
     "/room/delete",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def room_delete(
     request: Request, payload: RoomDeleteRequest
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     room = get_room_by_id(payload.id)
     if not room:
-        return BasicResponse(success=False, message="Room not found.", status_code=404)
+        return ApiResponse(success=False, message="Room not found.", status_code=404)
     delete_room(room)
-    return BasicResponse(success=True, message="Room deleted successfully.")
+    return ApiResponse(success=True, message="Room deleted successfully.")
 
 
 @app.post(
     "/class/delete",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def class_delete(
     request: Request, payload: ClassDeleteRequest
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     _class = get_class_by_id(payload.id)
     if not _class:
-        return BasicResponse(success=False, message="Class not found.", status_code=404)
+        return ApiResponse(success=False, message="Class not found.", status_code=404)
     delete_class(_class)
-    return BasicResponse(success=True, message="Class deleted successfully.")
+    return ApiResponse(success=True, message="Class deleted successfully.")
 
 
 @app.post(
     "/reservation/create",
-    response_model=BasicResponseBody[ReservationCreateResponse],
+    response_model=ApiResponseBody[ReservationCreateResponse],
 )
 @limiter.limit("5/second")
 async def reservation_create(
     request: Request,
     payload: ReservationCreateRequest,
     background_task: BackgroundTasks,
-) -> BasicResponse[ReservationCreateResponse]:
+) -> ApiResponse[ReservationCreateResponse]:
     if not verify_turnstile_token(payload.turnstileToken):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Turnstile verification failed.", status_code=403
         )
     reservations = get_reservation_by_room_id(payload.room)
@@ -295,7 +294,7 @@ async def reservation_create(
     if not _class:
         errors.append("Class not found.")
     if errors:
-        return BasicResponse(success=False, message="\n".join(errors), status_code=400)
+        return ApiResponse(success=False, message="\n".join(errors), status_code=400)
 
     def validate_time_conflict(time: datetime) -> bool:
         for reservation in reservations:
@@ -361,11 +360,11 @@ async def reservation_create(
         ):
             errors.append("Start or end time conflicts with existing reservation.")
     if errors:
-        return BasicResponse(success=False, message="\n".join(errors), status_code=400)
+        return ApiResponse(success=False, message="\n".join(errors), status_code=400)
 
     approvers = get_room_approvers_by_room_id(room.id if room and room.id else -1)
     if not approvers:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="No approvers found.", status_code=404
         )
 
@@ -376,7 +375,11 @@ async def reservation_create(
         email_title="Reservation Created",
         title=f"Hi {payload.studentName}! Your reservation has been created.",
         email=payload.email,
-        details=f"Your reservation for room {room.name if room else "Unknown"} for the time period <b>{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}</b> has been created and is currently pending approval.",
+        details=(
+            f"Your reservation for room {room.name if room else 'Unknown'} for the time period "
+            f"<b>{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - "
+            f"{datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}</b> has been created and is currently pending approval."
+        ),
     )
 
     if admin:
@@ -413,7 +416,7 @@ async def reservation_create(
                     email=reservation.email,
                     details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected due to a higher priority reservation.",
                 )
-        return BasicResponse(
+        return ApiResponse(
             success=True,
             message="Your reservation has been created and approved.",
             data=ReservationCreateResponse(reservationId=result),
@@ -442,7 +445,7 @@ async def reservation_create(
             link=f"{base_url}/admin/reservation/?token={token}",
         )
         create_temp_admin_login(admin.email, token)
-    return BasicResponse(
+    return ApiResponse(
         success=True,
         message="Your reservation has been created.",
         data=ReservationCreateResponse(reservationId=result),
@@ -451,25 +454,25 @@ async def reservation_create(
 
 @app.post(
     "/reservation/get",
-    response_model=BasicResponseBody[list[ReservationGetResponse]],
+    response_model=ApiResponseBody[list[ReservationQueryResponse]],
 )
 @limiter.limit("5/second")
 async def reservation_get(
     request: Request, payload: ReservationGetRequest
-) -> BasicResponse[list[ReservationGetResponse]]:
+) -> ApiResponse[list[ReservationQueryResponse]]:
     if payload.room and not get_room_by_id(payload.room):
-        return BasicResponse(success=False, message="Room not found.", status_code=404)
+        return ApiResponse(success=False, message="Room not found.", status_code=404)
 
     reservations = get_reservation(payload.keyword, payload.room, payload.status)
     classes = get_class()
-    res: list[ReservationGetResponse] = []
+    res: list[ReservationQueryResponse] = []
     for reservation in reservations:
         class_name = next(
             (cls.name for cls in classes if cls.id == reservation.classId), None
         )
         room = get_room_by_id(reservation.roomId)
         res.append(
-            ReservationGetResponse(
+            ReservationQueryResponse(
                 id=reservation.id,
                 startTime=reservation.startTime,
                 endTime=reservation.endTime,
@@ -481,26 +484,26 @@ async def reservation_get(
                 status=reservation.status,
             )
         )
-    return BasicResponse(success=True, data=res)
+    return ApiResponse(success=True, data=res)
 
 
 @app.post(
     "/admin/login",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def admin_login(
     request: Request, payload: AdminLoginRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User already logged in.", status_code=400
         )
 
     if payload.token:
         temp_admin_login = get_temp_admin_login_by_token(payload.token)
         if not temp_admin_login:
-            return BasicResponse(
+            return ApiResponse(
                 success=False,
                 message="Invalid token or token expired.",
                 status_code=400,
@@ -515,23 +518,22 @@ async def admin_login(
         ).hexdigest()
         create_admin_login(temp_admin_login.email, cookie)
         delete_temp_admin_login(temp_admin_login)
-        response = BasicResponse(success=True, message="Login successful.")
-
-        response.set_cookie("UCCOOKIE", cookie)
+        response = ApiResponse(success=True, message="Login successful.")
+        response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite="none", secure=True)
         return response
     if not payload.email or not payload.password:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Email and password are required.", status_code=400
         )
 
     if not payload.turnstileToken or not verify_turnstile_token(payload.turnstileToken):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Turnstile verification failed.", status_code=403
         )
 
     admin = get_admin_by_email(payload.email)
     if not admin or not verify_password(payload.password, admin.password):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Invalid email or password.", status_code=401
         )
     cookie = hashlib.md5(
@@ -543,51 +545,51 @@ async def admin_login(
         ).encode()
     ).hexdigest()
     create_admin_login(payload.email, cookie)
-    response = BasicResponse(success=True, message="Login successful.")
+    response = ApiResponse(success=True, message="Login successful.")
     response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite="none", secure=True)
     return response
 
 
 @app.get(
     "/admin/logout",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def admin_logout(
     request: Request, user_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not user_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
-    response = BasicResponse(success=True, message="Logout successful.")
+    response = ApiResponse(success=True, message="Logout successful.")
     response.delete_cookie("UCCOOKIE")
     return response
 
 
 @app.get(
     "/admin/check-login",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def admin_check_login(
     request: Request, user_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if user_login:
-        return BasicResponse(success=True)
-    return BasicResponse(success=False, status_code=400)
+        return ApiResponse(success=True)
+    return ApiResponse(success=False, status_code=400)
 
 
 @app.get(
     "/reservation/future",
-    response_model=BasicResponseBody[list[ReservationFutureResponse]],
+    response_model=ApiResponseBody[list[ReservationUpcomingResponse]],
 )
 @limiter.limit("5/second")
 async def reservation_future(
     request: Request, admin_login=Depends(get_current_user)
-) -> BasicResponse[list[ReservationFutureResponse]]:
+) -> ApiResponse[list[ReservationUpcomingResponse]]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
     admin = get_admin_by_email(admin_login.email)
@@ -595,7 +597,7 @@ async def reservation_future(
         admin.id if admin and admin.id is not None else -1
     )
     classes = get_class()
-    res: list[ReservationFutureResponse] = []
+    res: list[ReservationUpcomingResponse] = []
     for reservation in future_reservations:
         class_name = next(
             (cls.name for cls in classes if cls.id == reservation.classId), None
@@ -603,7 +605,7 @@ async def reservation_future(
         room = get_room_by_id(reservation.roomId)
         campus = get_campus_by_id(room.campusId) if room and room.campusId else None
         res.append(
-            ReservationFutureResponse(
+            ReservationUpcomingResponse(
                 id=reservation.id,
                 startTime=reservation.startTime,
                 endTime=reservation.endTime,
@@ -618,12 +620,12 @@ async def reservation_future(
                 campusName=campus.name if campus else None,
             )
         )
-    return BasicResponse(success=True, data=res)
+    return ApiResponse(success=True, data=res)
 
 
 @app.post(
     "/reservation/approval",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def reservation_approval(
@@ -631,24 +633,24 @@ async def reservation_approval(
     payload: ReservationApproveRequest,
     background_task: BackgroundTasks,
     admin_login=Depends(get_current_user),
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     reservation = get_reservation_by_id(payload.id)
 
     if not reservation:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Reservation not found.", status_code=404
         )
     if not payload.approved and not payload.reason:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Reason is required for rejection.", status_code=400
         )
     if reservation.startTime < datetime.now(timezone.utc):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Cannot change status of past reservations."
         )
 
@@ -659,13 +661,13 @@ async def reservation_approval(
         )
 
     if not check_status():
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Invalid approval request.", status_code=400
         )
 
     admin = get_admin_by_email(admin_login.email)
     if not admin:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not a room approver.", status_code=403
         )
     approvers = get_room_approvers_by_admin_id(
@@ -673,13 +675,13 @@ async def reservation_approval(
     )
 
     if not approvers:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not a room approver.", status_code=403
         )
     authorized = all(approver.admin == admin.id for approver in approvers)
 
     if not authorized:
-        return BasicResponse(
+        return ApiResponse(
             success=False,
             message="User is not authorized to approve this reservation.",
             status_code=403,
@@ -718,25 +720,25 @@ async def reservation_approval(
             email=reservation.email,
             details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected. Reason: {payload.reason}",
         )
-    return BasicResponse(success=True, message="Reservation updated successfully.")
+    return ApiResponse(success=True, message="Reservation updated successfully.")
 
 
 @app.get(
     "/reservation/all",
-    response_model=BasicResponseBody[list[ReservationAllResponse]],
+    response_model=ApiResponseBody[list[ReservationFullResponse]],
 )
 @limiter.limit("5/second")
 async def reservation_all(
     request: Request, admin_login=Depends(get_current_user)
-) -> BasicResponse[list[ReservationAllResponse]]:
+) -> ApiResponse[list[ReservationFullResponse]]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     all_reservations = get_all_reservations()
     classes = get_class()
-    res: list[ReservationAllResponse] = []
+    res: list[ReservationFullResponse] = []
     for reservation in all_reservations:
         class_name = next(
             (cls.name for cls in classes if cls.id == reservation.classId), None
@@ -749,7 +751,7 @@ async def reservation_all(
             else None
         )
         res.append(
-            ReservationAllResponse(
+            ReservationFullResponse(
                 id=reservation.id,
                 startTime=reservation.startTime,
                 endTime=reservation.endTime,
@@ -765,7 +767,7 @@ async def reservation_all(
                 latestExecutor=executor.email if executor else None,
             )
         )
-    return BasicResponse(success=True, data=res)
+    return ApiResponse(success=True, data=res)
 
 
 @app.get("/reservation/export", response_model=None)
@@ -775,13 +777,13 @@ async def reservation_export(
     startTime: int = -1,
     endTime: int = -1,
     admin_login=Depends(get_current_user),
-) -> FileResponse | BasicResponse[Any]:
+) -> FileResponse | ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
     if startTime != -1 and endTime != -1 and startTime > endTime:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Invalid time range.", status_code=400
         )
     reservations = get_reservations_by_time_range(
@@ -789,7 +791,7 @@ async def reservation_export(
         datetime.fromtimestamp(endTime) if endTime != -1 else None,
     )
     if not reservations:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="No reservations found.", status_code=404
         )
     workbook = get_exported_xlsx(reservations)
@@ -803,106 +805,85 @@ async def reservation_export(
 
 @app.post(
     "/class/create",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def class_create(
     request: Request, payload: ClassCreateRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
     campus = get_campus_by_id(payload.campus)
     if not campus:
-        return BasicResponse(success=False, message="Invalid campus.", status_code=400)
-    create_class(name=payload.name, campus=payload.campus)
-    return BasicResponse(success=True, message="Class created successfully.")
+        return ApiResponse(success=False, message="Invalid campus.", status_code=400)
+    create_class(name=payload.name, campus=campus)
+    return ApiResponse(success=True, message="Class created successfully.")
 
 
 @app.post(
     "/campus/create",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def campus_create(
     request: Request,
     payload: CampusCreateRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     create_campus(name=payload.name)
-    return BasicResponse(success=True, message="Campus created successfully.")
+    return ApiResponse(success=True, message="Campus created successfully.")
 
 
 @app.post(
     "/room/create",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def room_create(
     request: Request, payload: RoomCreateRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
     campus = get_campus_by_id(payload.campus)
     if not campus:
-        return BasicResponse(success=False, message="Invalid campus.", status_code=400)
-    create_room(name=payload.name, campus=payload.campus)
-    return BasicResponse(success=True, message="Room created successfully.")
-
-
-@app.get(
-    "/policy/list",
-    response_model=BasicResponseBody[list[PolicyListResponse]],
-)
-@limiter.limit("5/second")
-async def policy_list(request: Request) -> BasicResponse[list[PolicyListResponse]]:
-    policies = get_policy()
-    data = [
-        PolicyListResponse(
-            id=policy.id,
-            room=policy.roomId,
-            days=policy.days,
-            startTime=policy.startTime,
-            endTime=policy.endTime,
-            enabled=policy.enabled,
-        )
-        for policy in policies
-    ]
-    return BasicResponse(success=True, data=data)
+        return ApiResponse(success=False, message="Invalid campus.", status_code=400)
+    create_room(name=payload.name, campus=campus)
+    return ApiResponse(success=True, message="Room created successfully.")
 
 
 @app.post(
     "/policy/create",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def policy_create(
     request: Request,
     payload: RoomPolicyCreateRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     if not all(6 >= day >= 0 for day in payload.days) or len(payload.days) > 7:
-        return BasicResponse(success=False, message="Invalid days.", status_code=400)
+        return ApiResponse(success=False, message="Invalid days.", status_code=400)
 
     if (
         not len(payload.startTime) == 2
         or not 23 >= payload.startTime[0] >= 0
         or not 59 >= payload.startTime[1] >= 0
     ):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Invalid start times.", status_code=400
         )
 
@@ -911,97 +892,99 @@ async def policy_create(
         or not 23 >= payload.endTime[0] >= 0
         or not 59 >= payload.endTime[1] >= 0
     ):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Invalid end times.", status_code=400
         )
-
+    room = get_room_by_id(payload.room)
+    if not room:
+        return ApiResponse(success=False, message="Room not found.", status_code=404)
     create_policy(
-        room=payload.room,
+        room=room,
         days=sorted(payload.days),
         startTime=payload.startTime,
         endTime=payload.endTime,
     )
-    return BasicResponse(success=True, message="Policy created successfully.")
+    return ApiResponse(success=True, message="Policy created successfully.")
 
 
 @app.post(
     "/policy/delete",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def policy_delete(
     request: Request,
     payload: RoomPolicyDeleteRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     policy = get_policy_by_id(payload.id)
     if not policy:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Policy not found.", status_code=404
         )
     delete_policy(policy)
-    return BasicResponse(success=True, message="Policy deleted successfully.")
+    return ApiResponse(success=True, message="Policy deleted successfully.")
 
 
 @app.post(
     "/policy/toggle",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def policy_toggle(
     request: Request,
     payload: RoomPolicyToggleRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     policy = get_policy_by_id(payload.id)
     if not policy:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Policy not found.", status_code=404
         )
     toggle_policy(policy)
-    return BasicResponse(success=True, message="Policy toggled successfully.")
+    return ApiResponse(success=True, message="Policy toggled successfully.")
 
 
 @app.post(
     "/policy/edit",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def policy_edit(
     request: Request,
     payload: RoomPolicyEditRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     policy = get_policy_by_id(payload.id)
     if not policy:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Policy not found.", status_code=404
         )
 
     if not all(6 >= day >= 0 for day in payload.days) or len(payload.days) > 7:
-        return BasicResponse(success=False, message="Invalid days.", status_code=400)
+        return ApiResponse(success=False, message="Invalid days.", status_code=400)
 
     if (
         not len(payload.startTime) == 2
         or not 23 >= payload.startTime[0] >= 0
         or not 59 >= payload.startTime[1] >= 0
     ):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Invalid start times.", status_code=400
         )
 
@@ -1010,7 +993,7 @@ async def policy_edit(
         or not 23 >= payload.endTime[0] >= 0
         or not 59 >= payload.endTime[1] >= 0
     ):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Invalid end times.", status_code=400
         )
 
@@ -1019,179 +1002,181 @@ async def policy_edit(
         and policy.startTime == payload.startTime
         and policy.endTime == payload.endTime
     ):
-        return BasicResponse(success=True, message="No changes detected.")
+        return ApiResponse(success=True, message="No changes detected.")
     policy.days = payload.days
     policy.startTime = payload.startTime
     policy.endTime = payload.endTime
     edit_policy(policy=policy)
-    return BasicResponse(success=True, message="Policy edited successfully.")
+    return ApiResponse(success=True, message="Policy edited successfully.")
 
 
 @app.post(
     "/room/edit",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def room_edit(
     request: Request, payload: RoomEditRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     room = get_room_by_id(payload.id)
     if not room:
-        return BasicResponse(success=False, message="Room not found.", status_code=404)
+        return ApiResponse(success=False, message="Room not found.", status_code=404)
 
     room.name = payload.name
     room.campusId = payload.campus
     edit_room(room)
-    return BasicResponse(success=True, message="Room edited successfully.")
+    return ApiResponse(success=True, message="Room edited successfully.")
 
 
 @app.post(
     "/campus/edit",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def campus_edit(
     request: Request, payload: CampusEditRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     campus = get_campus_by_id(payload.id)
     if not campus:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Campus not found.", status_code=404
         )
 
     campus.name = payload.name
     edit_campus(campus)
-    return BasicResponse(success=True, message="Campus edited successfully.")
+    return ApiResponse(success=True, message="Campus edited successfully.")
 
 
 @app.post(
     "/class/edit",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def class_edit(
     request: Request, payload: ClassEditRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     _class = get_class_by_id(payload.id)
     if not _class:
-        return BasicResponse(success=False, message="Class not found.", status_code=404)
+        return ApiResponse(success=False, message="Class not found.", status_code=404)
 
     _class.name = payload.name
     edit_class(_class)
-    return BasicResponse(success=True, message="Class edited successfully.")
+    return ApiResponse(success=True, message="Class edited successfully.")
 
 
 @app.post(
     "/approver/create",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def approver_create(
     request: Request,
     payload: RoomApproverCreateRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    if not get_room_by_id(payload.room):
-        return BasicResponse(success=False, message="Room not found.", status_code=404)
+    room = get_room_by_id(payload.room)
+    admin = get_admin_by_id(payload.admin)
+    if not room:
+        return ApiResponse(success=False, message="Room not found.", status_code=404)
 
-    if not get_admin_by_id(payload.admin):
-        return BasicResponse(success=False, message="Admin not found.", status_code=404)
+    if not admin:
+        return ApiResponse(success=False, message="Admin not found.", status_code=404)
 
     approvers = get_room_approvers_by_room_id(payload.room)
 
     if approvers and any(approver.admin == payload.admin for approver in approvers):
-        return BasicResponse(
+        return ApiResponse(
             success=False,
             message="Admin is already an approver for this room.",
             status_code=409,
         )
 
-    create_room_approver(room_id=payload.room, admin_id=payload.admin)
-    return BasicResponse(success=True, message="Room approver created successfully.")
+    create_room_approver(room=room, admin=admin)
+    return ApiResponse(success=True, message="Room approver created successfully.")
 
 
 @app.get(
     "/approver/list",
-    response_model=BasicResponseBody[list[ApproverListResponse]],
+    response_model=ApiResponseBody[list[RoomApproverResponse]],
 )
 @limiter.limit("5/second")
 async def approver_list(
     request: Request, admin_login=Depends(get_current_user)
-) -> BasicResponse[list[ApproverListResponse]]:
+) -> ApiResponse[list[RoomApproverResponse]]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     approvers = get_room_approvers()
     data = [
-        ApproverListResponse(id=approver.id, room=approver.roomId, admin=approver.adminId)
+        RoomApproverResponse(id=approver.id, room=approver.roomId, admin=approver.adminId)
         for approver in approvers
     ]
-    return BasicResponse(success=True, data=data)
+    return ApiResponse(success=True, data=data)
 
 
 @app.post(
     "/approver/delete",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def approver_delete(
     request: Request,
     payload: RoomApproverDeleteRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     approver = get_room_approver_by_id(payload.id)
     if not approver:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Approver not found.", status_code=404
         )
 
     delete_room_approver(approver=approver)
-    return BasicResponse(success=True, message="Room approver deleted successfully.")
+    return ApiResponse(success=True, message="Room approver deleted successfully.")
 
 
 @app.get(
     "/admin/list",
-    response_model=BasicResponseBody[list[AdminListResponse]],
+    response_model=ApiResponseBody[list[AdminResponse]],
 )
 @limiter.limit("5/second")
 async def admin_list(
     request: Request, admin_login=Depends(get_current_user)
-) -> BasicResponse[list[AdminListResponse]]:
+) -> ApiResponse[list[AdminResponse]]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     admins = get_admins()
     res = [
-        AdminListResponse(
+        AdminResponse(
             id=admin.id,
             name=admin.name,
             email=admin.email,
@@ -1199,31 +1184,31 @@ async def admin_list(
         )
         for admin in admins
     ]
-    return BasicResponse(success=True, data=res)
+    return ApiResponse(success=True, data=res)
 
 
 @app.post(
     "/admin/create",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def admin_create(
     request: Request, payload: AdminCreateRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
     if get_admin_by_email(payload.email):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Admin already exists.", status_code=409
         )
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Invalid email format.", status_code=400
         )
     if len(payload.password) < 6:
-        return BasicResponse(
+        return ApiResponse(
             success=False,
             message="Password must be at least 6 characters.",
             status_code=400,
@@ -1231,88 +1216,88 @@ async def admin_create(
     create_admin(
         name=payload.name, email=payload.email, password=password_hash(payload.password)
     )
-    return BasicResponse(success=True, message="Admin created successfully.")
+    return ApiResponse(success=True, message="Admin created successfully.")
 
 
 @app.post(
     "/admin/edit-password",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def admin_edit_password(
     request: Request,
     payload: AdminEditPasswordRequest,
     admin_login=Depends(get_current_user),
-) -> BasicResponse[Any]:
+    ) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
     admin = get_admin_by_id(payload.admin)
     if not admin:
-        return BasicResponse(success=False, message="Admin not found.", status_code=404)
+        return ApiResponse(success=False, message="Admin not found.", status_code=404)
     change_admin_password(payload.admin, password_hash(payload.newPassword))
-    return BasicResponse(success=True, message="Password changed successfully.")
+    return ApiResponse(success=True, message="Password changed successfully.")
 
 
 @app.post(
     "/admin/edit",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def admin_edit(
     request: Request, payload: AdminEditRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+    ) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
     admin = get_admin_by_id(payload.id)
     if not admin:
-        return BasicResponse(success=False, message="Admin not found.", status_code=404)
+        return ApiResponse(success=False, message="Admin not found.", status_code=404)
     if admin.email != payload.email and get_admin_by_email(payload.email):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Email already in use.", status_code=409
         )
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Invalid email format.", status_code=400
         )
     if admin.name == payload.name and admin.email == payload.email:
-        return BasicResponse(success=True, message="No changes detected.")
+        return ApiResponse(success=True, message="No changes detected.")
     admin.name = payload.name
     admin.email = payload.email
     edit_admin(admin)
-    return BasicResponse(success=True, message="Admin edited successfully.")
+    return ApiResponse(success=True, message="Admin edited successfully.")
 
 
 @app.post(
     "/admin/delete",
-    response_model=BasicResponseBody[Any],
+    response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
 async def admin_delete(
     request: Request, payload: AdminDeleteRequest, admin_login=Depends(get_current_user)
-) -> BasicResponse[Any]:
+    ) -> ApiResponse[Any]:
     if not admin_login:
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
     admin = get_admin_by_id(payload.id)
     if not admin:
-        return BasicResponse(success=False, message="Admin not found.", status_code=404)
+        return ApiResponse(success=False, message="Admin not found.", status_code=404)
     delete_admin(admin)
-    return BasicResponse(success=True, message="Admin deleted successfully.")
+    return ApiResponse(success=True, message="Admin deleted successfully.")
 
 
 @app.get(
     "/analytics/overview",
-    response_model=BasicResponseBody[AnalyticsOverviewResponse],
+    response_model=ApiResponseBody[AnalyticsOverviewResponse],
 )
 @limiter.limit("1/second")
 async def analytics_overview(
     request: Request,
-) -> BasicResponse[AnalyticsOverviewResponse]:
+) -> ApiResponse[AnalyticsOverviewResponse]:
     daily_reservations: list[int] = []
     daily_reservation_creations: list[int] = []
     daily_requests: list[int] = []
@@ -1416,7 +1401,7 @@ async def analytics_overview(
             rejections=daily_rejections[-1] if daily_rejections else 0,
         ),
     )
-    return BasicResponse(success=True, data=data)
+    return ApiResponse(success=True, data=data)
 
 
 @app.get(
@@ -1428,9 +1413,9 @@ async def analytics_overview_export(
     request: Request,
     type: str,
     turnstileToken: str,
-) -> FileResponse | BasicResponse[Any]:
+) -> FileResponse | ApiResponse[Any]:
     if not verify_turnstile_token(turnstileToken):
-        return BasicResponse(
+        return ApiResponse(
             success=False, message="Turnstile verification failed.", status_code=403
         )
     export_uuid = uuid.uuid4()
@@ -1454,4 +1439,4 @@ async def analytics_overview_export(
             media_type="image/png",
             filename=f"overview_{export_uuid}.png",
         )
-    return BasicResponse(success=False, message="Invalid export type.", status_code=400)
+    return ApiResponse(success=False, message="Invalid export type.", status_code=400)

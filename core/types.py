@@ -1,11 +1,212 @@
 from datetime import datetime
-from typing import Any, Generic, List, Optional, TypeVar
+from typing import Any, Generic, List, Optional, TypeVar, Sequence
 
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+from sqlmodel import (
+    SQLModel,
+    DateTime,
+    Field,
+    JSON,
+    Column,
+    BIGINT,
+    func,
+    Relationship,
+)
+from datetime import datetime, timedelta, timezone
+
+
 T = TypeVar("T")
+
+
+
+class Class(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    campusId: int | None = Field(default=None, foreign_key="campus.id")
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    campus: "Campus" = Relationship(back_populates="classes")
+    reservations: List["Reservation"] = Relationship(back_populates="class_")
+
+
+class Campus(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    isPrivileged: bool = Field(default=False)
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    classes: List["Class"] = Relationship(back_populates="campus")
+    rooms: List["Room"] = Relationship(back_populates="campus")
+
+
+class Room(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    campusId: int | None = Field(default=None, foreign_key="campus.id")
+    createdAt: datetime | None = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    campus: "Campus" = Relationship(back_populates="rooms")
+    reservations: List["Reservation"] = Relationship(back_populates="room")
+    approvers: List["RoomApprover"] = Relationship(back_populates="room")
+    policies: List["RoomPolicy"] = Relationship(back_populates="room")
+
+
+class RoomApprover(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    roomId: int | None = Field(default=None, foreign_key="room.id")
+    adminId: int | None = Field(default=None, foreign_key="admin.id")
+    room: "Room" = Relationship(back_populates="approvers")
+    admin: "Admin" = Relationship(back_populates="approvers")
+
+
+class Reservation(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    roomId: int | None = Field(default=None, foreign_key="room.id")
+    startTime: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    endTime: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    studentName: str
+    email: str
+    reason: str
+    classId: int | None = Field(default=None, foreign_key="class.id")
+    studentId: str
+    status: str = "pending"
+    latestExecutorId: int | None = Field(default=None, foreign_key="admin.id")
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    room: "Room" = Relationship(back_populates="reservations")
+    _class: "Class" = Relationship(back_populates="reservations")
+    logs: List["ReservationOperationLog"] = Relationship(back_populates="reservation")
+    latestExecutor: "Admin" = Relationship(back_populates="executed_reservations")
+
+
+class RoomPolicy(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    roomId: int | None = Field(default=None, foreign_key="room.id")
+    days: List[int] = Field(sa_column=Column(JSON))
+    startTime: List[int] = Field(sa_column=Column(JSON))
+    endTime: List[int] = Field(sa_column=Column(JSON))
+    enabled: bool = True
+    room: "Room" = Relationship(back_populates="policies")
+
+
+class Admin(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    email: str
+    name: str
+    password: str
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    approvers: List["RoomApprover"] = Relationship(back_populates="admin")
+    operationLogs: List["ReservationOperationLog"] = Relationship(
+        back_populates="admin"
+    )
+    executedReservations: List["Reservation"] = Relationship(
+        back_populates="latestExecutor"
+    )
+
+
+class TempAdminLogin(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    email: str
+    token: str
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+
+
+class AdminLogin(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    email: str
+    cookie: str
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    expiry: datetime = Field(
+        sa_column=Column(DateTime(timezone=True)),
+        default_factory=lambda: datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+
+
+class AccessLog(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    uuid: str
+    time: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    userAgent: str
+    payload: str | None = None
+    ip: str | None = None
+    url: str
+    method: str
+    status: int
+    port: int | None = None
+    responseTime: float | None = None
+
+
+class ErrorLog(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    error: str
+    time: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    uuid: str | None = None
+    traceback: str | None = None
+
+
+class ReservationOperationLog(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    adminId: int | None = Field(default=None, foreign_key="admin.id")
+    reservationId: int | None = Field(default=None, foreign_key="reservation.id")
+    operation: str
+    reason: str | None = None
+    time: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+    admin: "Admin" = Relationship(back_populates="operation_logs")
+    reservation: "Reservation" = Relationship(back_populates="logs")
+
+
+class Analytic(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    date: datetime = Field(
+        sa_column=Column(DateTime(timezone=True)),
+        default_factory=lambda: datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ),
+    )
+    reservations: int = 0
+    reservationCreations: int = 0
+    approvals: int = 0
+    rejections: int = 0
+    requests: int = Field(sa_column=Column(BIGINT), default=0)
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
 
 
 class ReservationCreateRequest(BaseModel):
@@ -139,32 +340,33 @@ class AdminEditRequest(BaseModel):
     email: str
 
 
-class FromAttributesModel(BaseModel):
+class ORMBaseModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class CampusListResponse(FromAttributesModel):
+class CampusResponse(ORMBaseModel):
     id: int | None
     name: str
     isPrivileged: bool = False
     createdAt: datetime | None = None
 
 
-class RoomListResponse(FromAttributesModel):
+class RoomResponse(ORMBaseModel):
+    id: int | None
+    name: str
+    campus: int | None
+    createdAt: datetime | None = None
+    policies: Sequence["RoomPolicyResponseBase"] = []
+
+
+class ClassResponse(ORMBaseModel):
     id: int | None
     name: str
     campus: int | None
     createdAt: datetime | None = None
 
 
-class ClassListResponse(FromAttributesModel):
-    id: int | None
-    name: str
-    campus: int | None
-    createdAt: datetime | None = None
-
-
-class PolicyListResponse(FromAttributesModel):
+class RoomPolicyResponseBase(ORMBaseModel):
     id: int | None
     room: int | None
     days: List[int]
@@ -173,20 +375,20 @@ class PolicyListResponse(FromAttributesModel):
     enabled: bool
 
 
-class ApproverListResponse(FromAttributesModel):
+class RoomApproverResponse(ORMBaseModel):
     id: int | None
     room: int | None
     admin: int | None
 
 
-class AdminListResponse(FromAttributesModel):
+class AdminResponse(ORMBaseModel):
     id: int | None
     name: str
     email: str
     createdAt: datetime | None = None
 
 
-class ReservationBase(FromAttributesModel):
+class ReservationResponseBase(ORMBaseModel):
     id: int | None
     startTime: datetime
     endTime: datetime
@@ -196,12 +398,12 @@ class ReservationBase(FromAttributesModel):
     status: str
 
 
-class ReservationGetResponse(ReservationBase):
+class ReservationQueryResponse(ReservationResponseBase):
     className: str | None = None
     roomName: str | None = None
 
 
-class ReservationFutureResponse(ReservationBase):
+class ReservationUpcomingResponse(ReservationResponseBase):
     studentId: str
     className: str | None = None
     roomName: str | None = None
@@ -209,7 +411,7 @@ class ReservationFutureResponse(ReservationBase):
     campusName: str | None = None
 
 
-class ReservationAllResponse(ReservationBase):
+class ReservationFullResponse(ReservationResponseBase):
     studentId: str
     className: str | None = None
     roomName: str | None = None
@@ -259,13 +461,13 @@ class AnalyticsOverviewResponse(BaseModel):
     today: AnalyticsOverviewTodayDetail
 
 
-class BasicResponseBody(BaseModel, Generic[T]):
+class ApiResponseBody(BaseModel, Generic[T]):
     success: bool
     data: Optional[T] = None
     message: Optional[str] = None
 
 
-class BasicResponse(JSONResponse, Generic[T]):
+class ApiResponse(JSONResponse, Generic[T]):
     def __init__(
         self,
         success: bool,
@@ -274,6 +476,6 @@ class BasicResponse(JSONResponse, Generic[T]):
         status_code: int = 200,
         **kwargs: Any,
     ) -> None:
-        body = BasicResponseBody[T](success=success, data=data, message=message)
+        body = ApiResponseBody[T](success=success, data=data, message=message)
         content = jsonable_encoder(body.model_dump(exclude_none=True))
         super().__init__(content=content, status_code=status_code, **kwargs)
