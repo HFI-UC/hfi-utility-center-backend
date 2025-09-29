@@ -28,6 +28,7 @@ def create_db_and_tables() -> None:
 
 def create_room(name: str, campus: Campus) -> None:
     with Session(engine) as session:
+        session.refresh(campus)
         room = Room(name=name, campus=campus)
         session.add(room)
         session.commit()
@@ -42,6 +43,7 @@ def create_campus(name: str) -> None:
 
 def create_class(name: str, campus: Campus) -> None:
     with Session(engine) as session:
+        session.refresh(campus)
         _class = Class(name=name, campus=campus)
         session.add(_class)
         session.commit()
