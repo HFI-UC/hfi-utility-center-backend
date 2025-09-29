@@ -93,7 +93,7 @@ class Reservation(SQLModel, table=True):
     room: "Room" = Relationship(back_populates="reservations")
     class_: "Class" = Relationship(back_populates="reservations")
     logs: List["ReservationOperationLog"] = Relationship(back_populates="reservation")
-    latestExecutor: "Admin" = Relationship(back_populates="executed_reservations")
+    latestExecutor: "Admin" = Relationship(back_populates="executedReservations")
 
 
 class RoomPolicy(SQLModel, table=True):
