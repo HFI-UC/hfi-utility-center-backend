@@ -75,7 +75,7 @@ def get_class() -> Sequence[Class]:
 
 def get_room() -> Sequence[Room]:
     with Session(engine) as session:
-        rooms = session.exec(select(Room).join(RoomPolicy)).all()
+        rooms = session.exec(select(Room).join(RoomPolicy, isouter=True)).all()
         return rooms
 
 
