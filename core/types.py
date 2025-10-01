@@ -368,7 +368,7 @@ class ClassResponse(ORMBaseModel):
 
 class RoomPolicyResponseBase(ORMBaseModel):
     id: int | None
-    room: int | None
+    roomId: int | None
     days: List[int]
     startTime: List[int]
     endTime: List[int]
