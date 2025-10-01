@@ -17,8 +17,9 @@ session = Session(engine)
 
 def create_error_log(error_log: ErrorLog) -> None:
     try:
-        session.add(error_log)
-        session.commit()
+        with Session(engine) as session:
+            session.add(error_log)
+            session.commit()
     except Exception:
         pass
 
@@ -490,9 +491,10 @@ def change_admin_password(admin_id: int, new_password: str) -> None:
 
 
 def create_access_log(log: AccessLog) -> None:
-    session.add(log)
-    session.commit()
-    session.refresh(log)
+    with Session(engine) as session:
+        session.add(log)
+        session.commit()
+        session.refresh(log)
 
 
 def get_error_log_count() -> int:
