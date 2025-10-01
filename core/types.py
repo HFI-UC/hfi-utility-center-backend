@@ -357,6 +357,7 @@ class RoomResponse(ORMBaseModel):
     campus: int | None
     createdAt: datetime | None = None
     policies: Sequence["RoomPolicyResponseBase"] = []
+    approvers: Sequence["RoomApproverResponse"] = []
 
 
 class ClassResponse(ORMBaseModel):
@@ -377,8 +378,8 @@ class RoomPolicyResponseBase(ORMBaseModel):
 
 class RoomApproverResponse(ORMBaseModel):
     id: int | None
-    room: int | None
-    admin: int | None
+    roomId: int | None
+    adminId: int | None
 
 
 class AdminResponse(ORMBaseModel):

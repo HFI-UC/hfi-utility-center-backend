@@ -180,7 +180,8 @@ async def room_list(request: Request) -> ApiResponse[list[RoomResponse]]:
             name=room.name,
             campus=room.campusId,
             createdAt=room.createdAt,
-            policies=[RoomPolicyResponseBase.model_validate(policy) for policy in room.policies]
+            policies=[RoomPolicyResponseBase.model_validate(policy) for policy in room.policies],
+            approvers=[RoomApproverResponse.model_validate(approver) for approver in room.approvers],
         )
         for room in rooms
     ]
@@ -1113,28 +1114,6 @@ async def approver_create(
 
     create_room_approver(room=room, admin=admin)
     return ApiResponse(success=True, message="Room approver created successfully.")
-
-
-@app.get(
-    "/approver/list",
-    response_model=ApiResponseBody[list[RoomApproverResponse]],
-)
-@limiter.limit("5/second")
-async def approver_list(
-    request: Request, admin_login=Depends(get_current_user)
-) -> ApiResponse[list[RoomApproverResponse]]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
-    approvers = get_room_approvers()
-    data = [
-        RoomApproverResponse(id=approver.id, room=approver.roomId, admin=approver.adminId)
-        for approver in approvers
-    ]
-    return ApiResponse(success=True, data=data)
-
 
 @app.post(
     "/approver/delete",
