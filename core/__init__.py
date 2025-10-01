@@ -214,12 +214,12 @@ async def class_list(request: Request) -> ApiResponse[list[ClassResponse]]:
     classes = get_class()
     data = [
         ClassResponse(
-            id=_class.id,
-            name=_class.name,
-            campus=_class.campusId,
-            createdAt=_class.createdAt,
+            id=class_.id,
+            name=class_.name,
+            campus=class_.campusId,
+            createdAt=class_.createdAt,
         )
-        for _class in classes
+        for class_ in classes
     ]
     return ApiResponse(success=True, data=data)
 
@@ -264,10 +264,10 @@ async def room_delete(
 async def class_delete(
     request: Request, payload: ClassDeleteRequest
 ) -> ApiResponse[Any]:
-    _class = get_class_by_id(payload.id)
-    if not _class:
+    class_ = get_class_by_id(payload.id)
+    if not class_:
         return ApiResponse(success=False, message="Class not found.", status_code=404)
-    delete_class(_class)
+    delete_class(class_)
     return ApiResponse(success=True, message="Class deleted successfully.")
 
 
@@ -288,10 +288,10 @@ async def reservation_create(
     reservations = get_reservation_by_room_id(payload.room)
     room = get_room_by_id(payload.room)
     errors = []
-    _class = get_class_by_id(payload.classId)
+    class_ = get_class_by_id(payload.classId)
     if not room:
         errors.append("Room not found.")
-    if not _class:
+    if not class_:
         errors.append("Class not found.")
     if errors:
         return ApiResponse(success=False, message="\n".join(errors), status_code=400)
@@ -1070,12 +1070,12 @@ async def class_edit(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    _class = get_class_by_id(payload.id)
-    if not _class:
+    class_ = get_class_by_id(payload.id)
+    if not class_:
         return ApiResponse(success=False, message="Class not found.", status_code=404)
 
-    _class.name = payload.name
-    edit_class(_class)
+    class_.name = payload.name
+    edit_class(class_)
     return ApiResponse(success=True, message="Class edited successfully.")
 
 

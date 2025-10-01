@@ -2,20 +2,23 @@ from datetime import datetime, timedelta, timezone
 from sqlmodel import (
     SQLModel,
     create_engine,
-    Session,
+    Session as SQLSession,
     select,
     or_,
     column,
 )
+from sqlalchemy.orm import selectinload, sessionmaker
 from core.env import *
-from typing import Sequence, List
+from typing import Sequence, List, Any, cast
 from core.types import *
 
 engine = create_engine(database_url)
 
+Session = sessionmaker(bind=engine, class_=SQLSession, expire_on_commit=False)
+
 def create_error_log(error_log: ErrorLog) -> None:
     try:
-        with Session(engine) as session:
+        with Session() as session:
             session.add(error_log)
             session.commit()
     except Exception:
@@ -27,40 +30,40 @@ def create_db_and_tables() -> None:
 
 
 def create_room(name: str, campus: Campus) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         room = Room(name=name, campusId=campus.id)
         session.add(room)
         session.commit()
 
 
 def create_campus(name: str) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         campus = Campus(name=name)
         session.add(campus)
         session.commit()
 
 
 def create_class(name: str, campus: Campus) -> None:
-    with Session(engine) as session:
-        _class = Class(name=name, campusId=campus.id)
-        session.add(_class)
+    with Session() as session:
+        class_ = Class(name=name, campusId=campus.id)
+        session.add(class_)
         session.commit()
 
 
 def get_campus() -> Sequence[Campus]:
-    with Session(engine) as session:
+    with Session() as session:
         campuses = session.exec(select(Campus)).all()
         return campuses
 
 
 def get_policy() -> Sequence[RoomPolicy]:
-    with Session(engine) as session:
+    with Session() as session:
         policies = session.exec(select(RoomPolicy)).all()
         return policies
 
 
 def get_policy_by_room_id(room_id: int | None) -> Sequence[RoomPolicy]:
-    with Session(engine) as session:
+    with Session() as session:
         policies = session.exec(
             select(RoomPolicy).where(RoomPolicy.roomId == room_id)
         ).all()
@@ -68,19 +71,21 @@ def get_policy_by_room_id(room_id: int | None) -> Sequence[RoomPolicy]:
 
 
 def get_class() -> Sequence[Class]:
-    with Session(engine) as session:
+    with Session() as session:
         classes = session.exec(select(Class)).all()
         return classes
 
 
 def get_room() -> Sequence[Room]:
-    with Session(engine) as session:
-        rooms = session.exec(select(Room).join(RoomPolicy, isouter=True)).all()
+    with Session() as session:
+        rooms = session.exec(
+            select(Room).options(selectinload(cast(Any, Room).policies))
+        ).all()
         return rooms
 
 
 def create_reservation(request: ReservationCreateRequest) -> int:
-    with Session(engine) as session:
+    with Session() as session:
         reservation = Reservation(
             roomId=request.room,
             startTime=datetime.fromtimestamp(request.startTime, tz=timezone.utc),
@@ -107,7 +112,7 @@ def create_reservation(request: ReservationCreateRequest) -> int:
 
 
 def get_reservation_by_room_id(room_id: int | None) -> Sequence[Reservation]:
-    with Session(engine) as session:
+    with Session() as session:
         reservations = session.exec(
             select(Reservation).where(Reservation.roomId == room_id)
         ).all()
@@ -115,20 +120,20 @@ def get_reservation_by_room_id(room_id: int | None) -> Sequence[Reservation]:
 
 
 def get_room_by_id(room_id: int | None) -> Room | None:
-    with Session(engine) as session:
+    with Session() as session:
         room = session.exec(select(Room).where(Room.id == room_id)).one_or_none()
         return room
 
 
 def create_admin(email: str, name: str, password: str) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         admin = Admin(email=email, name=name, password=password)
         session.add(admin)
         session.commit()
 
 
 def get_admin_login_by_cookie(cookie: str) -> AdminLogin | None:
-    with Session(engine) as session:
+    with Session() as session:
         admin_login = session.exec(
             select(AdminLogin).where(AdminLogin.cookie == cookie)
         ).one_or_none()
@@ -136,7 +141,7 @@ def get_admin_login_by_cookie(cookie: str) -> AdminLogin | None:
 
 
 def get_admin_by_email(email: str) -> Admin | None:
-    with Session(engine) as session:
+    with Session() as session:
         admin = session.exec(select(Admin).where(Admin.email == email)).first()
         return admin
 
@@ -144,7 +149,7 @@ def get_admin_by_email(email: str) -> Admin | None:
 def get_reservation(
     keyword: str | None = None, room_id: int | None = None, status: str | None = None
 ) -> Sequence[Reservation]:
-    with Session(engine) as session:
+    with Session() as session:
         query = select(Reservation).where(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(days=1)
         )
@@ -167,7 +172,7 @@ def get_reservation(
 
 
 def create_admin_login(email: str, cookie: str) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         user_login = AdminLogin(
             email=email,
             cookie=cookie,
@@ -178,7 +183,7 @@ def create_admin_login(email: str, cookie: str) -> None:
 
 
 def get_future_reservations() -> Sequence[Reservation]:
-    with Session(engine) as session:
+    with Session() as session:
         reservations = session.exec(
             select(Reservation).where(
                 Reservation.startTime >= datetime.now(timezone.utc)
@@ -188,7 +193,7 @@ def get_future_reservations() -> Sequence[Reservation]:
 
 
 def get_future_reservations_by_approver_id(approver_id: int | None) -> Sequence[Reservation]:
-    with Session(engine) as session:
+    with Session() as session:
         reservations = session.exec(
             select(Reservation)
             .join(Room)
@@ -202,7 +207,7 @@ def get_future_reservations_by_approver_id(approver_id: int | None) -> Sequence[
 def change_reservation_status_by_id(
     id: int | None, status: str, admin: int, reason: str | None = None
 ) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         reservation = session.exec(
             select(Reservation).where(Reservation.id == id)
         ).one_or_none()
@@ -227,7 +232,7 @@ def change_reservation_status_by_id(
 def create_reservation_operation_log(
     admin: int, reservation: int, operation: str, reason: str | None = None
 ) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         log = ReservationOperationLog(
             adminId=admin, reservationId=reservation, operation=operation, reason=reason
         )
@@ -243,7 +248,7 @@ def update_analytic(
     reservationCreations: int,
     requests: int,
 ) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         analytic = session.exec(
             select(Analytic).where(
                 Analytic.date
@@ -276,7 +281,7 @@ def update_analytic(
 
 
 def get_analytic_by_date(date: datetime) -> Analytic | None:
-    with Session(engine) as session:
+    with Session() as session:
         analytic = session.exec(
             select(Analytic).where(
                 Analytic.date
@@ -293,7 +298,7 @@ def get_analytics_between(start: datetime, end: datetime) -> Sequence[Analytic]:
         hour=0, minute=0, second=0, microsecond=0
     )
     e = end.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    with Session(engine) as session:
+    with Session() as session:
         analytics = session.exec(
             select(Analytic).where(Analytic.date >= s).where(Analytic.date <= e)
         ).all()
@@ -301,7 +306,7 @@ def get_analytics_between(start: datetime, end: datetime) -> Sequence[Analytic]:
 
 
 def get_reservation_by_id(id: int | None) -> Reservation | None:
-    with Session(engine) as session:
+    with Session() as session:
         reservation = session.exec(
             select(Reservation).where(Reservation.id == id)
         ).one_or_none()
@@ -309,13 +314,13 @@ def get_reservation_by_id(id: int | None) -> Reservation | None:
 
 
 def get_campus_by_id(id: int | None) -> Campus | None:
-    with Session(engine) as session:
+    with Session() as session:
         campus = session.exec(select(Campus).where(Campus.id == id)).one_or_none()
         return campus
 
 
 def get_all_reservations() -> Sequence[Reservation]:
-    with Session(engine) as session:
+    with Session() as session:
         reservations = session.exec(select(Reservation)).all()
         return reservations
 
@@ -323,7 +328,7 @@ def get_all_reservations() -> Sequence[Reservation]:
 def get_reservations_by_time_range(
     start: datetime | None, end: datetime | None
 ) -> Sequence[Reservation]:
-    with Session(engine) as session:
+    with Session() as session:
         query = select(Reservation)
         if start:
             query = query.where(Reservation.startTime >= start)
@@ -334,34 +339,34 @@ def get_reservations_by_time_range(
 
 
 def get_class_by_id(id: int | None) -> Class | None:
-    with Session(engine) as session:
-        _class = session.exec(select(Class).where(Class.id == id)).one_or_none()
-        return _class
+    with Session() as session:
+        class_ = session.exec(select(Class).where(Class.id == id)).one_or_none()
+        return class_
 
 
 def delete_campus(campus: Campus) -> None:
-    with Session(engine) as session:
-        with Session(engine) as session:
+    with Session() as session:
+        with Session() as session:
             rooms = session.exec(select(Room).where(Room.campusId == campus.id)).all()
             classes = session.exec(select(Class).where(Class.campusId == campus.id)).all()
             session.close()
             for room in rooms:
                 delete_room(room)
-            for _class in classes:
-                delete_class(_class)
+            for class_ in classes:
+                delete_class(class_)
         session.delete(campus)
         session.commit()
 
 
-def delete_class(_class: Class) -> None:
-    with Session(engine) as session:
-        session.delete(_class)
+def delete_class(class_: Class) -> None:
+    with Session() as session:
+        session.delete(class_)
         session.commit()
 
 
 def delete_room(room: Room) -> None:
-    with Session(engine) as session:
-        with Session(engine) as session:
+    with Session() as session:
+        with Session() as session:
             policies = session.exec(
                 select(RoomPolicy).where(RoomPolicy.roomId == room.id)
             ).all()
@@ -378,13 +383,13 @@ def delete_room(room: Room) -> None:
 
 
 def delete_policy(policy: RoomPolicy) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         session.delete(policy)
         session.commit()
 
 
 def delete_room_approver(approver: RoomApprover) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         session.delete(approver)
         session.commit()
 
@@ -392,7 +397,7 @@ def delete_room_approver(approver: RoomApprover) -> None:
 def create_policy(
     room: Room, days: List[int], startTime: List[int], endTime: List[int]
 ) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         policy = RoomPolicy(
             room=room, days=days, startTime=startTime, endTime=endTime
         )
@@ -401,7 +406,7 @@ def create_policy(
 
 
 def get_policy_by_id(id: int | None) -> RoomPolicy | None:
-    with Session(engine) as session:
+    with Session() as session:
         policy = session.exec(
             select(RoomPolicy).where(RoomPolicy.id == id)
         ).one_or_none()
@@ -409,38 +414,38 @@ def get_policy_by_id(id: int | None) -> RoomPolicy | None:
 
 
 def toggle_policy(policy: RoomPolicy) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         policy.enabled = not policy.enabled
         session.add(policy)
         session.commit()
 
 
 def edit_policy(policy: RoomPolicy) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         session.add(policy)
         session.commit()
 
 
 def edit_room(room: Room) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         session.add(room)
         session.commit()
 
 
 def edit_campus(campus: Campus) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         session.add(campus)
         session.commit()
 
 
-def edit_class(_class: Class) -> None:
-    with Session(engine) as session:
-        session.add(_class)
+def edit_class(class_: Class) -> None:
+    with Session() as session:
+        session.add(class_)
         session.commit()
 
 
 def get_temp_admin_login_by_token(token: str) -> TempAdminLogin | None:
-    with Session(engine) as session:
+    with Session() as session:
         temp_admin_login = session.exec(
             select(TempAdminLogin).where(TempAdminLogin.token == token)
         ).one_or_none()
@@ -448,32 +453,32 @@ def get_temp_admin_login_by_token(token: str) -> TempAdminLogin | None:
 
 
 def delete_temp_admin_login(temp_admin_login: TempAdminLogin) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         session.delete(temp_admin_login)
         session.commit()
 
 
 def get_admin_by_id(admin_id: int | None) -> Admin | None:
-    with Session(engine) as session:
+    with Session() as session:
         admin = session.exec(select(Admin).where(Admin.id == admin_id)).one_or_none()
         return admin
 
 
 def create_room_approver(room: Room, admin: Admin) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         approver = RoomApprover(room=room, admin=admin)
         session.add(approver)
         session.commit()
 
 
 def get_room_approvers() -> Sequence[RoomApprover]:
-    with Session(engine) as session:
+    with Session() as session:
         approvers = session.exec(select(RoomApprover)).all()
         return approvers
 
 
 def get_room_approver_by_id(id: int | None) -> RoomApprover | None:
-    with Session(engine) as session:
+    with Session() as session:
         approver = session.exec(
             select(RoomApprover).where(RoomApprover.id == id)
         ).one_or_none()
@@ -481,7 +486,7 @@ def get_room_approver_by_id(id: int | None) -> RoomApprover | None:
 
 
 def get_room_approvers_by_admin_id(admin_id: int) -> Sequence[RoomApprover] | None:
-    with Session(engine) as session:
+    with Session() as session:
         approvers = session.exec(
             select(RoomApprover).where(RoomApprover.adminId == admin_id)
         ).all()
@@ -489,7 +494,7 @@ def get_room_approvers_by_admin_id(admin_id: int) -> Sequence[RoomApprover] | No
 
 
 def get_room_approvers_by_room_id(room_id: int) -> Sequence[RoomApprover] | None:
-    with Session(engine) as session:
+    with Session() as session:
         approvers = session.exec(
             select(RoomApprover).where(RoomApprover.roomId == room_id)
         ).all()
@@ -497,13 +502,13 @@ def get_room_approvers_by_room_id(room_id: int) -> Sequence[RoomApprover] | None
 
 
 def get_admins() -> Sequence[Admin]:
-    with Session(engine) as session:
+    with Session() as session:
         admins = session.exec(select(Admin)).all()
         return admins
 
 
 def create_temp_admin_login(email: str, token: str) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         temp_admin_login = TempAdminLogin(email=email, token=token)
         session.add(temp_admin_login)
         session.commit()
@@ -512,7 +517,7 @@ def create_temp_admin_login(email: str, token: str) -> None:
 def get_reservations_by_time_range_and_room(
     start: datetime | None, end: datetime | None, room_id: int
 ) -> Sequence[Reservation]:
-    with Session(engine) as session:
+    with Session() as session:
         query = select(Reservation).where(Reservation.roomId == room_id)
         if start:
             query = query.where(Reservation.startTime >= start)
@@ -523,8 +528,8 @@ def get_reservations_by_time_range_and_room(
 
 
 def delete_admin(admin: Admin) -> None:
-    with Session(engine) as session:
-        with Session(engine) as session:
+    with Session() as session:
+        with Session() as session:
             approvers = session.exec(
                 select(RoomApprover).where(RoomApprover.adminId == admin.id)
             ).all()
@@ -536,7 +541,7 @@ def delete_admin(admin: Admin) -> None:
 
 
 def change_admin_password(admin_id: int, new_password: str) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         admin = session.exec(select(Admin).where(Admin.id == admin_id)).one_or_none()
         if not admin:
             return
@@ -546,19 +551,19 @@ def change_admin_password(admin_id: int, new_password: str) -> None:
 
 
 def create_access_log(log: AccessLog) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         session.add(log)
         session.commit()
         session.refresh(log)
 
 
 def get_error_log_count() -> int:
-    with Session(engine) as session:
+    with Session() as session:
         data = session.exec(select(ErrorLog)).all()
         return len(data)
 
 
 def edit_admin(admin: Admin) -> None:
-    with Session(engine) as session:
+    with Session() as session:
         session.add(admin)
         session.commit()

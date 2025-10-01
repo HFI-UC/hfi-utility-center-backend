@@ -57,7 +57,7 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
             class_name = next(
                 (cls.name for cls in classes if cls.id == reservation.classId), None
             )
-            campus = get_campus_by_id(room.campus) if room and room.campus else None
+            campus = get_campus_by_id(room.campusId) if room and room.campus else None
             ws.append(
                 [
                     reservation.id,
