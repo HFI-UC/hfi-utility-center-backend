@@ -180,8 +180,14 @@ async def room_list(request: Request) -> ApiResponse[list[RoomResponse]]:
             name=room.name,
             campus=room.campusId,
             createdAt=room.createdAt,
-            policies=[RoomPolicyResponseBase.model_validate(policy) for policy in room.policies],
-            approvers=[RoomApproverResponse.model_validate(approver) for approver in room.approvers],
+            policies=[
+                RoomPolicyResponseBase.model_validate(policy)
+                for policy in room.policies
+            ],
+            approvers=[
+                RoomApproverResponse.model_validate(approver)
+                for approver in room.approvers
+            ],
         )
         for room in rooms
     ]
@@ -205,6 +211,7 @@ async def campus_list(request: Request) -> ApiResponse[list[CampusResponse]]:
         for campus in campuses
     ]
     return ApiResponse(success=True, data=data)
+
 
 @app.get(
     "/class/list",
@@ -235,9 +242,7 @@ async def campus_delete(
 ) -> ApiResponse[Any]:
     campus = get_campus_by_id(payload.id)
     if not campus:
-        return ApiResponse(
-            success=False, message="Campus not found.", status_code=404
-        )
+        return ApiResponse(success=False, message="Campus not found.", status_code=404)
     delete_campus(campus)
     return ApiResponse(success=True, message="Campus deleted successfully.")
 
@@ -247,9 +252,7 @@ async def campus_delete(
     response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
-async def room_delete(
-    request: Request, payload: RoomDeleteRequest
-) -> ApiResponse[Any]:
+async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiResponse[Any]:
     room = get_room_by_id(payload.id)
     if not room:
         return ApiResponse(success=False, message="Room not found.", status_code=404)
@@ -520,7 +523,9 @@ async def admin_login(
         create_admin_login(temp_admin_login.email, cookie)
         delete_temp_admin_login(temp_admin_login)
         response = ApiResponse(success=True, message="Login successful.")
-        response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite="none", secure=True)
+        response.set_cookie(
+            "UCCOOKIE", cookie, httponly=True, samesite="none", secure=True
+        )
         return response
     if not payload.email or not payload.password:
         return ApiResponse(
@@ -876,6 +881,11 @@ async def policy_create(
             success=False, message="User is not logged in.", status_code=401
         )
 
+    if len(payload.days) != len(set(payload.days)):
+        return ApiResponse(
+            success=False, message="Days must be unique.", status_code=400
+        )
+
     if not all(6 >= day >= 0 for day in payload.days) or len(payload.days) > 7:
         return ApiResponse(success=False, message="Invalid days.", status_code=400)
 
@@ -893,9 +903,7 @@ async def policy_create(
         or not 23 >= payload.endTime[0] >= 0
         or not 59 >= payload.endTime[1] >= 0
     ):
-        return ApiResponse(
-            success=False, message="Invalid end times.", status_code=400
-        )
+        return ApiResponse(success=False, message="Invalid end times.", status_code=400)
     room = get_room_by_id(payload.room)
     if not room:
         return ApiResponse(success=False, message="Room not found.", status_code=404)
@@ -925,9 +933,7 @@ async def policy_delete(
 
     policy = get_policy_by_id(payload.id)
     if not policy:
-        return ApiResponse(
-            success=False, message="Policy not found.", status_code=404
-        )
+        return ApiResponse(success=False, message="Policy not found.", status_code=404)
     delete_policy(policy)
     return ApiResponse(success=True, message="Policy deleted successfully.")
 
@@ -949,9 +955,7 @@ async def policy_toggle(
 
     policy = get_policy_by_id(payload.id)
     if not policy:
-        return ApiResponse(
-            success=False, message="Policy not found.", status_code=404
-        )
+        return ApiResponse(success=False, message="Policy not found.", status_code=404)
     toggle_policy(policy)
     return ApiResponse(success=True, message="Policy toggled successfully.")
 
@@ -973,9 +977,7 @@ async def policy_edit(
 
     policy = get_policy_by_id(payload.id)
     if not policy:
-        return ApiResponse(
-            success=False, message="Policy not found.", status_code=404
-        )
+        return ApiResponse(success=False, message="Policy not found.", status_code=404)
 
     if not all(6 >= day >= 0 for day in payload.days) or len(payload.days) > 7:
         return ApiResponse(success=False, message="Invalid days.", status_code=400)
@@ -994,9 +996,7 @@ async def policy_edit(
         or not 23 >= payload.endTime[0] >= 0
         or not 59 >= payload.endTime[1] >= 0
     ):
-        return ApiResponse(
-            success=False, message="Invalid end times.", status_code=400
-        )
+        return ApiResponse(success=False, message="Invalid end times.", status_code=400)
 
     if (
         policy.days == payload.days
@@ -1049,9 +1049,7 @@ async def campus_edit(
 
     campus = get_campus_by_id(payload.id)
     if not campus:
-        return ApiResponse(
-            success=False, message="Campus not found.", status_code=404
-        )
+        return ApiResponse(success=False, message="Campus not found.", status_code=404)
 
     campus.name = payload.name
     edit_campus(campus)
@@ -1114,6 +1112,7 @@ async def approver_create(
 
     create_room_approver(room=room, admin=admin)
     return ApiResponse(success=True, message="Room approver created successfully.")
+
 
 @app.post(
     "/approver/delete",
@@ -1207,7 +1206,7 @@ async def admin_edit_password(
     request: Request,
     payload: AdminEditPasswordRequest,
     admin_login=Depends(get_current_user),
-    ) -> ApiResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1226,7 +1225,7 @@ async def admin_edit_password(
 @limiter.limit("5/second")
 async def admin_edit(
     request: Request, payload: AdminEditRequest, admin_login=Depends(get_current_user)
-    ) -> ApiResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1257,7 +1256,7 @@ async def admin_edit(
 @limiter.limit("5/second")
 async def admin_delete(
     request: Request, payload: AdminDeleteRequest, admin_login=Depends(get_current_user)
-    ) -> ApiResponse[Any]:
+) -> ApiResponse[Any]:
     if not admin_login:
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1383,10 +1382,68 @@ async def analytics_overview(
     return ApiResponse(success=True, data=data)
 
 
-@app.get(
-    "/analytics/overview/export",
-    response_model=None
-)
+@app.get("/analytics/weekly", response_model=ApiResponseBody[AnalyticsWeeklyResponse])
+@limiter.limit("1/second")
+async def analytics_weekly(
+    request: Request,
+) -> ApiResponse[AnalyticsWeeklyResponse]:
+    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = now - timedelta(days=now.weekday() + 7)
+    end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+    analytics = get_analytics_between(start, end)
+    analytics_by_date: dict[Any, Analytic] = {a.date.date(): a for a in analytics}
+    total_reservations = 0
+    total_reservation_creations = 0
+    total_approvals = 0
+    total_rejections = 0
+    total_approvals = 0
+    rooms: list[AnalyticsWeeklyRoomDetail] = []
+    for i in range(7):
+        analytic_for_day = analytics_by_date.get((start + timedelta(days=i)).date())
+        if analytic_for_day:
+            total_reservation_creations += analytic_for_day.reservationCreations or 0
+            total_reservations += analytic_for_day.reservations or 0
+            total_approvals += analytic_for_day.approvals or 0
+            total_rejections += analytic_for_day.rejections or 0
+            total_approvals += analytic_for_day.approvals or 0
+    all_rooms = get_room()
+    for room in all_rooms:
+        room_reservations = 0
+        room_approvals = 0
+        room_rejections = 0
+        room_reservations = 0
+        _reservations = room.reservations
+        for i in range(7):
+            day = (start + timedelta(days=i)).date()
+            for reservation in _reservations:
+                if reservation.startTime.date() == day:
+                    room_reservations += 1
+                    if reservation.status == "approved":
+                        room_approvals += 1
+                    elif reservation.status == "rejected":
+                        room_rejections += 1
+        rooms.append(
+            AnalyticsWeeklyRoomDetail(
+                roomName=room.name,
+                reservationCreations=room_reservations,
+                reservations=room_reservations,
+                approvals=room_approvals,
+                rejections=room_rejections,
+            )
+        )
+    return ApiResponse(
+        success=True,
+        data=AnalyticsWeeklyResponse(
+            totalReservations=total_reservations,
+            totalReservationCreations=total_reservation_creations,
+            totalApprovals=total_approvals,
+            totalRejections=total_rejections,
+            rooms=rooms,
+        ),
+    )
+
+
+@app.get("/analytics/overview/export", response_model=None)
 @limiter.limit("1/second")
 async def analytics_overview_export(
     request: Request,

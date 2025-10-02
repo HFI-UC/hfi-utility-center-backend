@@ -461,6 +461,22 @@ class AnalyticsOverviewResponse(BaseModel):
     monthly: AnalyticsOverviewMonthlyDetail
     today: AnalyticsOverviewTodayDetail
 
+class AnalyticsWeeklyRoomDetail(BaseModel):
+    roomName: str
+    reservations: int
+    reservationCreations: int
+    approvals: int
+    rejections: int
+
+
+
+class AnalyticsWeeklyResponse(BaseModel):
+    rooms: List[AnalyticsWeeklyRoomDetail]
+    totalReservations: int
+    totalReservationCreations: int
+    totalApprovals: int
+    totalRejections: int
+
 
 class ApiResponseBody(BaseModel, Generic[T]):
     success: bool
