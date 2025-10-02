@@ -1409,26 +1409,21 @@ async def analytics_weekly(
     all_rooms = get_room()
     for room in all_rooms:
         room_reservations = 0
-        room_approvals = 0
-        room_rejections = 0
         room_reservations = 0
+        room_reservation_creations = 0
         _reservations = room.reservations
         for i in range(7):
             day = (start + timedelta(days=i)).date()
             for reservation in _reservations:
                 if reservation.startTime.date() == day:
                     room_reservations += 1
-                    if reservation.status == "approved":
-                        room_approvals += 1
-                    elif reservation.status == "rejected":
-                        room_rejections += 1
+                if reservation.createdAt.date() == day:
+                    room_reservation_creations += 1
         rooms.append(
             AnalyticsWeeklyRoomDetail(
                 roomName=room.name,
-                reservationCreations=room_reservations,
+                reservationCreations=room_reservation_creations,
                 reservations=room_reservations,
-                approvals=room_approvals,
-                rejections=room_rejections,
             )
         )
     return ApiResponse(

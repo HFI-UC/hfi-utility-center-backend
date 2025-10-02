@@ -465,9 +465,6 @@ class AnalyticsWeeklyRoomDetail(BaseModel):
     roomName: str
     reservations: int
     reservationCreations: int
-    approvals: int
-    rejections: int
-
 
 
 class AnalyticsWeeklyResponse(BaseModel):
