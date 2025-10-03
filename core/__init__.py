@@ -1453,7 +1453,7 @@ async def analytics_weekly(
                 AnalyticsReasonDetail(word=word, count=count)
                 for word, count in sorted(
                     reasons.items(), key=lambda item: item[1], reverse=True
-                )[:30]
+                )[:80]
             ],
         ),
     )
