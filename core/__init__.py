@@ -1436,7 +1436,10 @@ async def analytics_weekly(
                     continue
                 reasons[word] = reasons.get(word, 0) + 1
             if reservation.status == "approved":
-                hourly_reservations[reservation.startTime.hour] += 1
+                i = reservation.startTime.hour
+                while i != reservation.endTime.hour:
+                    hourly_reservations[i] += 1
+                    i = (i + 1) % 24
         rooms.append(
             AnalyticsWeeklyRoomDetail(
                 roomName=room.name,
