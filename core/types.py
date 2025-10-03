@@ -477,6 +477,7 @@ class AnalyticsWeeklyResponse(BaseModel):
     totalApprovals: int
     totalRejections: int
     reasons: List[AnalyticsReasonDetail]
+    hourlyReservations: List[int]
 
 
 class ApiResponseBody(BaseModel, Generic[T]):

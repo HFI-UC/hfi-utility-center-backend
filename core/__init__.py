@@ -1417,6 +1417,7 @@ async def analytics_weekly(
             total_rejections += analytic_for_day.rejections or 0
             total_approvals += analytic_for_day.approvals or 0
     all_rooms = get_room()
+    hourly_reservations = [0] * 24
     for room in all_rooms:
         room_reservations = 0
         room_reservations = 0
@@ -1434,6 +1435,8 @@ async def analytics_weekly(
                 if not is_meaningful(word):
                     continue
                 reasons[word] = reasons.get(word, 0) + 1
+            if reservation.status == "approved":
+                hourly_reservations[reservation.startTime.hour] += 1
         rooms.append(
             AnalyticsWeeklyRoomDetail(
                 roomName=room.name,
@@ -1455,6 +1458,7 @@ async def analytics_weekly(
                     reasons.items(), key=lambda item: item[1], reverse=True
                 )[:150]
             ],
+            hourlyReservations=hourly_reservations,
         ),
     )
 
