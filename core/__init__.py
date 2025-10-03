@@ -26,7 +26,7 @@ import re
 import traceback
 import time
 import jieba
-
+import unicodedata
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -1388,6 +1388,14 @@ async def analytics_overview(
 async def analytics_weekly(
     request: Request,
 ) -> ApiResponse[AnalyticsWeeklyResponse]:
+    def is_meaningful(token: str) -> bool:
+        token = token.strip()
+        if not token:
+            return False
+        cats = {unicodedata.category(ch) for ch in token}
+        if all(c[0] in {"P", "Z", "S"} for c in cats):
+            return False
+        return True
     now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     start = now - timedelta(days=now.weekday() + 7)
     end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
@@ -1423,7 +1431,7 @@ async def analytics_weekly(
                     room_reservation_creations += 1
             words = jieba.cut(reservation.reason)
             for word in words:
-                if word == " " or word == "\n" or word == "\t":
+                if not is_meaningful(word):
                     continue
                 reasons[word] = reasons.get(word, 0) + 1
         rooms.append(
