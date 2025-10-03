@@ -25,6 +25,7 @@ import bcrypt
 import re
 import traceback
 import time
+import jieba
 
 
 @asynccontextmanager
@@ -1397,6 +1398,7 @@ async def analytics_weekly(
     total_approvals = 0
     total_rejections = 0
     total_approvals = 0
+    reasons: dict[str, int] = {}
     rooms: list[AnalyticsWeeklyRoomDetail] = []
     for i in range(7):
         analytic_for_day = analytics_by_date.get((start + timedelta(days=i)).date())
@@ -1419,6 +1421,9 @@ async def analytics_weekly(
                     room_reservations += 1
                 if reservation.createdAt.date() == day:
                     room_reservation_creations += 1
+                words = jieba.cut(reservation.reason)
+                for word in words:
+                    reasons[word] = reasons.get(word, 0) + 1
         rooms.append(
             AnalyticsWeeklyRoomDetail(
                 roomName=room.name,
@@ -1434,6 +1439,12 @@ async def analytics_weekly(
             totalApprovals=total_approvals,
             totalRejections=total_rejections,
             rooms=rooms,
+            reasons=[
+                AnalyticsReasonDetail(word=word, count=count)
+                for word, count in sorted(
+                    reasons.items(), key=lambda item: item[1], reverse=True
+                )[:10]
+            ],
         ),
     )
 

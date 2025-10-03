@@ -374,6 +374,17 @@ files = [
 all = ["flake8 (>=7.1.1)", "mypy (>=1.11.2)", "pytest (>=8.3.2)", "ruff (>=0.6.2)"]
 
 [[package]]
+name = "jieba"
+version = "0.42.1"
+description = "Chinese Words Segmentation Utilities"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "jieba-0.42.1.tar.gz", hash = "sha256:055ca12f62674fafed09427f176506079bc135638a14e23e25be909131928db2"},
+]
+
+[[package]]
 name = "limits"
 version = "5.5.0"
 description = "Rate limiting utilities"
@@ -1010,4 +1021,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "4cfaea5a987bc26326e687809875aa411adbc52d65dbe8a531f2fa7fb438d28c"
+content-hash = "a26362c521198876f712a10d9c91e8b82bceb381f1b64d751460b1a10f8839f8"

@@ -466,6 +466,9 @@ class AnalyticsWeeklyRoomDetail(BaseModel):
     reservations: int
     reservationCreations: int
 
+class AnalyticsReasonDetail(BaseModel):
+    word: str
+    count: int
 
 class AnalyticsWeeklyResponse(BaseModel):
     rooms: List[AnalyticsWeeklyRoomDetail]
@@ -473,6 +476,7 @@ class AnalyticsWeeklyResponse(BaseModel):
     totalReservationCreations: int
     totalApprovals: int
     totalRejections: int
+    reasons: List[AnalyticsReasonDetail]
 
 
 class ApiResponseBody(BaseModel, Generic[T]):

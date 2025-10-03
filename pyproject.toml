@@ -22,6 +22,7 @@ psutil = "^7.0.0"
 apscheduler = "^3.11.0"
 psycopg2 = "^2.9.10"
 playwright = "^1.55.0"
+jieba = "^0.42.1"
 
 
 [build-system]
