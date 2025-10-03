@@ -1414,16 +1414,18 @@ async def analytics_weekly(
         room_reservations = 0
         room_reservation_creations = 0
         _reservations = room.reservations
-        for i in range(7):
-            day = (start + timedelta(days=i)).date()
-            for reservation in _reservations:
+        for reservation in _reservations:
+            for i in range(7):
+                day = (start + timedelta(days=i)).date()
                 if reservation.startTime.date() == day:
                     room_reservations += 1
                 if reservation.createdAt.date() == day:
                     room_reservation_creations += 1
-                words = jieba.cut(reservation.reason)
-                for word in words:
-                    reasons[word] = reasons.get(word, 0) + 1
+            words = jieba.cut(reservation.reason)
+            for word in words:
+                if word == " " or word == "\n" or word == "\t":
+                    continue
+                reasons[word] = reasons.get(word, 0) + 1
         rooms.append(
             AnalyticsWeeklyRoomDetail(
                 roomName=room.name,
@@ -1443,7 +1445,7 @@ async def analytics_weekly(
                 AnalyticsReasonDetail(word=word, count=count)
                 for word, count in sorted(
                     reasons.items(), key=lambda item: item[1], reverse=True
-                )[:10]
+                )
             ],
         ),
     )
