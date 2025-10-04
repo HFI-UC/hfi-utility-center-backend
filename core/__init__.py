@@ -1408,6 +1408,8 @@ async def analytics_weekly(
     total_approvals = 0
     reasons: dict[str, int] = {}
     rooms: list[AnalyticsWeeklyRoomDetail] = []
+    daily_reservations = [0] * 7
+    daily_reservation_creations = [0] * 7
     for i in range(7):
         analytic_for_day = analytics_by_date.get((start + timedelta(days=i)).date())
         if analytic_for_day:
@@ -1416,8 +1418,11 @@ async def analytics_weekly(
             total_approvals += analytic_for_day.approvals or 0
             total_rejections += analytic_for_day.rejections or 0
             total_approvals += analytic_for_day.approvals or 0
+            daily_reservations[i] = analytic_for_day.reservations or 0
+            daily_reservation_creations[i] = analytic_for_day.reservationCreations or 0
     all_rooms = get_room()
     hourly_reservations = [0] * 24
+
     for room in all_rooms:
         room_reservations = 0
         room_reservations = 0
@@ -1454,7 +1459,11 @@ async def analytics_weekly(
             totalReservationCreations=total_reservation_creations,
             totalApprovals=total_approvals,
             totalRejections=total_rejections,
-            rooms=rooms,
+            rooms=sorted(
+                rooms,
+                key=lambda r: (r.reservations, r.reservationCreations),
+                reverse=True,
+            )[:5],
             reasons=[
                 AnalyticsReasonDetail(word=word, count=count)
                 for word, count in sorted(
@@ -1462,6 +1471,8 @@ async def analytics_weekly(
                 )[:150]
             ],
             hourlyReservations=hourly_reservations,
+            dailyReservations=daily_reservations,
+            dailyReservationCreations=daily_reservation_creations,
         ),
     )
 
