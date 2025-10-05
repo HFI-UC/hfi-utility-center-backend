@@ -127,6 +127,7 @@ async def get_exported_pdf(url: str, output: str, device_scale: int = 2) -> None
         page = await context.new_page()
         await page.goto(url, wait_until="networkidle")
         await page.emulate_media(media="print")
+        await page.wait_for_timeout(1000)
         await page.pdf(
             path=output,
             format="A4",
@@ -147,6 +148,7 @@ async def get_screenshot(url: str, output: str, device_scale: int = 2) -> None:
         page = await context.new_page()
         await page.goto(url, wait_until="networkidle")
         await page.emulate_media(media="print")
+        await page.wait_for_timeout(1000)
         await page.screenshot(
             path=output,
             full_page=True,
