@@ -505,4 +505,17 @@ def get_error_log_count() -> int:
 def edit_admin(admin: Admin) -> None:
     session.add(admin)
     session.commit()
- 
+
+def create_cache(cache: Cache) -> None:
+    session.add(cache)
+    session.commit()
+
+def get_cache_by_key(key: str) -> Cache | None:
+    cache = session.exec(select(Cache).where(Cache.key == key)).one_or_none()
+    return cache
+
+def clear_all_cache() -> None:
+    caches = session.exec(select(Cache)).all()
+    for cache in caches:
+        session.delete(cache)
+    session.commit()

@@ -28,6 +28,7 @@ import time
 import jieba
 import unicodedata
 
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     create_db_and_tables()
@@ -1396,9 +1397,17 @@ async def analytics_weekly(
         if all(c[0] in {"P", "Z", "S"} for c in cats):
             return False
         return True
+
     now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     start = now - timedelta(days=now.weekday() + 7)
     end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+
+    if cached := get_cache_by_key(f"analytics_weekly_{start.date()}"):
+        return ApiResponse(
+            success=True,
+            data=AnalyticsWeeklyResponse.model_validate(cached.value),
+        )
+
     analytics = get_analytics_between(start, end)
     analytics_by_date: dict[Any, Analytic] = {a.date.date(): a for a in analytics}
     total_reservations = 0
@@ -1452,29 +1461,29 @@ async def analytics_weekly(
                 reservations=room_reservations,
             )
         )
-    return ApiResponse(
-        success=True,
-        data=AnalyticsWeeklyResponse(
-            totalReservations=total_reservations,
-            totalReservationCreations=total_reservation_creations,
-            totalApprovals=total_approvals,
-            totalRejections=total_rejections,
-            rooms=sorted(
-                rooms,
-                key=lambda r: (r.reservations, r.reservationCreations),
-                reverse=True,
-            )[:5],
-            reasons=[
-                AnalyticsReasonDetail(word=word, count=count)
-                for word, count in sorted(
-                    reasons.items(), key=lambda item: item[1], reverse=True
-                )[:150]
-            ],
-            hourlyReservations=hourly_reservations,
-            dailyReservations=daily_reservations,
-            dailyReservationCreations=daily_reservation_creations,
-        ),
+    data = AnalyticsWeeklyResponse(
+        totalReservations=total_reservations,
+        totalReservationCreations=total_reservation_creations,
+        totalApprovals=total_approvals,
+        totalRejections=total_rejections,
+        rooms=sorted(
+            rooms,
+            key=lambda r: (r.reservations, r.reservationCreations),
+            reverse=True,
+        )[:5],
+        reasons=[
+            AnalyticsReasonDetail(word=word, count=count)
+            for word, count in sorted(
+                reasons.items(), key=lambda item: item[1], reverse=True
+            )[:150]
+        ],
+        hourlyReservations=hourly_reservations,
+        dailyReservations=daily_reservations,
+        dailyReservationCreations=daily_reservation_creations,
     )
+    cache = Cache(key=f"analytics_weekly_{start.date()}", value=data.model_dump())
+    create_cache(cache)
+    return ApiResponse(success=True, data=data)
 
 
 @app.get("/analytics/overview/export", response_model=None)
@@ -1508,5 +1517,54 @@ async def analytics_overview_export(
             f"cache/overview_{export_uuid}.png",
             media_type="image/png",
             filename=f"overview_{export_uuid}.png",
+        )
+    return ApiResponse(success=False, message="Invalid export type.", status_code=400)
+
+@app.get("/analytics/weekly/export", response_model=None)
+@limiter.limit("1/second")
+async def analytics_weekly_export(
+    request: Request,
+    type: str,
+    turnstileToken: str,
+) -> FileResponse | ApiResponse[Any]:
+    if not verify_turnstile_token(turnstileToken):
+        return ApiResponse(
+            success=False, message="Turnstile verification failed.", status_code=403
+        )
+    export_uuid = uuid.uuid4()
+    start = (datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).weekday() + 7)).date()
+    if type == "pdf":
+        if cached := get_cache_by_key(f"analytics_weekly_export_pdf_{start}"):
+            return FileResponse(
+                path=f"cache/weekly_{cached.value['export_uuid']}.pdf",
+                media_type="application/pdf",
+                filename=f"weekly_{cached.value['export_uuid']}.pdf",
+            )
+        await get_exported_pdf(
+            f"{frontend_url}/reservation/analytics/raw/weekly",
+            f"cache/weekly_{export_uuid}.pdf",
+        )
+        create_cache(Cache(key=f"analytics_weekly_export_pdf_{start}", value={"export_uuid": str(export_uuid)}))
+        return FileResponse(
+            f"cache/weekly_{export_uuid}.pdf",
+            media_type="application/pdf",
+            filename=f"weekly_{export_uuid}.pdf",
+        )
+    elif type == "png":
+        if cached := get_cache_by_key(f"analytics_weekly_export_png_{start}"):
+            return FileResponse(
+                path=f"cache/weekly_{cached.value['export_uuid']}.png",
+                media_type="image/png",
+                filename=f"weekly_{cached.value['export_uuid']}.png",
+            )
+        await get_screenshot(
+            f"{frontend_url}/reservation/analytics/raw/weekly",
+            f"cache/weekly_{export_uuid}.png",
+        )
+        create_cache(Cache(key=f"analytics_weekly_export_png_{start}", value={"export_uuid": str(export_uuid)}))
+        return FileResponse(
+            f"cache/weekly_{export_uuid}.png",
+            media_type="image/png",
+            filename=f"weekly_{export_uuid}.png",
         )
     return ApiResponse(success=False, message="Invalid export type.", status_code=400)

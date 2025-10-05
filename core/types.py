@@ -208,6 +208,15 @@ class Analytic(SQLModel, table=True):
         default_factory=None,
     )
 
+class Cache(BaseModel):
+    id: int | None = Field(default=None, primary_key=True)
+    key: str
+    value: dict = Field(sa_column=Column(JSON))
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        default_factory=None,
+    )
+
 
 class ReservationCreateRequest(BaseModel):
     room: int

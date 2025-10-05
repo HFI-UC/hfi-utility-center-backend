@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from core.env import *
 
+import shutil
+
 scheduler = BackgroundScheduler()
 
 
@@ -52,5 +54,12 @@ def send_daily_reservation_report_email() -> None:
     except Exception:
         pass
 
+def clear_cache() -> None:
+    try:
+        shutil.rmtree("./cache")
+        clear_all_cache()
+    except Exception:
+        pass
 
 scheduler.add_job(send_daily_reservation_report_email, CronTrigger(hour=20, minute=0))
+scheduler.add_job(clear_cache, CronTrigger(day=1))
