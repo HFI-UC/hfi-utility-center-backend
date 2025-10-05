@@ -1402,7 +1402,7 @@ async def analytics_weekly(
     start = now - timedelta(days=now.weekday() + 7)
     end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
-    if cached := get_cache_by_key(f"analytics_weekly_{start.date()}"):
+    if cached := get_cache_by_key(f"analytics-weekly-{start.date()}"):
         return ApiResponse(
             success=True,
             data=AnalyticsWeeklyResponse.model_validate(cached.value),
@@ -1481,7 +1481,7 @@ async def analytics_weekly(
         dailyReservations=daily_reservations,
         dailyReservationCreations=daily_reservation_creations,
     )
-    cache = Cache(key=f"analytics_weekly_{start.date()}", value=data.model_dump())
+    cache = Cache(key=f"analytics-weekly-{start.date()}", value=data.model_dump())
     create_cache(cache)
     return ApiResponse(success=True, data=data)
 
@@ -1544,14 +1544,14 @@ async def analytics_weekly_export(
             f"{frontend_url}/reservation/analytics/raw/weekly",
             f"cache/weekly_{export_uuid}.pdf",
         )
-        create_cache(Cache(key=f"analytics_weekly_export_pdf_{start}", value={"export_uuid": str(export_uuid)}))
+        create_cache(Cache(key=f"analytics_weekly_export_pdf_{start}", value={"exportUuid": str(export_uuid)}))
         return FileResponse(
             f"cache/weekly_{export_uuid}.pdf",
             media_type="application/pdf",
             filename=f"weekly_{export_uuid}.pdf",
         )
     elif type == "png":
-        if cached := get_cache_by_key(f"analytics_weekly_export_png_{start}"):
+        if cached := get_cache_by_key(f"analytics-weekly-export-png-{start}"):
             return FileResponse(
                 path=f"cache/weekly_{cached.value['export_uuid']}.png",
                 media_type="image/png",
@@ -1561,7 +1561,7 @@ async def analytics_weekly_export(
             f"{frontend_url}/reservation/analytics/raw/weekly",
             f"cache/weekly_{export_uuid}.png",
         )
-        create_cache(Cache(key=f"analytics_weekly_export_png_{start}", value={"export_uuid": str(export_uuid)}))
+        create_cache(Cache(key=f"analytics-weekly-export-png-{start}", value={"exportUuid": str(export_uuid)}))
         return FileResponse(
             f"cache/weekly_{export_uuid}.png",
             media_type="image/png",
