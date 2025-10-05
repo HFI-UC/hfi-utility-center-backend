@@ -208,7 +208,7 @@ class Analytic(SQLModel, table=True):
         default_factory=None,
     )
 
-class Cache(BaseModel):
+class Cache(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     key: str
     value: dict = Field(sa_column=Column(JSON))
