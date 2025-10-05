@@ -1536,9 +1536,9 @@ async def analytics_weekly_export(
     if type == "pdf":
         if cached := get_cache_by_key(f"analytics_weekly_export_pdf_{start}"):
             return FileResponse(
-                path=f"cache/weekly_{cached.value['export_uuid']}.pdf",
+                path=f"cache/weekly_{cached.value['exportUuid']}.pdf",
                 media_type="application/pdf",
-                filename=f"weekly_{cached.value['export_uuid']}.pdf",
+                filename=f"weekly_{cached.value['exportUuid']}.pdf",
             )
         await get_exported_pdf(
             f"{frontend_url}/reservation/analytics/raw/weekly",
@@ -1553,9 +1553,9 @@ async def analytics_weekly_export(
     elif type == "png":
         if cached := get_cache_by_key(f"analytics-weekly-export-png-{start}"):
             return FileResponse(
-                path=f"cache/weekly_{cached.value['export_uuid']}.png",
+                path=f"cache/weekly_{cached.value['exportUuid']}.png",
                 media_type="image/png",
-                filename=f"weekly_{cached.value['export_uuid']}.png",
+                filename=f"weekly_{cached.value['exportUuid']}.png",
             )
         await get_screenshot(
             f"{frontend_url}/reservation/analytics/raw/weekly",
