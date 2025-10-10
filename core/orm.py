@@ -144,7 +144,7 @@ def get_reservation(
                 column("email").like(f"%{keyword}%"),
                 column("reason").like(f"%{keyword}%"),
                 column("studentId").like(f"%{keyword}%"),
-                column("room.name").like(f"%{keyword}%"),
+                column("name").like(f"%{keyword}%"),
             )
         )
     if room_id:
