@@ -1085,6 +1085,7 @@ async def class_edit(
         return ApiResponse(success=False, message="Class not found.", status_code=404)
 
     class_.name = payload.name
+    class_.campusId = payload.campus
     edit_class(class_)
     return ApiResponse(success=True, message="Class edited successfully.")
 
