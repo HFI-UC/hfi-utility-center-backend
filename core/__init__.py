@@ -649,10 +649,19 @@ async def reservation_approval(
 
     reservation = get_reservation_by_id(payload.id)
 
+    admin = get_admin_by_email(admin_login.email)
+
     if not reservation:
         return ApiResponse(
             success=False, message="Reservation not found.", status_code=404
         )
+    if reservation.latestExecutorId is not None and reservation.latestExecutorId != admin.id if admin and admin.id else -1:
+        return ApiResponse(
+            success=False,
+            message="Reservation has already been processed by another admin.",
+            status_code=403,
+        )
+
     if not payload.approved and not payload.reason:
         return ApiResponse(
             success=False, message="Reason is required for rejection.", status_code=400
