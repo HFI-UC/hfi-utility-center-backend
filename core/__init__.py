@@ -190,6 +190,7 @@ async def room_list(request: Request) -> ApiResponse[list[RoomResponse]]:
                 RoomApproverResponse.model_validate(approver)
                 for approver in room.approvers
             ],
+            enabled=room.enabled,
         )
         for room in rooms
     ]
@@ -295,8 +296,8 @@ async def reservation_create(
     room = get_room_by_id(payload.room)
     errors = []
     class_ = get_class_by_id(payload.classId)
-    if not room:
-        errors.append("Room not found.")
+    if not room or not room.enabled:
+        errors.append("Room not found or disabled.")
     if not class_:
         errors.append("Class not found.")
     if errors:
@@ -345,6 +346,8 @@ async def reservation_create(
             return False
         return True
 
+    if not payload.studentId.startswith("GJ") and not len(payload.studentId) == 10:
+        errors.append("Invalid student ID format.")
     if not validate_email_format(payload.email):
         errors.append("Invalid email format.")
     if payload.startTime >= payload.endTime:
@@ -1041,6 +1044,7 @@ async def room_edit(
 
     room.name = payload.name
     room.campusId = payload.campus
+    room.enabled = payload.enabled
     edit_room(room)
     return ApiResponse(success=True, message="Room edited successfully.")
 

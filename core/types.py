@@ -307,6 +307,7 @@ class RoomEditRequest(BaseModel):
     id: int
     name: str
     campus: int
+    enabled: bool
 
 
 class CampusEditRequest(BaseModel):
@@ -366,6 +367,7 @@ class RoomResponse(ORMBaseModel):
     name: str
     campus: int | None
     createdAt: datetime | None = None
+    enabled: bool = True
     policies: Sequence["RoomPolicyResponseBase"] = []
     approvers: Sequence["RoomApproverResponse"] = []
 
