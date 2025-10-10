@@ -354,8 +354,10 @@ async def reservation_create(
         errors.append("Start time must be before end time.")
     if payload.endTime - payload.startTime > 2 * 3600:
         errors.append("Reservation duration must not exceed 2 hours.")
-    if payload.startTime < datetime.today().timestamp():
+    if payload.startTime < datetime.now().timestamp():
         errors.append("Start time must be in the future.")
+    if payload.startTime > (datetime.now() + timedelta(days=30)).timestamp():
+        errors.append("Start time must be within 30 days.")
     admin = get_admin_by_email(payload.email)
     if not admin:
         if not validate_policy(payload.startTime) or not validate_policy(
