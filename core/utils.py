@@ -86,18 +86,6 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
                     campus.name if campus else None,
                 ]
             )
-        dims = {}
-        for row in ws.rows:
-            for cell in row:
-                if cell.value:
-                    col_letter = getattr(
-                        cell, "column_letter", None
-                    ) or get_column_letter(cell.column or -1)
-                    dims[col_letter] = (
-                        max(dims.get(col_letter, 0), len(str(cell.value))) + 2
-                    )
-        for col, value in dims.items():
-            ws.column_dimensions[col].width = value
     return workbook
 
 
