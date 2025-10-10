@@ -1,16 +1,17 @@
-from openpyxl import Workbook
-from openpyxl.worksheet.worksheet import Worksheet
-from openpyxl.utils import get_column_letter
-from core.orm import *
-from core.env import *
+from collections import defaultdict
 from typing import Sequence
-from playwright.async_api import async_playwright
+
 import httpx
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
+from playwright.async_api import async_playwright
+
+from core.env import *
+from core.orm import *
 
 
 def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
-    classes = get_class()
-
     workbook = Workbook()
     default = workbook.active
     if default is not None:
@@ -30,14 +31,14 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
         "Creation Time",
         "Campus Name",
     ]
-    groups = {}
+    reservations_by_room: dict[int | None, list[Reservation]] = defaultdict(list)
     for reservation in reservations:
-        groups.setdefault(reservation.room, []).append(reservation)
+        reservations_by_room[reservation.roomId].append(reservation)
 
     used = set()
-    for room_id, reservations in groups.items():
-        room = get_room_by_id(room_id)
-        room_name = room.name if room else f"Room-{room_id}"
+    for room_id, room_reservations in reservations_by_room.items():
+        room_obj = next((res.room for res in room_reservations if res.room), None)
+        room_name = (room_obj.name if room_obj else None) or f"Room-{room_id}"
         base = (room_name or "")[:31]
         sheet_name = base
         i = 1
@@ -53,11 +54,10 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
         ws: Worksheet = workbook.create_sheet(title=sheet_name)
         ws.append(headers)
 
-        for reservation in reservations:
-            class_name = next(
-                (cls.name for cls in classes if cls.id == reservation.classId), None
-            )
-            campus = get_campus_by_id(room.campusId) if room and room.campus else None
+        for reservation in room_reservations:
+            room = reservation.room
+            class_ = reservation.class_
+            campus = room.campus if room and room.campus else None
             ws.append(
                 [
                     reservation.id,
@@ -76,8 +76,8 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
                     reservation.email,
                     reservation.reason,
                     room.name if room else None,
-                    class_name,
-                    reservation.status.capitalize(),
+                    class_.name if class_ else None,
+                    reservation.status.capitalize() if reservation.status else None,
                     (
                         reservation.createdAt.replace(tzinfo=None)
                         if reservation.createdAt

@@ -55,7 +55,7 @@ class Room(SQLModel, table=True):
         default_factory=None,
     )
     campus: "Campus" = Relationship(back_populates="rooms")
-    # enabled: bool = Field(default=True)
+    enabled: bool = Field(default=True)
     reservations: List["Reservation"] = Relationship(back_populates="room")
     approvers: List["RoomApprover"] = Relationship(back_populates="room")
     policies: List["RoomPolicy"] = Relationship(back_populates="room")
