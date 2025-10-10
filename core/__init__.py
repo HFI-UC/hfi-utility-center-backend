@@ -1434,7 +1434,6 @@ async def analytics_weekly(
 
     for room in all_rooms:
         room_reservations = 0
-        room_reservations = 0
         room_reservation_creations = 0
         _reservations = room.reservations
         for reservation in _reservations:

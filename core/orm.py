@@ -181,6 +181,7 @@ def get_future_reservations_by_approver_id(approver_id: int | None) -> Sequence[
         .join(RoomApprover)
         .where(Reservation.startTime >= datetime.now(timezone.utc))
         .where(RoomApprover.adminId == approver_id)
+        .where(Reservation.latestExecutorId == approver_id if Reservation.latestExecutorId else True)
     ).all()
     return reservations
 
