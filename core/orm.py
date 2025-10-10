@@ -114,9 +114,10 @@ def get_room_by_id(room_id: int | None) -> Room | None:
 
 
 def create_admin(email: str, name: str, password: str) -> None:
-    admin = Admin(email=email, name=name, password=password)
-    session.add(admin)
-    session.commit()
+    with Session(engine) as session:
+        admin = Admin(email=email, name=name, password=password)
+        session.add(admin)
+        session.commit()
 
 
 def get_admin_login_by_cookie(cookie: str) -> AdminLogin | None:

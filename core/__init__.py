@@ -1542,7 +1542,7 @@ async def analytics_weekly_export(
     export_uuid = uuid.uuid4()
     start = (datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).weekday() + 7)).date()
     if type == "pdf":
-        if cached := get_cache_by_key(f"analytics_weekly_export_pdf_{start}"):
+        if cached := get_cache_by_key(f"analytics-weekly-export-pdf-{start}"):
             return FileResponse(
                 path=f"cache/weekly_{cached.value['exportUuid']}.pdf",
                 media_type="application/pdf",
@@ -1552,7 +1552,7 @@ async def analytics_weekly_export(
             f"{frontend_url}/reservation/analytics/raw/weekly",
             f"cache/weekly_{export_uuid}.pdf",
         )
-        create_cache(Cache(key=f"analytics_weekly_export_pdf_{start}", value={"exportUuid": str(export_uuid)}))
+        create_cache(Cache(key=f"analytics-weekly-export-pdf-{start}", value={"exportUuid": str(export_uuid)}))
         return FileResponse(
             f"cache/weekly_{export_uuid}.pdf",
             media_type="application/pdf",
