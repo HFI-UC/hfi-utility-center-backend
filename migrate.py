@@ -57,9 +57,10 @@ def _parse_epoch(value: object | None, *, assume_milliseconds: bool = False) -> 
 		return None
 	if assume_milliseconds or number >= 1_000_000_000_000:
 		number /= 1000
+	logger.info("Parsing epoch time: %s -> %s", text, number)
 	try:
-		return datetime.fromtimestamp(number, tz=timezone.utc)
-	except (OverflowError, ValueError):
+		return datetime.fromtimestamp(number).astimezone(timezone.utc)
+	except Exception:
 		return None
 
 
