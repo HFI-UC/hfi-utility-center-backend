@@ -149,7 +149,7 @@ def get_reservation(
         query = query.where(Reservation.roomId == room_id)
     if status:
         query = query.where(Reservation.status == status)
-    if not (keyword or status):
+    if not (keyword and status):
         query = query.where(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(hours=3)
         )
@@ -173,7 +173,7 @@ def get_reservation_count(
         query = query.where(Reservation.roomId == room_id)
     if status:
         query = query.where(Reservation.status == status)
-    if not (keyword or room_id or status):
+    if not (keyword and status):
         query = query.where(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(days=1)
         )
