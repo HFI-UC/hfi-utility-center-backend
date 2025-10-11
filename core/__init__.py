@@ -1464,13 +1464,13 @@ async def analytics_weekly(
                         while current_hour != end_hour:
                             hourly_reservations[current_hour] += 1
                             current_hour = (current_hour + 1) % 24
+                words = jieba.cut(reservation.reason, cut_all=False)
+                for word in words:
+                    if not is_meaningful(word):
+                        continue
+                    reasons[word] = reasons.get(word, 0) + 1
                 if reservation.createdAt.date() == day:
                     room_reservation_creations += 1
-            words = jieba.cut(reservation.reason, cut_all=False)
-            for word in words:
-                if not is_meaningful(word):
-                    continue
-                reasons[word] = reasons.get(word, 0) + 1
 
         rooms.append(
             AnalyticsWeeklyRoomDetail(
