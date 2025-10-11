@@ -138,7 +138,7 @@ def get_reservation(
     page: int = 0,
     page_size: int = 20,
 ) -> tuple[Sequence[Reservation], int]:
-    query = select(Reservation)
+    query = select(Reservation).order_by(col(Reservation.id).desc())
     if keyword:
         query = (
             query.join(Room)
