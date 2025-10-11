@@ -163,10 +163,7 @@ def get_reservation(
         query = query.where(Reservation.startTime >= start_time)
     if end_time:
         query = query.where(Reservation.endTime <= end_time)
-    if not keyword and not status:
-        query = query.where(
-            Reservation.startTime >= datetime.now(timezone.utc) - timedelta(hours=3)
-        )
+
     total = len(session.exec(query).all())
 
     reservations = session.exec(query.offset(page * page_size).limit(page_size)).all()
