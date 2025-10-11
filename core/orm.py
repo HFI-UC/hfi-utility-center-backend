@@ -5,7 +5,7 @@ from sqlmodel import (
     Session,
     select,
     or_,
-    column,
+    col,
 )
 from core.env import *
 from typing import Sequence, List
@@ -145,10 +145,11 @@ def get_reservation(
             .join(Class)
             .where(
                 or_(
-                    column("email").like(f"%{keyword}%"),
-                    column("reason").like(f"%{keyword}%"),
-                    column("studentId").like(f"%{keyword}%"),
-                    column("name").like(f"%{keyword}%"),
+                    col(Reservation.email).like(f"%{keyword}%"),
+                    col(Reservation.reason).like(f"%{keyword}%"),
+                    col(Reservation.studentId).like(f"%{keyword}%"),
+                    col(Room.name).like(f"%{keyword}%"),
+                    col(Class.name).like(f"%{keyword}%"),
                 )
             )
         )
@@ -180,10 +181,11 @@ def get_reservation_count(
             .join(Class)
             .where(
                 or_(
-                    column("email").like(f"%{keyword}%"),
-                    column("reason").like(f"%{keyword}%"),
-                    column("studentId").like(f"%{keyword}%"),
-                    column("name").like(f"%{keyword}%"),
+                    col(Reservation.email).like(f"%{keyword}%"),
+                    col(Reservation.reason).like(f"%{keyword}%"),
+                    col(Reservation.studentId).like(f"%{keyword}%"),
+                    col(Room.name).like(f"%{keyword}%"),
+                    col(Class.name).like(f"%{keyword}%"),
                 )
             )
         )
