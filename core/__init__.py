@@ -477,32 +477,20 @@ async def reservation_get(
     if page < 0:
         return ApiResponse(success=False, message="Invalid page number.", status_code=400)
 
-    reservations = get_reservation(keyword, roomId, status, page)
-    classes = get_class()
+    reservations, total = get_reservation(keyword, roomId, status, page, 20)
     res: List[ReservationResponseDetail] = []
-    total = get_reservation_count(keyword, roomId, status)
     for reservation in reservations:
-        class_name = next(
-            (cls.name for cls in classes if cls.id == reservation.classId), None
-        )
         room = reservation.room
-        res.append(
-            ReservationResponseDetail(
-                id=reservation.id,
-                startTime=reservation.startTime,
-                endTime=reservation.endTime,
-                studentName=reservation.studentName,
-                email=reservation.email,
-                reason=reservation.reason,
-                status=reservation.status,
-                className=class_name,
-                roomName=room.name if room else None,
-            )
-        )
+        class_ = reservation.class_
+        
+        response_item = ReservationResponseDetail.model_validate(reservation)
+        response_item.className = class_.name if class_ else None
+        response_item.roomName = room.name if room else None
+        
+        res.append(response_item)
     return ApiResponse(
         success=True, data=ReservationQueryResponse(reservations=res, total=total)
     )
-
 
 @app.post(
     "/admin/login",

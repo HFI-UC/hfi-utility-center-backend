@@ -133,8 +133,12 @@ def get_admin_by_email(email: str) -> Admin | None:
 
 
 def get_reservation(
-    keyword: str | None = None, room_id: int | None = None, status: str | None = None, page: int = 0
-) -> Sequence[Reservation]:
+    keyword: str | None = None,
+    room_id: int | None = None,
+    status: str | None = None,
+    page: int = 0,
+    page_size: int = 20,
+) -> tuple[Sequence[Reservation], int]:
     query = select(Reservation)
     if keyword:
         query = query.join(Room).join(Class).where(
@@ -153,8 +157,11 @@ def get_reservation(
         query = query.where(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(hours=3)
         )
-    reservations = session.exec(query.offset(page * 20).limit(20)).all()
-    return reservations
+    
+    total = len(session.exec(query).all())
+    
+    reservations = session.exec(query.offset(page * page_size).limit(page_size)).all()
+    return reservations, total
 
 def get_reservation_count(
     keyword: str | None = None, room_id: int | None = None, status: str | None = None
