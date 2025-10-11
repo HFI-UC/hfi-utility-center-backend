@@ -1457,6 +1457,11 @@ async def analytics_weekly(
                 day = (start + timedelta(days=i)).date()
                 if reservation.startTime.date() == day:
                     room_reservations += 1
+                    if reservation.status == "approved":
+                        i = (reservation.startTime.astimezone(timezone.utc).hour)
+                        while i != (reservation.endTime.astimezone(timezone.utc).hour):
+                            hourly_reservations[i] += 1
+                            i = (i + 1) % 24
                 if reservation.createdAt.date() == day:
                     room_reservation_creations += 1
             words = jieba.cut(reservation.reason)
@@ -1464,11 +1469,7 @@ async def analytics_weekly(
                 if not is_meaningful(word):
                     continue
                 reasons[word] = reasons.get(word, 0) + 1
-            if reservation.status == "approved":
-                i = reservation.startTime.hour
-                while i != reservation.endTime.hour:
-                    hourly_reservations[i] += 1
-                    i = (i + 1) % 24
+
         rooms.append(
             AnalyticsWeeklyRoomDetail(
                 roomName=room.name,
