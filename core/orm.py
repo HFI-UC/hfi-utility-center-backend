@@ -121,10 +121,11 @@ def create_admin(email: str, name: str, password: str) -> None:
 
 
 def get_admin_login_by_cookie(cookie: str) -> AdminLogin | None:
-    admin_login = session.exec(
-        select(AdminLogin).where(AdminLogin.cookie == cookie)
-    ).one_or_none()
-    return admin_login
+    with Session(engine) as session:
+        admin_login = session.exec(
+            select(AdminLogin).where(AdminLogin.cookie == cookie)
+        ).one_or_none()
+        return admin_login
 
 
 def get_admin_by_email(email: str) -> Admin | None:
