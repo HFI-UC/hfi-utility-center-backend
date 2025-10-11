@@ -108,7 +108,8 @@ class LogMiddleware(BaseHTTPMiddleware):
                 traceback=traceback.format_exc(),
             )
             try:
-                await to_thread.run_sync(create_error_log, error_log)
+                with Session(engine) as session:
+                    await to_thread.run_sync(create_error_log, session, error_log)
             except Exception:
                 pass
             raise e from None
@@ -138,8 +139,9 @@ class LogMiddleware(BaseHTTPMiddleware):
                 responseTime=response_time_ms,
             )
             try:
-                await to_thread.run_sync(create_access_log, log)
-                await to_thread.run_sync(update_analytic, datetime.now(), 0, 0, 0, 0, 1)
+                with Session(engine) as session:
+                    await to_thread.run_sync(create_access_log, session, log)
+                    await to_thread.run_sync(update_analytic, session, datetime.now(), 0, 0, 0, 0, 1)
             except Exception:
                 pass
 
@@ -161,12 +163,13 @@ def get_current_user(request: Request) -> AdminLogin | None:
     cookie = request.cookies.get("UCCOOKIE")
     if not cookie:
         return None
-    user_login = get_admin_login_by_cookie(cookie)
-    if not user_login:
-        return None
-    if user_login.expiry < datetime.now(timezone.utc):
-        return None
-    return user_login
+    with Session(engine) as session:
+        user_login = get_admin_login_by_cookie(session, cookie)
+        if not user_login:
+            return None
+        if user_login.expiry < datetime.now(timezone.utc):
+            return None
+        return user_login
 
 
 @app.get(
@@ -175,26 +178,27 @@ def get_current_user(request: Request) -> AdminLogin | None:
 )
 @limiter.limit("5/second")
 async def room_list(request: Request) -> ApiResponse[list[RoomResponse]]:
-    rooms = get_room()
-    data = [
-        RoomResponse(
-            id=room.id,
-            name=room.name,
-            campus=room.campusId,
-            createdAt=room.createdAt,
-            policies=[
-                RoomPolicyResponseBase.model_validate(policy)
-                for policy in room.policies
-            ],
-            approvers=[
-                RoomApproverResponse.model_validate(approver)
-                for approver in room.approvers
-            ],
-            enabled=room.enabled,
-        )
-        for room in rooms
-    ]
-    return ApiResponse(success=True, data=data)
+    with Session(engine) as session:
+        rooms = get_room(session)
+        data = [
+            RoomResponse(
+                id=room.id,
+                name=room.name,
+                campus=room.campusId,
+                createdAt=room.createdAt,
+                policies=[
+                    RoomPolicyResponseBase.model_validate(policy)
+                    for policy in room.policies
+                ],
+                approvers=[
+                    RoomApproverResponse.model_validate(approver)
+                    for approver in room.approvers
+                ],
+                enabled=room.enabled,
+            )
+            for room in rooms
+        ]
+        return ApiResponse(success=True, data=data)
 
 
 @app.get(
@@ -203,17 +207,18 @@ async def room_list(request: Request) -> ApiResponse[list[RoomResponse]]:
 )
 @limiter.limit("5/second")
 async def campus_list(request: Request) -> ApiResponse[list[CampusResponse]]:
-    campuses = get_campus()
-    data = [
-        CampusResponse(
-            id=campus.id,
-            name=campus.name,
-            isPrivileged=campus.isPrivileged,
-            createdAt=campus.createdAt,
-        )
-        for campus in campuses
-    ]
-    return ApiResponse(success=True, data=data)
+    with Session(engine) as session:
+        campuses = get_campus(session)
+        data = [
+            CampusResponse(
+                id=campus.id,
+                name=campus.name,
+                isPrivileged=campus.isPrivileged,
+                createdAt=campus.createdAt,
+            )
+            for campus in campuses
+        ]
+        return ApiResponse(success=True, data=data)
 
 
 @app.get(
@@ -222,17 +227,18 @@ async def campus_list(request: Request) -> ApiResponse[list[CampusResponse]]:
 )
 @limiter.limit("5/second")
 async def class_list(request: Request) -> ApiResponse[list[ClassResponse]]:
-    classes = get_class()
-    data = [
-        ClassResponse(
-            id=class_.id,
-            name=class_.name,
-            campus=class_.campusId,
-            createdAt=class_.createdAt,
-        )
-        for class_ in classes
-    ]
-    return ApiResponse(success=True, data=data)
+    with Session(engine) as session:
+        classes = get_class(session)
+        data = [
+            ClassResponse(
+                id=class_.id,
+                name=class_.name,
+                campus=class_.campusId,
+                createdAt=class_.createdAt,
+            )
+            for class_ in classes
+        ]
+        return ApiResponse(success=True, data=data)
 
 
 @app.post(
@@ -243,11 +249,12 @@ async def class_list(request: Request) -> ApiResponse[list[ClassResponse]]:
 async def campus_delete(
     request: Request, payload: CampusDeleteRequest
 ) -> ApiResponse[Any]:
-    campus = get_campus_by_id(payload.id)
-    if not campus:
-        return ApiResponse(success=False, message="Campus not found.", status_code=404)
-    delete_campus(campus)
-    return ApiResponse(success=True, message="Campus deleted successfully.")
+    with Session(engine) as session:
+        campus = get_campus_by_id(session, payload.id)
+        if not campus:
+            return ApiResponse(success=False, message="Campus not found.", status_code=404)
+        delete_campus(session, campus)
+        return ApiResponse(success=True, message="Campus deleted successfully.")
 
 
 @app.post(
@@ -256,11 +263,12 @@ async def campus_delete(
 )
 @limiter.limit("5/second")
 async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiResponse[Any]:
-    room = get_room_by_id(payload.id)
-    if not room:
-        return ApiResponse(success=False, message="Room not found.", status_code=404)
-    delete_room(room)
-    return ApiResponse(success=True, message="Room deleted successfully.")
+    with Session(engine) as session:
+        room = get_room_by_id(session, payload.id)
+        if not room:
+            return ApiResponse(success=False, message="Room not found.", status_code=404)
+        delete_room(session, room)
+        return ApiResponse(success=True, message="Room deleted successfully.")
 
 
 @app.post(
@@ -271,11 +279,12 @@ async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiRespon
 async def class_delete(
     request: Request, payload: ClassDeleteRequest
 ) -> ApiResponse[Any]:
-    class_ = get_class_by_id(payload.id)
-    if not class_:
-        return ApiResponse(success=False, message="Class not found.", status_code=404)
-    delete_class(class_)
-    return ApiResponse(success=True, message="Class deleted successfully.")
+    with Session(engine) as session:
+        class_ = get_class_by_id(session, payload.id)
+        if not class_:
+            return ApiResponse(success=False, message="Class not found.", status_code=404)
+        delete_class(session, class_)
+        return ApiResponse(success=True, message="Class deleted successfully.")
 
 
 @app.post(
@@ -292,175 +301,178 @@ async def reservation_create(
         return ApiResponse(
             success=False, message="Turnstile verification failed.", status_code=403
         )
-    reservations = get_reservation_by_room_id(payload.room)
-    room = get_room_by_id(payload.room)
-    errors = []
-    class_ = get_class_by_id(payload.classId)
-    if not room or not room.enabled:
-        errors.append("Room not found or disabled.")
-    if not class_:
-        errors.append("Class not found.")
-    if errors:
-        return ApiResponse(success=False, message="\n".join(errors), status_code=400)
+    with Session(engine) as session:
+        reservations = get_reservation_by_room_id(session, payload.room)
+        room = get_room_by_id(session, payload.room)
+        errors = []
+        class_ = get_class_by_id(session, payload.classId)
+        if not room or not room.enabled:
+            errors.append("Room not found or disabled.")
+        if not class_:
+            errors.append("Class not found.")
+        if errors:
+            return ApiResponse(success=False, message="\n".join(errors), status_code=400)
 
-    def validate_time_conflict(time: datetime) -> bool:
-        for reservation in reservations:
-            if (
-                reservation.status != "rejected"
-                and reservation.startTime <= time <= reservation.endTime
-            ):
+        def validate_time_conflict(time: datetime) -> bool:
+            for reservation in reservations:
+                if (
+                    reservation.status != "rejected"
+                    and reservation.startTime <= time <= reservation.endTime
+                ):
+                    return False
+            return True
+
+        def validate_policy(_time: int) -> bool:
+            if room:
+                policies = get_policy_by_room_id(session, room.id)
+                time_obj = datetime.fromtimestamp(_time)
+                day = time_obj.weekday()
+                for policy in policies:
+                    if not policy.enabled:
+                        continue
+                    if day in policy.days:
+                        start_hour, start_minute = policy.startTime
+                        end_hour, end_minute = policy.endTime
+                        start_time = datetime(
+                            time_obj.year,
+                            time_obj.month,
+                            time_obj.day,
+                            start_hour,
+                            start_minute,
+                        )
+                        end_time = datetime(
+                            time_obj.year,
+                            time_obj.month,
+                            time_obj.day,
+                            end_hour,
+                            end_minute,
+                        )
+                        if start_time <= time_obj <= end_time:
+                            return False
+            return True
+
+        def validate_email_format(email: str) -> bool:
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
                 return False
-        return True
+            return True
 
-    def validate_policy(_time: int) -> bool:
-        if room:
-            policies = get_policy_by_room_id(room.id)
-            time_obj = datetime.fromtimestamp(_time)
-            day = time_obj.weekday()
-            for policy in policies:
-                if not policy.enabled:
-                    continue
-                if day in policy.days:
-                    start_hour, start_minute = policy.startTime
-                    end_hour, end_minute = policy.endTime
-                    start_time = datetime(
-                        time_obj.year,
-                        time_obj.month,
-                        time_obj.day,
-                        start_hour,
-                        start_minute,
-                    )
-                    end_time = datetime(
-                        time_obj.year,
-                        time_obj.month,
-                        time_obj.day,
-                        end_hour,
-                        end_minute,
-                    )
-                    if start_time <= time_obj <= end_time:
-                        return False
-        return True
+        if not payload.studentId.startswith("GJ") and not len(payload.studentId) == 10:
+            errors.append("Invalid student ID format.")
+        if not validate_email_format(payload.email):
+            errors.append("Invalid email format.")
+        if payload.startTime >= payload.endTime:
+            errors.append("Start time must be before end time.")
+        if payload.endTime - payload.startTime > 2 * 3600:
+            errors.append("Reservation duration must not exceed 2 hours.")
+        if payload.startTime < datetime.now().timestamp():
+            errors.append("Start time must be in the future.")
+        if payload.startTime > (datetime.now() + timedelta(days=30)).timestamp():
+            errors.append("Start time must be within 30 days.")
+        admin = get_admin_by_email(session, payload.email)
+        if not admin:
+            if not validate_policy(payload.startTime) or not validate_policy(
+                payload.endTime
+            ):
+                errors.append("Start or end time violates room policy.")
+            if not validate_time_conflict(
+                datetime.fromtimestamp(payload.startTime, timezone.utc)
+            ) or not validate_time_conflict(
+                datetime.fromtimestamp(payload.endTime, timezone.utc)
+            ):
+                errors.append("Start or end time conflicts with existing reservation.")
+        if errors:
+            return ApiResponse(success=False, message="\n".join(errors), status_code=400)
 
-    def validate_email_format(email: str) -> bool:
-        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-            return False
-        return True
+        approvers = get_room_approvers_by_room_id(session, room.id if room and room.id else -1)
+        if not approvers:
+            return ApiResponse(
+                success=False, message="No approvers found.", status_code=404
+            )
 
-    if not payload.studentId.startswith("GJ") and not len(payload.studentId) == 10:
-        errors.append("Invalid student ID format.")
-    if not validate_email_format(payload.email):
-        errors.append("Invalid email format.")
-    if payload.startTime >= payload.endTime:
-        errors.append("Start time must be before end time.")
-    if payload.endTime - payload.startTime > 2 * 3600:
-        errors.append("Reservation duration must not exceed 2 hours.")
-    if payload.startTime < datetime.now().timestamp():
-        errors.append("Start time must be in the future.")
-    if payload.startTime > (datetime.now() + timedelta(days=30)).timestamp():
-        errors.append("Start time must be within 30 days.")
-    admin = get_admin_by_email(payload.email)
-    if not admin:
-        if not validate_policy(payload.startTime) or not validate_policy(
-            payload.endTime
-        ):
-            errors.append("Start or end time violates room policy.")
-        if not validate_time_conflict(
-            datetime.fromtimestamp(payload.startTime, timezone.utc)
-        ) or not validate_time_conflict(
-            datetime.fromtimestamp(payload.endTime, timezone.utc)
-        ):
-            errors.append("Start or end time conflicts with existing reservation.")
-    if errors:
-        return ApiResponse(success=False, message="\n".join(errors), status_code=400)
+        result = create_reservation(session, payload)
 
-    approvers = get_room_approvers_by_room_id(room.id if room and room.id else -1)
-    if not approvers:
-        return ApiResponse(
-            success=False, message="No approvers found.", status_code=404
-        )
-
-    result = create_reservation(payload)
-
-    background_task.add_task(
-        send_normal_update_email,
-        email_title="Reservation Created",
-        title=f"Hi {payload.studentName}! Your reservation has been created.",
-        email=payload.email,
-        details=(
-            f"Your reservation for room {room.name if room else 'Unknown'} for the time period "
-            f"<b>{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - "
-            f"{datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}</b> has been created and is currently pending approval."
-        ),
-    )
-
-    if admin:
-        class_name = next(
-            (cls.name for cls in get_class() if cls.id == payload.classId), None
-        )
         background_task.add_task(
-            send_reservation_approval_email,
-            email_title="Reservation Approval",
-            title="Your reservation has been approved!",
+            send_normal_update_email,
+            email_title="Reservation Created",
+            title=f"Hi {payload.studentName}! Your reservation has been created.",
             email=payload.email,
-            details=f"Hi {payload.studentName}! Your reservation for {room.name if room else None} has been approved. Below is the detailed information.",
-            user=payload.studentName,
-            room=room.name if room else "",
-            class_name=class_name or "",
-            student_id=payload.studentId,
-            reason=payload.reason,
-            time=f"{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}",
+            details=(
+                f"Your reservation for room {room.name if room else 'Unknown'} for the time period "
+                f"<b>{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - "
+                f"{datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}</b> has been created and is currently pending approval."
+            ),
         )
-        reservations = get_reservations_by_time_range_and_room(
-            datetime.fromtimestamp(payload.startTime),
-            datetime.fromtimestamp(payload.endTime),
-            room_id=payload.room,
-        )
-        for reservation in reservations:
-            if reservation.id != result:
-                change_reservation_status_by_id(
-                    reservation.id or -1, "rejected", admin.id or -1
-                )
-                background_task.add_task(
-                    send_normal_update_email,
-                    email_title="Reservation Rejected",
-                    title="Your reservation has been rejected.",
-                    email=reservation.email,
-                    details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected due to a higher priority reservation.",
-                )
+
+        if admin:
+            class_name = next(
+                (cls.name for cls in get_class(session) if cls.id == payload.classId), None
+            )
+            background_task.add_task(
+                send_reservation_approval_email,
+                email_title="Reservation Approval",
+                title="Your reservation has been approved!",
+                email=payload.email,
+                details=f"Hi {payload.studentName}! Your reservation for {room.name if room else None} has been approved. Below is the detailed information.",
+                user=payload.studentName,
+                room=room.name if room else "",
+                class_name=class_name or "",
+                student_id=payload.studentId,
+                reason=payload.reason,
+                time=f"{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}",
+            )
+            reservations = get_reservations_by_time_range_and_room(
+                session,
+                datetime.fromtimestamp(payload.startTime),
+                datetime.fromtimestamp(payload.endTime),
+                room_id=payload.room,
+            )
+            for reservation in reservations:
+                if reservation.id != result:
+                    change_reservation_status_by_id(
+                        session,
+                        reservation.id or -1, "rejected", admin.id or -1
+                    )
+                    background_task.add_task(
+                        send_normal_update_email,
+                        email_title="Reservation Rejected",
+                        title="Your reservation has been rejected.",
+                        email=reservation.email,
+                        details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected due to a higher priority reservation.",
+                    )
+            return ApiResponse(
+                success=True,
+                message="Your reservation has been created and approved.",
+                data=ReservationCreateResponse(reservationId=result),
+            )
+
+        for approver in approvers:
+            admin = get_admin_by_id(session, approver.id or -1)
+            if not admin:
+                continue
+            token = hashlib.md5(
+                (
+                    payload.email
+                    + payload.studentName
+                    + str(payload.startTime)
+                    + str(random.randint(100000, 999999))
+                    + str(datetime.now().timestamp())
+                ).encode()
+            ).hexdigest()
+            background_task.add_task(
+                send_normal_update_with_external_link_email,
+                email_title="New Reservation Request",
+                title=f"Hi {admin.name}! A new reservation request has been created.",
+                email=admin.email,
+                details=f"Reservation ID #{result}, click the button below for reservation details.",
+                button_text="View Reservation",
+                link=f"{base_url}/admin/reservation/?token={token}",
+            )
+            create_temp_admin_login(session, admin.email, token)
         return ApiResponse(
             success=True,
-            message="Your reservation has been created and approved.",
+            message="Your reservation has been created.",
             data=ReservationCreateResponse(reservationId=result),
         )
-
-    for approver in approvers:
-        admin = get_admin_by_id(approver.id or -1)
-        if not admin:
-            continue
-        token = hashlib.md5(
-            (
-                payload.email
-                + payload.studentName
-                + str(payload.startTime)
-                + str(random.randint(100000, 999999))
-                + str(datetime.now().timestamp())
-            ).encode()
-        ).hexdigest()
-        background_task.add_task(
-            send_normal_update_with_external_link_email,
-            email_title="New Reservation Request",
-            title=f"Hi {admin.name}! A new reservation request has been created.",
-            email=admin.email,
-            details=f"Reservation ID #{result}, click the button below for reservation details.",
-            button_text="View Reservation",
-            link=f"{base_url}/admin/reservation/?token={token}",
-        )
-        create_temp_admin_login(admin.email, token)
-    return ApiResponse(
-        success=True,
-        message="Your reservation has been created.",
-        data=ReservationCreateResponse(reservationId=result),
-    )
 
 
 @app.get(
@@ -471,26 +483,27 @@ async def reservation_create(
 async def reservation_get(
     request: Request, roomId: int | None = None, keyword: str = "", status: str = "", page: int = 0
 ) -> ApiResponse[ReservationQueryResponse]:
-    if roomId and not get_room_by_id(roomId):
-        return ApiResponse(success=False, message="Room not found.", status_code=404)
+    with Session(engine) as session:
+        if roomId and not get_room_by_id(session, roomId):
+            return ApiResponse(success=False, message="Room not found.", status_code=404)
 
-    if page < 0:
-        return ApiResponse(success=False, message="Invalid page number.", status_code=400)
+        if page < 0:
+            return ApiResponse(success=False, message="Invalid page number.", status_code=400)
 
-    reservations, total = get_reservation(keyword, roomId, status, page, 20)
-    res: List[ReservationResponseDetail] = []
-    for reservation in reservations:
-        room = reservation.room
-        class_ = reservation.class_
-        
-        response_item = ReservationResponseDetail.model_validate(reservation)
-        response_item.className = class_.name if class_ else None
-        response_item.roomName = room.name if room else None
-        
-        res.append(response_item)
-    return ApiResponse(
-        success=True, data=ReservationQueryResponse(reservations=res, total=total)
-    )
+        reservations, total = get_reservation(session, keyword, roomId, status, page, 20)
+        res: List[ReservationResponseDetail] = []
+        for reservation in reservations:
+            room = reservation.room
+            class_ = reservation.class_
+            
+            response_item = ReservationResponseDetail.model_validate(reservation)
+            response_item.className = class_.name if class_ else None
+            response_item.roomName = room.name if room else None
+            
+            res.append(response_item)
+        return ApiResponse(
+            success=True, data=ReservationQueryResponse(reservations=res, total=total)
+        )
 
 @app.post(
     "/admin/login",
@@ -505,56 +518,57 @@ async def admin_login(
             success=False, message="User already logged in.", status_code=400
         )
 
-    if payload.token:
-        temp_admin_login = get_temp_admin_login_by_token(payload.token)
-        if not temp_admin_login:
+    with Session(engine) as session:
+        if payload.token:
+            temp_admin_login = get_temp_admin_login_by_token(session, payload.token)
+            if not temp_admin_login:
+                return ApiResponse(
+                    success=False,
+                    message="Invalid token or token expired.",
+                    status_code=400,
+                )
+            cookie = hashlib.md5(
+                (
+                    temp_admin_login.email
+                    + temp_admin_login.token
+                    + str(random.randint(100000, 999999))
+                    + str(datetime.now().timestamp())
+                ).encode()
+            ).hexdigest()
+            create_admin_login(session, temp_admin_login.email, cookie)
+            delete_temp_admin_login(session, temp_admin_login)
+            response = ApiResponse(success=True, message="Login successful.")
+            response.set_cookie(
+                "UCCOOKIE", cookie, httponly=True, samesite="none", secure=True
+            )
+            return response
+        if not payload.email or not payload.password:
             return ApiResponse(
-                success=False,
-                message="Invalid token or token expired.",
-                status_code=400,
+                success=False, message="Email and password are required.", status_code=400
+            )
+
+        if not payload.turnstileToken or not verify_turnstile_token(payload.turnstileToken):
+            return ApiResponse(
+                success=False, message="Turnstile verification failed.", status_code=403
+            )
+
+        admin = get_admin_by_email(session, payload.email)
+        if not admin or not verify_password(payload.password, admin.password):
+            return ApiResponse(
+                success=False, message="Invalid email or password.", status_code=401
             )
         cookie = hashlib.md5(
             (
-                temp_admin_login.email
-                + temp_admin_login.token
+                payload.email
+                + payload.password
                 + str(random.randint(100000, 999999))
                 + str(datetime.now().timestamp())
             ).encode()
         ).hexdigest()
-        create_admin_login(temp_admin_login.email, cookie)
-        delete_temp_admin_login(temp_admin_login)
+        create_admin_login(session, payload.email, cookie)
         response = ApiResponse(success=True, message="Login successful.")
-        response.set_cookie(
-            "UCCOOKIE", cookie, httponly=True, samesite="none", secure=True
-        )
+        response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite="none", secure=True)
         return response
-    if not payload.email or not payload.password:
-        return ApiResponse(
-            success=False, message="Email and password are required.", status_code=400
-        )
-
-    if not payload.turnstileToken or not verify_turnstile_token(payload.turnstileToken):
-        return ApiResponse(
-            success=False, message="Turnstile verification failed.", status_code=403
-        )
-
-    admin = get_admin_by_email(payload.email)
-    if not admin or not verify_password(payload.password, admin.password):
-        return ApiResponse(
-            success=False, message="Invalid email or password.", status_code=401
-        )
-    cookie = hashlib.md5(
-        (
-            payload.email
-            + payload.password
-            + str(random.randint(100000, 999999))
-            + str(datetime.now().timestamp())
-        ).encode()
-    ).hexdigest()
-    create_admin_login(payload.email, cookie)
-    response = ApiResponse(success=True, message="Login successful.")
-    response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite="none", secure=True)
-    return response
 
 
 @app.get(
@@ -599,35 +613,37 @@ async def reservation_future(
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
-    admin = get_admin_by_email(admin_login.email)
-    future_reservations = get_future_reservations_by_approver_id(
-        admin.id if admin and admin.id is not None else -1
-    )
-    classes = get_class()
-    res: list[ReservationUpcomingResponse] = []
-    for reservation in future_reservations:
-        class_name = next(
-            (cls.name for cls in classes if cls.id == reservation.classId), None
+    with Session(engine) as session:
+        admin = get_admin_by_email(session, admin_login.email)
+        future_reservations = get_future_reservations_by_approver_id(
+            session,
+            admin.id if admin and admin.id is not None else -1
         )
-        room = get_room_by_id(reservation.roomId)
-        campus = get_campus_by_id(room.campusId) if room and room.campusId else None
-        res.append(
-            ReservationUpcomingResponse(
-                id=reservation.id,
-                startTime=reservation.startTime,
-                endTime=reservation.endTime,
-                studentName=reservation.studentName,
-                email=reservation.email,
-                reason=reservation.reason,
-                roomName=room.name if room else None,
-                className=class_name,
-                studentId=reservation.studentId,
-                status=reservation.status,
-                createdAt=int(reservation.createdAt.timestamp()),
-                campusName=campus.name if campus else None,
+        classes = get_class(session)
+        res: list[ReservationUpcomingResponse] = []
+        for reservation in future_reservations:
+            class_name = next(
+                (cls.name for cls in classes if cls.id == reservation.classId), None
             )
-        )
-    return ApiResponse(success=True, data=res)
+            room = get_room_by_id(session, reservation.roomId)
+            campus = get_campus_by_id(session, room.campusId) if room and room.campusId else None
+            res.append(
+                ReservationUpcomingResponse(
+                    id=reservation.id,
+                    startTime=reservation.startTime,
+                    endTime=reservation.endTime,
+                    studentName=reservation.studentName,
+                    email=reservation.email,
+                    reason=reservation.reason,
+                    roomName=room.name if room else None,
+                    className=class_name,
+                    studentId=reservation.studentId,
+                    status=reservation.status,
+                    createdAt=int(reservation.createdAt.timestamp()),
+                    campusName=campus.name if campus else None,
+                )
+            )
+        return ApiResponse(success=True, data=res)
 
 
 @app.post(
@@ -646,97 +662,100 @@ async def reservation_approval(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    reservation = get_reservation_by_id(payload.id)
+    with Session(engine) as session:
+        reservation = get_reservation_by_id(session, payload.id)
 
-    admin = get_admin_by_email(admin_login.email)
+        admin = get_admin_by_email(session, admin_login.email)
 
-    if not reservation:
-        return ApiResponse(
-            success=False, message="Reservation not found.", status_code=404
-        )
-    if reservation.latestExecutorId is not None and reservation.latestExecutorId != admin.id if admin and admin.id else -1:
-        return ApiResponse(
-            success=False,
-            message="Reservation has already been processed by another admin.",
-            status_code=403,
-        )
+        if not reservation:
+            return ApiResponse(
+                success=False, message="Reservation not found.", status_code=404
+            )
+        if reservation.latestExecutorId is not None and reservation.latestExecutorId != admin.id if admin and admin.id else -1:
+            return ApiResponse(
+                success=False,
+                message="Reservation has already been processed by another admin.",
+                status_code=403,
+            )
 
-    if not payload.approved and not payload.reason:
-        return ApiResponse(
-            success=False, message="Reason is required for rejection.", status_code=400
-        )
-    if reservation.startTime < datetime.now(timezone.utc):
-        return ApiResponse(
-            success=False, message="Cannot change status of past reservations."
-        )
+        if not payload.approved and not payload.reason:
+            return ApiResponse(
+                success=False, message="Reason is required for rejection.", status_code=400
+            )
+        if reservation.startTime < datetime.now(timezone.utc):
+            return ApiResponse(
+                success=False, message="Cannot change status of past reservations."
+            )
 
-    def check_status() -> bool:
-        return reservation.status == "pending" or (
-            reservation.status != "pending"
-            and reservation.status != ("approved" if payload.approved else "rejected")
-        )
+        def check_status() -> bool:
+            return reservation.status == "pending" or (
+                reservation.status != "pending"
+                and reservation.status != ("approved" if payload.approved else "rejected")
+            )
 
-    if not check_status():
-        return ApiResponse(
-            success=False, message="Invalid approval request.", status_code=400
-        )
+        if not check_status():
+            return ApiResponse(
+                success=False, message="Invalid approval request.", status_code=400
+            )
 
-    admin = get_admin_by_email(admin_login.email)
-    if not admin:
-        return ApiResponse(
-            success=False, message="User is not a room approver.", status_code=403
-        )
-    approvers = get_room_approvers_by_admin_id(
-        admin.id if admin and admin.id is not None else -1
-    )
-
-    if not approvers:
-        return ApiResponse(
-            success=False, message="User is not a room approver.", status_code=403
-        )
-    authorized = all(approver.admin == admin.id for approver in approvers)
-
-    if not authorized:
-        return ApiResponse(
-            success=False,
-            message="User is not authorized to approve this reservation.",
-            status_code=403,
+        admin = get_admin_by_email(session, admin_login.email)
+        if not admin:
+            return ApiResponse(
+                success=False, message="User is not a room approver.", status_code=403
+            )
+        approvers = get_room_approvers_by_admin_id(
+            session,
+            admin.id if admin and admin.id is not None else -1
         )
 
-    change_reservation_status_by_id(
-        payload.id,
-        "approved" if payload.approved else "rejected",
-        admin.id or -1,
-        payload.reason,
-    )
-    classes = get_class()
-    class_name = next(
-        (cls.name for cls in classes if cls.id == reservation.classId), None
-    )
-    room = get_room_by_id(reservation.roomId)
-    if payload.approved:
-        background_task.add_task(
-            send_reservation_approval_email,
-            email_title="Reservation Approval",
-            title="Your reservation has been approved!",
-            email=reservation.email,
-            details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been approved. Below is the detailed information.",
-            user=reservation.studentName,
-            room=room.name if room else "",
-            class_name=class_name or "",
-            student_id=reservation.studentId,
-            reason=reservation.reason,
-            time=f"{reservation.startTime.strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.strftime('%H:%M')}",
+        if not approvers:
+            return ApiResponse(
+                success=False, message="User is not a room approver.", status_code=403
+            )
+        authorized = all(approver.admin == admin.id for approver in approvers)
+
+        if not authorized:
+            return ApiResponse(
+                success=False,
+                message="User is not authorized to approve this reservation.",
+                status_code=403,
+            )
+
+        change_reservation_status_by_id(
+            session,
+            payload.id,
+            "approved" if payload.approved else "rejected",
+            admin.id or -1,
+            payload.reason,
         )
-    else:
-        background_task.add_task(
-            send_normal_update_email,
-            email_title="Reservation Rejected",
-            title="Your reservation has been rejected.",
-            email=reservation.email,
-            details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected. Reason: {payload.reason}",
+        classes = get_class(session)
+        class_name = next(
+            (cls.name for cls in classes if cls.id == reservation.classId), None
         )
-    return ApiResponse(success=True, message="Reservation updated successfully.")
+        room = get_room_by_id(session, reservation.roomId)
+        if payload.approved:
+            background_task.add_task(
+                send_reservation_approval_email,
+                email_title="Reservation Approval",
+                title="Your reservation has been approved!",
+                email=reservation.email,
+                details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been approved. Below is the detailed information.",
+                user=reservation.studentName,
+                room=room.name if room else "",
+                class_name=class_name or "",
+                student_id=reservation.studentId,
+                reason=reservation.reason,
+                time=f"{reservation.startTime.strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.strftime('%H:%M')}",
+            )
+        else:
+            background_task.add_task(
+                send_normal_update_email,
+                email_title="Reservation Rejected",
+                title="Your reservation has been rejected.",
+                email=reservation.email,
+                details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected. Reason: {payload.reason}",
+            )
+        return ApiResponse(success=True, message="Reservation updated successfully.")
 
 
 @app.get(
@@ -752,38 +771,39 @@ async def reservation_all(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    all_reservations = get_all_reservations()
-    classes = get_class()
-    res: list[ReservationFullResponse] = []
-    for reservation in all_reservations:
-        class_name = next(
-            (cls.name for cls in classes if cls.id == reservation.classId), None
-        )
-        room = get_room_by_id(reservation.roomId)
-        campus = get_campus_by_id(room.campusId) if room and room.campus else None
-        executor = (
-            get_admin_by_id(reservation.latestExecutorId)
-            if reservation.latestExecutor
-            else None
-        )
-        res.append(
-            ReservationFullResponse(
-                id=reservation.id,
-                startTime=reservation.startTime,
-                endTime=reservation.endTime,
-                studentName=reservation.studentName,
-                studentId=reservation.studentId,
-                email=reservation.email,
-                reason=reservation.reason,
-                roomName=room.name if room else None,
-                className=class_name,
-                status=reservation.status,
-                createdAt=reservation.createdAt,
-                campusName=campus.name if campus else None,
-                latestExecutor=executor.email if executor else None,
+    with Session(engine) as session:
+        all_reservations = get_all_reservations(session)
+        classes = get_class(session)
+        res: list[ReservationFullResponse] = []
+        for reservation in all_reservations:
+            class_name = next(
+                (cls.name for cls in classes if cls.id == reservation.classId), None
             )
-        )
-    return ApiResponse(success=True, data=res)
+            room = get_room_by_id(session, reservation.roomId)
+            campus = get_campus_by_id(session, room.campusId) if room and room.campus else None
+            executor = (
+                get_admin_by_id(session, reservation.latestExecutorId)
+                if reservation.latestExecutor
+                else None
+            )
+            res.append(
+                ReservationFullResponse(
+                    id=reservation.id,
+                    startTime=reservation.startTime,
+                    endTime=reservation.endTime,
+                    studentName=reservation.studentName,
+                    studentId=reservation.studentId,
+                    email=reservation.email,
+                    reason=reservation.reason,
+                    roomName=room.name if room else None,
+                    className=class_name,
+                    status=reservation.status,
+                    createdAt=reservation.createdAt,
+                    campusName=campus.name if campus else None,
+                    latestExecutor=executor.email if executor else None,
+                )
+            )
+        return ApiResponse(success=True, data=res)
 
 
 @app.get("/reservation/export", response_model=None)
@@ -802,21 +822,23 @@ async def reservation_export(
         return ApiResponse(
             success=False, message="Invalid time range.", status_code=400
         )
-    reservations = get_reservations_by_time_range(
-        datetime.fromtimestamp(startTime) if startTime != -1 else None,
-        datetime.fromtimestamp(endTime) if endTime != -1 else None,
-    )
-    if not reservations:
-        return ApiResponse(
-            success=False, message="No reservations found.", status_code=404
+    with Session(engine) as session:
+        reservations = get_reservations_by_time_range(
+            session,
+            datetime.fromtimestamp(startTime) if startTime != -1 else None,
+            datetime.fromtimestamp(endTime) if endTime != -1 else None,
         )
-    workbook = get_exported_xlsx(reservations)
-    export_uuid = uuid.uuid4()
-    workbook.save(f"cache/reservations_{export_uuid}.xlsx")
-    return FileResponse(
-        path=f"cache/reservations_{export_uuid}.xlsx",
-        filename=f"reservations_{export_uuid}.xlsx",
-    )
+        if not reservations:
+            return ApiResponse(
+                success=False, message="No reservations found.", status_code=404
+            )
+        workbook = get_exported_xlsx(reservations)
+        export_uuid = uuid.uuid4()
+        workbook.save(f"cache/reservations_{export_uuid}.xlsx")
+        return FileResponse(
+            path=f"cache/reservations_{export_uuid}.xlsx",
+            filename=f"reservations_{export_uuid}.xlsx",
+        )
 
 
 @app.post(
@@ -831,11 +853,12 @@ async def class_create(
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
-    campus = get_campus_by_id(payload.campus)
-    if not campus:
-        return ApiResponse(success=False, message="Invalid campus.", status_code=400)
-    create_class(name=payload.name, campus=campus)
-    return ApiResponse(success=True, message="Class created successfully.")
+    with Session(engine) as session:
+        campus = get_campus_by_id(session, payload.campus)
+        if not campus:
+            return ApiResponse(success=False, message="Invalid campus.", status_code=400)
+        create_class(session, name=payload.name, campus=campus)
+        return ApiResponse(success=True, message="Class created successfully.")
 
 
 @app.post(
@@ -853,8 +876,9 @@ async def campus_create(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    create_campus(name=payload.name)
-    return ApiResponse(success=True, message="Campus created successfully.")
+    with Session(engine) as session:
+        create_campus(session, name=payload.name)
+        return ApiResponse(success=True, message="Campus created successfully.")
 
 
 @app.post(
@@ -869,11 +893,12 @@ async def room_create(
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
-    campus = get_campus_by_id(payload.campus)
-    if not campus:
-        return ApiResponse(success=False, message="Invalid campus.", status_code=400)
-    create_room(name=payload.name, campus=campus)
-    return ApiResponse(success=True, message="Room created successfully.")
+    with Session(engine) as session:
+        campus = get_campus_by_id(session, payload.campus)
+        if not campus:
+            return ApiResponse(success=False, message="Invalid campus.", status_code=400)
+        create_room(session, name=payload.name, campus=campus)
+        return ApiResponse(success=True, message="Room created successfully.")
 
 
 @app.post(
@@ -914,16 +939,18 @@ async def policy_create(
         or not 59 >= payload.endTime[1] >= 0
     ):
         return ApiResponse(success=False, message="Invalid end times.", status_code=400)
-    room = get_room_by_id(payload.room)
-    if not room:
-        return ApiResponse(success=False, message="Room not found.", status_code=404)
-    create_policy(
-        room=room,
-        days=sorted(payload.days),
-        startTime=payload.startTime,
-        endTime=payload.endTime,
-    )
-    return ApiResponse(success=True, message="Policy created successfully.")
+    with Session(engine) as session:
+        room = get_room_by_id(session, payload.room)
+        if not room:
+            return ApiResponse(success=False, message="Room not found.", status_code=404)
+        create_policy(
+            session,
+            room=room,
+            days=sorted(payload.days),
+            startTime=payload.startTime,
+            endTime=payload.endTime,
+        )
+        return ApiResponse(success=True, message="Policy created successfully.")
 
 
 @app.post(
@@ -941,11 +968,12 @@ async def policy_delete(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    policy = get_policy_by_id(payload.id)
-    if not policy:
-        return ApiResponse(success=False, message="Policy not found.", status_code=404)
-    delete_policy(policy)
-    return ApiResponse(success=True, message="Policy deleted successfully.")
+    with Session(engine) as session:
+        policy = get_policy_by_id(session, payload.id)
+        if not policy:
+            return ApiResponse(success=False, message="Policy not found.", status_code=404)
+        delete_policy(session, policy)
+        return ApiResponse(success=True, message="Policy deleted successfully.")
 
 
 @app.post(
@@ -963,11 +991,12 @@ async def policy_toggle(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    policy = get_policy_by_id(payload.id)
-    if not policy:
-        return ApiResponse(success=False, message="Policy not found.", status_code=404)
-    toggle_policy(policy)
-    return ApiResponse(success=True, message="Policy toggled successfully.")
+    with Session(engine) as session:
+        policy = get_policy_by_id(session, payload.id)
+        if not policy:
+            return ApiResponse(success=False, message="Policy not found.", status_code=404)
+        toggle_policy(session, policy)
+        return ApiResponse(success=True, message="Policy toggled successfully.")
 
 
 @app.post(
@@ -985,40 +1014,41 @@ async def policy_edit(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    policy = get_policy_by_id(payload.id)
-    if not policy:
-        return ApiResponse(success=False, message="Policy not found.", status_code=404)
+    with Session(engine) as session:
+        policy = get_policy_by_id(session, payload.id)
+        if not policy:
+            return ApiResponse(success=False, message="Policy not found.", status_code=404)
 
-    if not all(6 >= day >= 0 for day in payload.days) or len(payload.days) > 7:
-        return ApiResponse(success=False, message="Invalid days.", status_code=400)
+        if not all(6 >= day >= 0 for day in payload.days) or len(payload.days) > 7:
+            return ApiResponse(success=False, message="Invalid days.", status_code=400)
 
-    if (
-        not len(payload.startTime) == 2
-        or not 23 >= payload.startTime[0] >= 0
-        or not 59 >= payload.startTime[1] >= 0
-    ):
-        return ApiResponse(
-            success=False, message="Invalid start times.", status_code=400
-        )
+        if (
+            not len(payload.startTime) == 2
+            or not 23 >= payload.startTime[0] >= 0
+            or not 59 >= payload.startTime[1] >= 0
+        ):
+            return ApiResponse(
+                success=False, message="Invalid start times.", status_code=400
+            )
 
-    if (
-        not len(payload.endTime) == 2
-        or not 23 >= payload.endTime[0] >= 0
-        or not 59 >= payload.endTime[1] >= 0
-    ):
-        return ApiResponse(success=False, message="Invalid end times.", status_code=400)
+        if (
+            not len(payload.endTime) == 2
+            or not 23 >= payload.endTime[0] >= 0
+            or not 59 >= payload.endTime[1] >= 0
+        ):
+            return ApiResponse(success=False, message="Invalid end times.", status_code=400)
 
-    if (
-        policy.days == payload.days
-        and policy.startTime == payload.startTime
-        and policy.endTime == payload.endTime
-    ):
-        return ApiResponse(success=True, message="No changes detected.")
-    policy.days = payload.days
-    policy.startTime = payload.startTime
-    policy.endTime = payload.endTime
-    edit_policy(policy=policy)
-    return ApiResponse(success=True, message="Policy edited successfully.")
+        if (
+            policy.days == payload.days
+            and policy.startTime == payload.startTime
+            and policy.endTime == payload.endTime
+        ):
+            return ApiResponse(success=True, message="No changes detected.")
+        policy.days = payload.days
+        policy.startTime = payload.startTime
+        policy.endTime = payload.endTime
+        edit_policy(session, policy=policy)
+        return ApiResponse(success=True, message="Policy edited successfully.")
 
 
 @app.post(
@@ -1034,15 +1064,16 @@ async def room_edit(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    room = get_room_by_id(payload.id)
-    if not room:
-        return ApiResponse(success=False, message="Room not found.", status_code=404)
+    with Session(engine) as session:
+        room = get_room_by_id(session, payload.id)
+        if not room:
+            return ApiResponse(success=False, message="Room not found.", status_code=404)
 
-    room.name = payload.name
-    room.campusId = payload.campus
-    room.enabled = payload.enabled
-    edit_room(room)
-    return ApiResponse(success=True, message="Room edited successfully.")
+        room.name = payload.name
+        room.campusId = payload.campus
+        room.enabled = payload.enabled
+        edit_room(session, room)
+        return ApiResponse(success=True, message="Room edited successfully.")
 
 
 @app.post(
@@ -1058,13 +1089,14 @@ async def campus_edit(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    campus = get_campus_by_id(payload.id)
-    if not campus:
-        return ApiResponse(success=False, message="Campus not found.", status_code=404)
+    with Session(engine) as session:
+        campus = get_campus_by_id(session, payload.id)
+        if not campus:
+            return ApiResponse(success=False, message="Campus not found.", status_code=404)
 
-    campus.name = payload.name
-    edit_campus(campus)
-    return ApiResponse(success=True, message="Campus edited successfully.")
+        campus.name = payload.name
+        edit_campus(session, campus)
+        return ApiResponse(success=True, message="Campus edited successfully.")
 
 
 @app.post(
@@ -1080,14 +1112,15 @@ async def class_edit(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    class_ = get_class_by_id(payload.id)
-    if not class_:
-        return ApiResponse(success=False, message="Class not found.", status_code=404)
+    with Session(engine) as session:
+        class_ = get_class_by_id(session, payload.id)
+        if not class_:
+            return ApiResponse(success=False, message="Class not found.", status_code=404)
 
-    class_.name = payload.name
-    class_.campusId = payload.campus
-    edit_class(class_)
-    return ApiResponse(success=True, message="Class edited successfully.")
+        class_.name = payload.name
+        class_.campusId = payload.campus
+        edit_class(session, class_)
+        return ApiResponse(success=True, message="Class edited successfully.")
 
 
 @app.post(
@@ -1105,25 +1138,26 @@ async def approver_create(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    room = get_room_by_id(payload.room)
-    admin = get_admin_by_id(payload.admin)
-    if not room:
-        return ApiResponse(success=False, message="Room not found.", status_code=404)
+    with Session(engine) as session:
+        room = get_room_by_id(session, payload.room)
+        admin = get_admin_by_id(session, payload.admin)
+        if not room:
+            return ApiResponse(success=False, message="Room not found.", status_code=404)
 
-    if not admin:
-        return ApiResponse(success=False, message="Admin not found.", status_code=404)
+        if not admin:
+            return ApiResponse(success=False, message="Admin not found.", status_code=404)
 
-    approvers = get_room_approvers_by_room_id(payload.room)
+        approvers = get_room_approvers_by_room_id(session, payload.room)
 
-    if approvers and any(approver.admin == payload.admin for approver in approvers):
-        return ApiResponse(
-            success=False,
-            message="Admin is already an approver for this room.",
-            status_code=409,
-        )
+        if approvers and any(approver.admin == payload.admin for approver in approvers):
+            return ApiResponse(
+                success=False,
+                message="Admin is already an approver for this room.",
+                status_code=409,
+            )
 
-    create_room_approver(room=room, admin=admin)
-    return ApiResponse(success=True, message="Room approver created successfully.")
+        create_room_approver(session, room=room, admin=admin)
+        return ApiResponse(success=True, message="Room approver created successfully.")
 
 
 @app.post(
@@ -1141,14 +1175,15 @@ async def approver_delete(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    approver = get_room_approver_by_id(payload.id)
-    if not approver:
-        return ApiResponse(
-            success=False, message="Approver not found.", status_code=404
-        )
+    with Session(engine) as session:
+        approver = get_room_approver_by_id(session, payload.id)
+        if not approver:
+            return ApiResponse(
+                success=False, message="Approver not found.", status_code=404
+            )
 
-    delete_room_approver(approver=approver)
-    return ApiResponse(success=True, message="Room approver deleted successfully.")
+        delete_room_approver(session, approver=approver)
+        return ApiResponse(success=True, message="Room approver deleted successfully.")
 
 
 @app.get(
@@ -1164,17 +1199,18 @@ async def admin_list(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    admins = get_admins()
-    res = [
-        AdminResponse(
-            id=admin.id,
-            name=admin.name,
-            email=admin.email,
-            createdAt=admin.createdAt,
-        )
-        for admin in admins
-    ]
-    return ApiResponse(success=True, data=res)
+    with Session(engine) as session:
+        admins = get_admins(session)
+        res = [
+            AdminResponse(
+                id=admin.id,
+                name=admin.name,
+                email=admin.email,
+                createdAt=admin.createdAt,
+            )
+            for admin in admins
+        ]
+        return ApiResponse(success=True, data=res)
 
 
 @app.post(
@@ -1189,24 +1225,26 @@ async def admin_create(
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
-    if get_admin_by_email(payload.email):
-        return ApiResponse(
-            success=False, message="Admin already exists.", status_code=409
+    with Session(engine) as session:
+        if get_admin_by_email(session, payload.email):
+            return ApiResponse(
+                success=False, message="Admin already exists.", status_code=409
+            )
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
+            return ApiResponse(
+                success=False, message="Invalid email format.", status_code=400
+            )
+        if len(payload.password) < 6:
+            return ApiResponse(
+                success=False,
+                message="Password must be at least 6 characters.",
+                status_code=400,
+            )
+        create_admin(
+            session,
+            name=payload.name, email=payload.email, password=password_hash(payload.password)
         )
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
-        return ApiResponse(
-            success=False, message="Invalid email format.", status_code=400
-        )
-    if len(payload.password) < 6:
-        return ApiResponse(
-            success=False,
-            message="Password must be at least 6 characters.",
-            status_code=400,
-        )
-    create_admin(
-        name=payload.name, email=payload.email, password=password_hash(payload.password)
-    )
-    return ApiResponse(success=True, message="Admin created successfully.")
+        return ApiResponse(success=True, message="Admin created successfully.")
 
 
 @app.post(
@@ -1223,11 +1261,12 @@ async def admin_edit_password(
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
-    admin = get_admin_by_id(payload.admin)
-    if not admin:
-        return ApiResponse(success=False, message="Admin not found.", status_code=404)
-    change_admin_password(payload.admin, password_hash(payload.newPassword))
-    return ApiResponse(success=True, message="Password changed successfully.")
+    with Session(engine) as session:
+        admin = get_admin_by_id(session, payload.admin)
+        if not admin:
+            return ApiResponse(success=False, message="Admin not found.", status_code=404)
+        change_admin_password(session, payload.admin, password_hash(payload.newPassword))
+        return ApiResponse(success=True, message="Password changed successfully.")
 
 
 @app.post(
@@ -1242,23 +1281,24 @@ async def admin_edit(
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
-    admin = get_admin_by_id(payload.id)
-    if not admin:
-        return ApiResponse(success=False, message="Admin not found.", status_code=404)
-    if admin.email != payload.email and get_admin_by_email(payload.email):
-        return ApiResponse(
-            success=False, message="Email already in use.", status_code=409
-        )
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
-        return ApiResponse(
-            success=False, message="Invalid email format.", status_code=400
-        )
-    if admin.name == payload.name and admin.email == payload.email:
-        return ApiResponse(success=True, message="No changes detected.")
-    admin.name = payload.name
-    admin.email = payload.email
-    edit_admin(admin)
-    return ApiResponse(success=True, message="Admin edited successfully.")
+    with Session(engine) as session:
+        admin = get_admin_by_id(session, payload.id)
+        if not admin:
+            return ApiResponse(success=False, message="Admin not found.", status_code=404)
+        if admin.email != payload.email and get_admin_by_email(session, payload.email):
+            return ApiResponse(
+                success=False, message="Email already in use.", status_code=409
+            )
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
+            return ApiResponse(
+                success=False, message="Invalid email format.", status_code=400
+            )
+        if admin.name == payload.name and admin.email == payload.email:
+            return ApiResponse(success=True, message="No changes detected.")
+        admin.name = payload.name
+        admin.email = payload.email
+        edit_admin(session, admin)
+        return ApiResponse(success=True, message="Admin edited successfully.")
 
 
 @app.post(
@@ -1273,11 +1313,12 @@ async def admin_delete(
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
-    admin = get_admin_by_id(payload.id)
-    if not admin:
-        return ApiResponse(success=False, message="Admin not found.", status_code=404)
-    delete_admin(admin)
-    return ApiResponse(success=True, message="Admin deleted successfully.")
+    with Session(engine) as session:
+        admin = get_admin_by_id(session, payload.id)
+        if not admin:
+            return ApiResponse(success=False, message="Admin not found.", status_code=404)
+        delete_admin(session, admin)
+        return ApiResponse(success=True, message="Admin deleted successfully.")
 
 
 @app.get(
@@ -1305,7 +1346,8 @@ async def analytics_overview(
     monthly_rejections: list[int] = []
     now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     start = now - timedelta(days=365)
-    analytics = get_analytics_between(start, now)
+    with Session(engine) as session:
+        analytics = get_analytics_between(session, start, now)
     analytics_by_date: dict[Any, Analytic] = {a.date.date(): a for a in analytics}
     for i in range(30):
         d = (now - timedelta(days=29 - i)).date()
@@ -1412,90 +1454,91 @@ async def analytics_weekly(
     start = now - timedelta(days=now.weekday() + 7)
     end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
-    if cached := get_cache_by_key(f"analytics-weekly-{start.date()}"):
-        return ApiResponse(
-            success=True,
-            data=AnalyticsWeeklyResponse.model_validate(cached.value),
-        )
-
-    analytics = get_analytics_between(start, end)
-    analytics_by_date: dict[Any, Analytic] = {a.date.date(): a for a in analytics}
-    total_reservations = 0
-    total_reservation_creations = 0
-    total_approvals = 0
-    total_rejections = 0
-    total_approvals = 0
-    reasons: dict[str, int] = {}
-    rooms: list[AnalyticsWeeklyRoomDetail] = []
-    daily_reservations = [0] * 7
-    daily_reservation_creations = [0] * 7
-    for i in range(7):
-        analytic_for_day = analytics_by_date.get((start + timedelta(days=i)).date())
-        if analytic_for_day:
-            total_reservation_creations += analytic_for_day.reservationCreations or 0
-            total_reservations += analytic_for_day.reservations or 0
-            total_approvals += analytic_for_day.approvals or 0
-            total_rejections += analytic_for_day.rejections or 0
-            total_approvals += analytic_for_day.approvals or 0
-            daily_reservations[i] = analytic_for_day.reservations or 0
-            daily_reservation_creations[i] = analytic_for_day.reservationCreations or 0
-    all_rooms = get_room()
-    hourly_reservations = [0] * 24
-
-    for room in all_rooms:
-        room_reservations = 0
-        room_reservation_creations = 0
-        _reservations = room.reservations
-        for reservation in _reservations:
-            for i in range(7):
-                day = (start + timedelta(days=i)).date()
-                if reservation.startTime.date() == day:
-                    room_reservations += 1
-                    if reservation.status == "approved":
-                        start_hour = reservation.startTime.astimezone().hour
-                        end_hour = reservation.endTime.astimezone().hour
-                        current_hour = start_hour
-                        while current_hour != end_hour:
-                            hourly_reservations[current_hour] += 1
-                            current_hour = (current_hour + 1) % 24
-                    words = jieba.cut(reservation.reason, cut_all=False)
-                    for word in words:
-                        if not is_meaningful(word):
-                            continue
-                        reasons[word] = reasons.get(word, 0) + 1
-                if reservation.createdAt.date() == day:
-                    room_reservation_creations += 1
-
-        rooms.append(
-            AnalyticsWeeklyRoomDetail(
-                roomName=room.name,
-                reservationCreations=room_reservation_creations,
-                reservations=room_reservations,
+    with Session(engine) as session:
+        if cached := get_cache_by_key(session, f"analytics-weekly-{start.date()}"):
+            return ApiResponse(
+                success=True,
+                data=AnalyticsWeeklyResponse.model_validate(cached.value),
             )
+
+        analytics = get_analytics_between(session, start, end)
+        analytics_by_date: dict[Any, Analytic] = {a.date.date(): a for a in analytics}
+        total_reservations = 0
+        total_reservation_creations = 0
+        total_approvals = 0
+        total_rejections = 0
+        total_approvals = 0
+        reasons: dict[str, int] = {}
+        rooms: list[AnalyticsWeeklyRoomDetail] = []
+        daily_reservations = [0] * 7
+        daily_reservation_creations = [0] * 7
+        for i in range(7):
+            analytic_for_day = analytics_by_date.get((start + timedelta(days=i)).date())
+            if analytic_for_day:
+                total_reservation_creations += analytic_for_day.reservationCreations or 0
+                total_reservations += analytic_for_day.reservations or 0
+                total_approvals += analytic_for_day.approvals or 0
+                total_rejections += analytic_for_day.rejections or 0
+                total_approvals += analytic_for_day.approvals or 0
+                daily_reservations[i] = analytic_for_day.reservations or 0
+                daily_reservation_creations[i] = analytic_for_day.reservationCreations or 0
+        all_rooms = get_room(session)
+        hourly_reservations = [0] * 24
+
+        for room in all_rooms:
+            room_reservations = 0
+            room_reservation_creations = 0
+            _reservations = room.reservations
+            for reservation in _reservations:
+                for i in range(7):
+                    day = (start + timedelta(days=i)).date()
+                    if reservation.startTime.date() == day:
+                        room_reservations += 1
+                        if reservation.status == "approved":
+                            start_hour = reservation.startTime.astimezone().hour
+                            end_hour = reservation.endTime.astimezone().hour
+                            current_hour = start_hour
+                            while current_hour != end_hour:
+                                hourly_reservations[current_hour] += 1
+                                current_hour = (current_hour + 1) % 24
+                        words = jieba.cut(reservation.reason, cut_all=False)
+                        for word in words:
+                            if not is_meaningful(word):
+                                continue
+                            reasons[word] = reasons.get(word, 0) + 1
+                    if reservation.createdAt.date() == day:
+                        room_reservation_creations += 1
+
+            rooms.append(
+                AnalyticsWeeklyRoomDetail(
+                    roomName=room.name,
+                    reservationCreations=room_reservation_creations,
+                    reservations=room_reservations,
+                )
+            )
+        data = AnalyticsWeeklyResponse(
+            totalReservations=total_reservations,
+            totalReservationCreations=total_reservation_creations,
+            totalApprovals=total_approvals,
+            totalRejections=total_rejections,
+            rooms=sorted(
+                rooms,
+                key=lambda r: (r.reservations, r.reservationCreations),
+                reverse=True,
+            )[:5],
+            reasons=[
+                AnalyticsReasonDetail(word=word, count=count)
+                for word, count in sorted(
+                    reasons.items(), key=lambda item: item[1], reverse=True
+                )[:150]
+            ],
+            hourlyReservations=hourly_reservations,
+            dailyReservations=daily_reservations,
+            dailyReservationCreations=daily_reservation_creations,
         )
-    data = AnalyticsWeeklyResponse(
-        totalReservations=total_reservations,
-        totalReservationCreations=total_reservation_creations,
-        totalApprovals=total_approvals,
-        totalRejections=total_rejections,
-        rooms=sorted(
-            rooms,
-            key=lambda r: (r.reservations, r.reservationCreations),
-            reverse=True,
-        )[:5],
-        reasons=[
-            AnalyticsReasonDetail(word=word, count=count)
-            for word, count in sorted(
-                reasons.items(), key=lambda item: item[1], reverse=True
-            )[:150]
-        ],
-        hourlyReservations=hourly_reservations,
-        dailyReservations=daily_reservations,
-        dailyReservationCreations=daily_reservation_creations,
-    )
-    cache = Cache(key=f"analytics-weekly-{start.date()}", value=data.model_dump())
-    create_cache(cache)
-    return ApiResponse(success=True, data=data)
+        cache = Cache(key=f"analytics-weekly-{start.date()}", value=data.model_dump())
+        create_cache(session, cache)
+        return ApiResponse(success=True, data=data)
 
 
 @app.get("/analytics/overview/export", response_model=None)
@@ -1545,38 +1588,39 @@ async def analytics_weekly_export(
         )
     export_uuid = uuid.uuid4()
     start = (datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).weekday() + 7)).date()
-    if type == "pdf":
-        if cached := get_cache_by_key(f"analytics-weekly-export-pdf-{start}"):
+    with Session(engine) as session:
+        if type == "pdf":
+            if cached := get_cache_by_key(session, f"analytics-weekly-export-pdf-{start}"):
+                return FileResponse(
+                    path=f"cache/weekly_{cached.value['exportUuid']}.pdf",
+                    media_type="application/pdf",
+                    filename=f"weekly_{cached.value['exportUuid']}.pdf",
+                )
+            await get_exported_pdf(
+                f"{frontend_url}/reservation/analytics/raw/weekly",
+                f"cache/weekly_{export_uuid}.pdf",
+            )
+            create_cache(session, Cache(key=f"analytics-weekly-export-pdf-{start}", value={"exportUuid": str(export_uuid)}))
             return FileResponse(
-                path=f"cache/weekly_{cached.value['exportUuid']}.pdf",
+                f"cache/weekly_{export_uuid}.pdf",
                 media_type="application/pdf",
-                filename=f"weekly_{cached.value['exportUuid']}.pdf",
+                filename=f"weekly_{export_uuid}.pdf",
             )
-        await get_exported_pdf(
-            f"{frontend_url}/reservation/analytics/raw/weekly",
-            f"cache/weekly_{export_uuid}.pdf",
-        )
-        create_cache(Cache(key=f"analytics-weekly-export-pdf-{start}", value={"exportUuid": str(export_uuid)}))
-        return FileResponse(
-            f"cache/weekly_{export_uuid}.pdf",
-            media_type="application/pdf",
-            filename=f"weekly_{export_uuid}.pdf",
-        )
-    elif type == "png":
-        if cached := get_cache_by_key(f"analytics-weekly-export-png-{start}"):
+        elif type == "png":
+            if cached := get_cache_by_key(session, f"analytics-weekly-export-png-{start}"):
+                return FileResponse(
+                    path=f"cache/weekly_{cached.value['exportUuid']}.png",
+                    media_type="image/png",
+                    filename=f"weekly_{cached.value['exportUuid']}.png",
+                )
+            await get_screenshot(
+                f"{frontend_url}/reservation/analytics/raw/weekly",
+                f"cache/weekly_{export_uuid}.png",
+            )
+            create_cache(session, Cache(key=f"analytics-weekly-export-png-{start}", value={"exportUuid": str(export_uuid)}))
             return FileResponse(
-                path=f"cache/weekly_{cached.value['exportUuid']}.png",
+                f"cache/weekly_{export_uuid}.png",
                 media_type="image/png",
-                filename=f"weekly_{cached.value['exportUuid']}.png",
+                filename=f"weekly_{export_uuid}.png",
             )
-        await get_screenshot(
-            f"{frontend_url}/reservation/analytics/raw/weekly",
-            f"cache/weekly_{export_uuid}.png",
-        )
-        create_cache(Cache(key=f"analytics-weekly-export-png-{start}", value={"exportUuid": str(export_uuid)}))
-        return FileResponse(
-            f"cache/weekly_{export_uuid}.png",
-            media_type="image/png",
-            filename=f"weekly_{export_uuid}.png",
-        )
-    return ApiResponse(success=False, message="Invalid export type.", status_code=400)
+        return ApiResponse(success=False, message="Invalid export type.", status_code=400)

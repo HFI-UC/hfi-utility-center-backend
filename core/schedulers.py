@@ -14,16 +14,18 @@ scheduler = BackgroundScheduler()
 
 def send_daily_reservation_report_email() -> None:
     try:
-        reservations = get_reservations_by_time_range(
-            datetime.now(timezone.utc).replace(
-                hour=0, minute=0, second=0, microsecond=0
+        with Session(engine) as session:
+            reservations = get_reservations_by_time_range(
+                session,
+                datetime.now(timezone.utc).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                + timedelta(days=1),
+                datetime.now(timezone.utc).replace(
+                    hour=23, minute=59, second=59, microsecond=999999
+                )
+                + timedelta(days=1),
             )
-            + timedelta(days=1),
-            datetime.now(timezone.utc).replace(
-                hour=23, minute=59, second=59, microsecond=999999
-            )
-            + timedelta(days=1),
-        )
         if not reservations:
             for recipient in daily_report_recipients:
                 send_normal_update_email(
@@ -57,7 +59,8 @@ def send_daily_reservation_report_email() -> None:
 def clear_cache() -> None:
     try:
         shutil.rmtree("./cache")
-        clear_all_cache()
+        with Session(engine) as session:
+            clear_all_cache(session)
     except Exception:
         pass
 
