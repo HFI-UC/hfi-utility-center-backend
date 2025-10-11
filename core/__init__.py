@@ -469,7 +469,7 @@ async def reservation_create(
 )
 @limiter.limit("5/second")
 async def reservation_get(
-    request: Request, roomId: int | None = None, keyword: str = "", status: str = "", page: int = 1
+    request: Request, roomId: int | None = None, keyword: str = "", status: str = "", page: int = 0
 ) -> ApiResponse[list[ReservationQueryResponse]]:
     if roomId and not get_room_by_id(roomId):
         return ApiResponse(success=False, message="Room not found.", status_code=404)
