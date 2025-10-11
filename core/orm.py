@@ -135,9 +135,7 @@ def get_admin_by_email(email: str) -> Admin | None:
 def get_reservation(
     keyword: str | None = None, room_id: int | None = None, status: str | None = None
 ) -> Sequence[Reservation]:
-    query = select(Reservation).where(
-        Reservation.startTime >= datetime.now(timezone.utc) - timedelta(days=1)
-    )
+    query = select(Reservation)
     if keyword:
         query = query.join(Room).where(
             or_(
@@ -151,8 +149,11 @@ def get_reservation(
         query = query.where(Reservation.roomId == room_id)
     if status:
         query = query.where(Reservation.status == status)
-    reservations = session.exec(query).all()
-
+    if not (keyword or room_id or status):
+        query = query.where(
+            Reservation.startTime >= datetime.now(timezone.utc) - timedelta(days=1)
+        )
+    reservations = session.exec(query).all()[:100]
     return reservations
 
 
