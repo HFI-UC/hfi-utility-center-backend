@@ -141,7 +141,9 @@ class LogMiddleware(BaseHTTPMiddleware):
             try:
                 with Session(engine) as session:
                     await to_thread.run_sync(create_access_log, session, log)
-                    await to_thread.run_sync(update_analytic, session, datetime.now(), 0, 0, 0, 0, 1)
+                    await to_thread.run_sync(
+                        update_analytic, session, datetime.now(), 0, 0, 0, 0, 1
+                    )
             except Exception:
                 pass
 
@@ -252,7 +254,9 @@ async def campus_delete(
     with Session(engine) as session:
         campus = get_campus_by_id(session, payload.id)
         if not campus:
-            return ApiResponse(success=False, message="Campus not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Campus not found.", status_code=404
+            )
         delete_campus(session, campus)
         return ApiResponse(success=True, message="Campus deleted successfully.")
 
@@ -266,7 +270,9 @@ async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiRespon
     with Session(engine) as session:
         room = get_room_by_id(session, payload.id)
         if not room:
-            return ApiResponse(success=False, message="Room not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Room not found.", status_code=404
+            )
         delete_room(session, room)
         return ApiResponse(success=True, message="Room deleted successfully.")
 
@@ -282,7 +288,9 @@ async def class_delete(
     with Session(engine) as session:
         class_ = get_class_by_id(session, payload.id)
         if not class_:
-            return ApiResponse(success=False, message="Class not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Class not found.", status_code=404
+            )
         delete_class(session, class_)
         return ApiResponse(success=True, message="Class deleted successfully.")
 
@@ -311,7 +319,9 @@ async def reservation_create(
         if not class_:
             errors.append("Class not found.")
         if errors:
-            return ApiResponse(success=False, message="\n".join(errors), status_code=400)
+            return ApiResponse(
+                success=False, message="\n".join(errors), status_code=400
+            )
 
         def validate_time_conflict(time: datetime) -> bool:
             for reservation in reservations:
@@ -381,9 +391,13 @@ async def reservation_create(
             ):
                 errors.append("Start or end time conflicts with existing reservation.")
         if errors:
-            return ApiResponse(success=False, message="\n".join(errors), status_code=400)
+            return ApiResponse(
+                success=False, message="\n".join(errors), status_code=400
+            )
 
-        approvers = get_room_approvers_by_room_id(session, room.id if room and room.id else -1)
+        approvers = get_room_approvers_by_room_id(
+            session, room.id if room and room.id else -1
+        )
         if not approvers:
             return ApiResponse(
                 success=False, message="No approvers found.", status_code=404
@@ -405,7 +419,8 @@ async def reservation_create(
 
         if admin:
             class_name = next(
-                (cls.name for cls in get_class(session) if cls.id == payload.classId), None
+                (cls.name for cls in get_class(session) if cls.id == payload.classId),
+                None,
             )
             background_task.add_task(
                 send_reservation_approval_email,
@@ -429,8 +444,7 @@ async def reservation_create(
             for reservation in reservations:
                 if reservation.id != result:
                     change_reservation_status_by_id(
-                        session,
-                        reservation.id or -1, "rejected", admin.id or -1
+                        session, reservation.id or -1, "rejected", admin.id or -1
                     )
                     background_task.add_task(
                         send_normal_update_email,
@@ -481,29 +495,49 @@ async def reservation_create(
 )
 @limiter.limit("5/second")
 async def reservation_get(
-    request: Request, roomId: int | None = None, keyword: str = "", status: str = "", page: int = 0
+    request: Request,
+    roomId: int | None = None,
+    keyword: str = "",
+    status: str = "",
+    page: int = 0,
+    startTime: int | None = None,
+    endTime: int | None = None,
 ) -> ApiResponse[ReservationQueryResponse]:
     with Session(engine) as session:
         if roomId and not get_room_by_id(session, roomId):
-            return ApiResponse(success=False, message="Room not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Room not found.", status_code=404
+            )
 
         if page < 0:
-            return ApiResponse(success=False, message="Invalid page number.", status_code=400)
+            return ApiResponse(
+                success=False, message="Invalid page number.", status_code=400
+            )
 
-        reservations, total = get_reservation(session, keyword, roomId, status, page, 20)
+        reservations, total = get_reservation(
+            session,
+            keyword,
+            roomId,
+            status,
+            page,
+            20,
+            datetime.fromtimestamp(startTime, timezone.utc) if startTime else None,
+            datetime.fromtimestamp(endTime, timezone.utc) if endTime else None,
+        )
         res: List[ReservationResponseDetail] = []
         for reservation in reservations:
             room = reservation.room
             class_ = reservation.class_
-            
+
             response_item = ReservationResponseDetail.model_validate(reservation)
             response_item.className = class_.name if class_ else None
             response_item.roomName = room.name if room else None
-            
+
             res.append(response_item)
         return ApiResponse(
             success=True, data=ReservationQueryResponse(reservations=res, total=total)
         )
+
 
 @app.post(
     "/admin/login",
@@ -544,10 +578,14 @@ async def admin_login(
             return response
         if not payload.email or not payload.password:
             return ApiResponse(
-                success=False, message="Email and password are required.", status_code=400
+                success=False,
+                message="Email and password are required.",
+                status_code=400,
             )
 
-        if not payload.turnstileToken or not verify_turnstile_token(payload.turnstileToken):
+        if not payload.turnstileToken or not verify_turnstile_token(
+            payload.turnstileToken
+        ):
             return ApiResponse(
                 success=False, message="Turnstile verification failed.", status_code=403
             )
@@ -567,7 +605,9 @@ async def admin_login(
         ).hexdigest()
         create_admin_login(session, payload.email, cookie)
         response = ApiResponse(success=True, message="Login successful.")
-        response.set_cookie("UCCOOKIE", cookie, httponly=True, samesite="none", secure=True)
+        response.set_cookie(
+            "UCCOOKIE", cookie, httponly=True, samesite="none", secure=True
+        )
         return response
 
 
@@ -616,8 +656,7 @@ async def reservation_future(
     with Session(engine) as session:
         admin = get_admin_by_email(session, admin_login.email)
         future_reservations = get_future_reservations_by_approver_id(
-            session,
-            admin.id if admin and admin.id is not None else -1
+            session, admin.id if admin and admin.id is not None else -1
         )
         classes = get_class(session)
         res: list[ReservationUpcomingResponse] = []
@@ -626,7 +665,11 @@ async def reservation_future(
                 (cls.name for cls in classes if cls.id == reservation.classId), None
             )
             room = get_room_by_id(session, reservation.roomId)
-            campus = get_campus_by_id(session, room.campusId) if room and room.campusId else None
+            campus = (
+                get_campus_by_id(session, room.campusId)
+                if room and room.campusId
+                else None
+            )
             res.append(
                 ReservationUpcomingResponse(
                     id=reservation.id,
@@ -671,7 +714,12 @@ async def reservation_approval(
             return ApiResponse(
                 success=False, message="Reservation not found.", status_code=404
             )
-        if reservation.latestExecutorId is not None and reservation.latestExecutorId != admin.id if admin and admin.id else -1:
+        if (
+            reservation.latestExecutorId is not None
+            and reservation.latestExecutorId != admin.id
+            if admin and admin.id
+            else -1
+        ):
             return ApiResponse(
                 success=False,
                 message="Reservation has already been processed by another admin.",
@@ -680,7 +728,9 @@ async def reservation_approval(
 
         if not payload.approved and not payload.reason:
             return ApiResponse(
-                success=False, message="Reason is required for rejection.", status_code=400
+                success=False,
+                message="Reason is required for rejection.",
+                status_code=400,
             )
         if reservation.startTime < datetime.now(timezone.utc):
             return ApiResponse(
@@ -690,7 +740,8 @@ async def reservation_approval(
         def check_status() -> bool:
             return reservation.status == "pending" or (
                 reservation.status != "pending"
-                and reservation.status != ("approved" if payload.approved else "rejected")
+                and reservation.status
+                != ("approved" if payload.approved else "rejected")
             )
 
         if not check_status():
@@ -704,8 +755,7 @@ async def reservation_approval(
                 success=False, message="User is not a room approver.", status_code=403
             )
         approvers = get_room_approvers_by_admin_id(
-            session,
-            admin.id if admin and admin.id is not None else -1
+            session, admin.id if admin and admin.id is not None else -1
         )
 
         if not approvers:
@@ -780,7 +830,11 @@ async def reservation_all(
                 (cls.name for cls in classes if cls.id == reservation.classId), None
             )
             room = get_room_by_id(session, reservation.roomId)
-            campus = get_campus_by_id(session, room.campusId) if room and room.campus else None
+            campus = (
+                get_campus_by_id(session, room.campusId)
+                if room and room.campus
+                else None
+            )
             executor = (
                 get_admin_by_id(session, reservation.latestExecutorId)
                 if reservation.latestExecutor
@@ -856,7 +910,9 @@ async def class_create(
     with Session(engine) as session:
         campus = get_campus_by_id(session, payload.campus)
         if not campus:
-            return ApiResponse(success=False, message="Invalid campus.", status_code=400)
+            return ApiResponse(
+                success=False, message="Invalid campus.", status_code=400
+            )
         create_class(session, name=payload.name, campus=campus)
         return ApiResponse(success=True, message="Class created successfully.")
 
@@ -896,7 +952,9 @@ async def room_create(
     with Session(engine) as session:
         campus = get_campus_by_id(session, payload.campus)
         if not campus:
-            return ApiResponse(success=False, message="Invalid campus.", status_code=400)
+            return ApiResponse(
+                success=False, message="Invalid campus.", status_code=400
+            )
         create_room(session, name=payload.name, campus=campus)
         return ApiResponse(success=True, message="Room created successfully.")
 
@@ -942,7 +1000,9 @@ async def policy_create(
     with Session(engine) as session:
         room = get_room_by_id(session, payload.room)
         if not room:
-            return ApiResponse(success=False, message="Room not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Room not found.", status_code=404
+            )
         create_policy(
             session,
             room=room,
@@ -971,7 +1031,9 @@ async def policy_delete(
     with Session(engine) as session:
         policy = get_policy_by_id(session, payload.id)
         if not policy:
-            return ApiResponse(success=False, message="Policy not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Policy not found.", status_code=404
+            )
         delete_policy(session, policy)
         return ApiResponse(success=True, message="Policy deleted successfully.")
 
@@ -994,7 +1056,9 @@ async def policy_toggle(
     with Session(engine) as session:
         policy = get_policy_by_id(session, payload.id)
         if not policy:
-            return ApiResponse(success=False, message="Policy not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Policy not found.", status_code=404
+            )
         toggle_policy(session, policy)
         return ApiResponse(success=True, message="Policy toggled successfully.")
 
@@ -1017,7 +1081,9 @@ async def policy_edit(
     with Session(engine) as session:
         policy = get_policy_by_id(session, payload.id)
         if not policy:
-            return ApiResponse(success=False, message="Policy not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Policy not found.", status_code=404
+            )
 
         if not all(6 >= day >= 0 for day in payload.days) or len(payload.days) > 7:
             return ApiResponse(success=False, message="Invalid days.", status_code=400)
@@ -1036,7 +1102,9 @@ async def policy_edit(
             or not 23 >= payload.endTime[0] >= 0
             or not 59 >= payload.endTime[1] >= 0
         ):
-            return ApiResponse(success=False, message="Invalid end times.", status_code=400)
+            return ApiResponse(
+                success=False, message="Invalid end times.", status_code=400
+            )
 
         if (
             policy.days == payload.days
@@ -1067,7 +1135,9 @@ async def room_edit(
     with Session(engine) as session:
         room = get_room_by_id(session, payload.id)
         if not room:
-            return ApiResponse(success=False, message="Room not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Room not found.", status_code=404
+            )
 
         room.name = payload.name
         room.campusId = payload.campus
@@ -1092,7 +1162,9 @@ async def campus_edit(
     with Session(engine) as session:
         campus = get_campus_by_id(session, payload.id)
         if not campus:
-            return ApiResponse(success=False, message="Campus not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Campus not found.", status_code=404
+            )
 
         campus.name = payload.name
         edit_campus(session, campus)
@@ -1115,7 +1187,9 @@ async def class_edit(
     with Session(engine) as session:
         class_ = get_class_by_id(session, payload.id)
         if not class_:
-            return ApiResponse(success=False, message="Class not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Class not found.", status_code=404
+            )
 
         class_.name = payload.name
         class_.campusId = payload.campus
@@ -1142,10 +1216,14 @@ async def approver_create(
         room = get_room_by_id(session, payload.room)
         admin = get_admin_by_id(session, payload.admin)
         if not room:
-            return ApiResponse(success=False, message="Room not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Room not found.", status_code=404
+            )
 
         if not admin:
-            return ApiResponse(success=False, message="Admin not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Admin not found.", status_code=404
+            )
 
         approvers = get_room_approvers_by_room_id(session, payload.room)
 
@@ -1242,7 +1320,9 @@ async def admin_create(
             )
         create_admin(
             session,
-            name=payload.name, email=payload.email, password=password_hash(payload.password)
+            name=payload.name,
+            email=payload.email,
+            password=password_hash(payload.password),
         )
         return ApiResponse(success=True, message="Admin created successfully.")
 
@@ -1264,8 +1344,12 @@ async def admin_edit_password(
     with Session(engine) as session:
         admin = get_admin_by_id(session, payload.admin)
         if not admin:
-            return ApiResponse(success=False, message="Admin not found.", status_code=404)
-        change_admin_password(session, payload.admin, password_hash(payload.newPassword))
+            return ApiResponse(
+                success=False, message="Admin not found.", status_code=404
+            )
+        change_admin_password(
+            session, payload.admin, password_hash(payload.newPassword)
+        )
         return ApiResponse(success=True, message="Password changed successfully.")
 
 
@@ -1284,7 +1368,9 @@ async def admin_edit(
     with Session(engine) as session:
         admin = get_admin_by_id(session, payload.id)
         if not admin:
-            return ApiResponse(success=False, message="Admin not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Admin not found.", status_code=404
+            )
         if admin.email != payload.email and get_admin_by_email(session, payload.email):
             return ApiResponse(
                 success=False, message="Email already in use.", status_code=409
@@ -1316,7 +1402,9 @@ async def admin_delete(
     with Session(engine) as session:
         admin = get_admin_by_id(session, payload.id)
         if not admin:
-            return ApiResponse(success=False, message="Admin not found.", status_code=404)
+            return ApiResponse(
+                success=False, message="Admin not found.", status_code=404
+            )
         delete_admin(session, admin)
         return ApiResponse(success=True, message="Admin deleted successfully.")
 
@@ -1475,13 +1563,17 @@ async def analytics_weekly(
         for i in range(7):
             analytic_for_day = analytics_by_date.get((start + timedelta(days=i)).date())
             if analytic_for_day:
-                total_reservation_creations += analytic_for_day.reservationCreations or 0
+                total_reservation_creations += (
+                    analytic_for_day.reservationCreations or 0
+                )
                 total_reservations += analytic_for_day.reservations or 0
                 total_approvals += analytic_for_day.approvals or 0
                 total_rejections += analytic_for_day.rejections or 0
                 total_approvals += analytic_for_day.approvals or 0
                 daily_reservations[i] = analytic_for_day.reservations or 0
-                daily_reservation_creations[i] = analytic_for_day.reservationCreations or 0
+                daily_reservation_creations[i] = (
+                    analytic_for_day.reservationCreations or 0
+                )
         all_rooms = get_room(session)
         hourly_reservations = [0] * 24
 
@@ -1575,6 +1667,7 @@ async def analytics_overview_export(
         )
     return ApiResponse(success=False, message="Invalid export type.", status_code=400)
 
+
 @app.get("/analytics/weekly/export", response_model=None)
 @limiter.limit("1/second")
 async def analytics_weekly_export(
@@ -1587,10 +1680,20 @@ async def analytics_weekly_export(
             success=False, message="Turnstile verification failed.", status_code=403
         )
     export_uuid = uuid.uuid4()
-    start = (datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).weekday() + 7)).date()
+    start = (
+        datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        - timedelta(
+            days=datetime.now(timezone.utc)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .weekday()
+            + 7
+        )
+    ).date()
     with Session(engine) as session:
         if type == "pdf":
-            if cached := get_cache_by_key(session, f"analytics-weekly-export-pdf-{start}"):
+            if cached := get_cache_by_key(
+                session, f"analytics-weekly-export-pdf-{start}"
+            ):
                 return FileResponse(
                     path=f"cache/weekly_{cached.value['exportUuid']}.pdf",
                     media_type="application/pdf",
@@ -1600,14 +1703,22 @@ async def analytics_weekly_export(
                 f"{frontend_url}/reservation/analytics/raw/weekly",
                 f"cache/weekly_{export_uuid}.pdf",
             )
-            create_cache(session, Cache(key=f"analytics-weekly-export-pdf-{start}", value={"exportUuid": str(export_uuid)}))
+            create_cache(
+                session,
+                Cache(
+                    key=f"analytics-weekly-export-pdf-{start}",
+                    value={"exportUuid": str(export_uuid)},
+                ),
+            )
             return FileResponse(
                 f"cache/weekly_{export_uuid}.pdf",
                 media_type="application/pdf",
                 filename=f"weekly_{export_uuid}.pdf",
             )
         elif type == "png":
-            if cached := get_cache_by_key(session, f"analytics-weekly-export-png-{start}"):
+            if cached := get_cache_by_key(
+                session, f"analytics-weekly-export-png-{start}"
+            ):
                 return FileResponse(
                     path=f"cache/weekly_{cached.value['exportUuid']}.png",
                     media_type="image/png",
@@ -1617,10 +1728,18 @@ async def analytics_weekly_export(
                 f"{frontend_url}/reservation/analytics/raw/weekly",
                 f"cache/weekly_{export_uuid}.png",
             )
-            create_cache(session, Cache(key=f"analytics-weekly-export-png-{start}", value={"exportUuid": str(export_uuid)}))
+            create_cache(
+                session,
+                Cache(
+                    key=f"analytics-weekly-export-png-{start}",
+                    value={"exportUuid": str(export_uuid)},
+                ),
+            )
             return FileResponse(
                 f"cache/weekly_{export_uuid}.png",
                 media_type="image/png",
                 filename=f"weekly_{export_uuid}.png",
             )
-        return ApiResponse(success=False, message="Invalid export type.", status_code=400)
+        return ApiResponse(
+            success=False, message="Invalid export type.", status_code=400
+        )

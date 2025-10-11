@@ -137,6 +137,8 @@ def get_reservation(
     status: str | None = None,
     page: int = 0,
     page_size: int = 20,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
 ) -> tuple[Sequence[Reservation], int]:
     query = select(Reservation).order_by(col(Reservation.id).desc())
     if keyword:
@@ -157,11 +159,14 @@ def get_reservation(
         query = query.where(Reservation.roomId == room_id)
     if status:
         query = query.where(Reservation.status == status)
-    if not (keyword and status):
+    if start_time:
+        query = query.where(Reservation.startTime >= start_time)
+    if end_time:
+        query = query.where(Reservation.endTime <= end_time)
+    if not keyword and not status:
         query = query.where(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(hours=3)
         )
-
     total = len(session.exec(query).all())
 
     reservations = session.exec(query.offset(page * page_size).limit(page_size)).all()
@@ -193,7 +198,7 @@ def get_reservation_count(
         query = query.where(Reservation.roomId == room_id)
     if status:
         query = query.where(Reservation.status == status)
-    if not (keyword and status):
+    if not keyword and not status:
         query = query.where(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(days=1)
         )
