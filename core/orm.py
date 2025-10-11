@@ -156,7 +156,7 @@ def get_reservation(
     reservations = session.exec(query.offset(page * 20).limit(20)).all()
     return reservations
 
-def get_reservation_page_count(
+def get_reservation_count(
     keyword: str | None = None, room_id: int | None = None, status: str | None = None
 ) -> int:
     query = select(Reservation)
@@ -178,7 +178,7 @@ def get_reservation_page_count(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(days=1)
         )
     count = len(session.exec(query).all())
-    return (count + 19) // 20
+    return count
 
 
 def create_admin_login(email: str, cookie: str) -> None:

@@ -480,7 +480,7 @@ async def reservation_get(
     reservations = get_reservation(keyword, roomId, status, page)
     classes = get_class()
     res: List[ReservationResponseDetail] = []
-    pages = get_reservation_page_count(keyword, roomId, status)
+    total = get_reservation_count(keyword, roomId, status)
     for reservation in reservations:
         class_name = next(
             (cls.name for cls in classes if cls.id == reservation.classId), None
@@ -500,7 +500,7 @@ async def reservation_get(
             )
         )
     return ApiResponse(
-        success=True, data=ReservationQueryResponse(reservations=res, pages=pages)
+        success=True, data=ReservationQueryResponse(reservations=res, total=total)
     )
 
 

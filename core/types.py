@@ -415,7 +415,7 @@ class ReservationResponseDetail(ReservationResponseBase):
     className: str | None = None
 
 class ReservationQueryResponse(BaseModel):
-    pages: int
+    total: int
     reservations: List["ReservationResponseDetail"] = []
 
 
