@@ -133,8 +133,32 @@ def get_admin_by_email(email: str) -> Admin | None:
 
 
 def get_reservation(
-    keyword: str | None = None, room_id: int | None = None, status: str | None = None, page: int = 1
+    keyword: str | None = None, room_id: int | None = None, status: str | None = None, page: int = 0
 ) -> Sequence[Reservation]:
+    query = select(Reservation)
+    if keyword:
+        query = query.join(Room).join(Class).where(
+            or_(
+                column("email").like(f"%{keyword}%"),
+                column("reason").like(f"%{keyword}%"),
+                column("studentId").like(f"%{keyword}%"),
+                column("name").like(f"%{keyword}%"),
+            )
+        )
+    if room_id:
+        query = query.where(Reservation.roomId == room_id)
+    if status:
+        query = query.where(Reservation.status == status)
+    if not (keyword or status):
+        query = query.where(
+            Reservation.startTime >= datetime.now(timezone.utc) - timedelta(hours=3)
+        )
+    reservations = session.exec(query.offset(page * 20).limit(20)).all()
+    return reservations
+
+def get_reservation_page_count(
+    keyword: str | None = None, room_id: int | None = None, status: str | None = None
+) -> int:
     query = select(Reservation)
     if keyword:
         query = query.join(Room).join(Class).where(
@@ -153,8 +177,8 @@ def get_reservation(
         query = query.where(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(days=1)
         )
-    reservations = session.exec(query.offset(page * 10).limit(10)).all()
-    return reservations
+    count = len(session.exec(query).all())
+    return (count + 19) // 20
 
 
 def create_admin_login(email: str, cookie: str) -> None:

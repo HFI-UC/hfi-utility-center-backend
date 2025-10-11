@@ -465,12 +465,12 @@ async def reservation_create(
 
 @app.get(
     "/reservation/get",
-    response_model=ApiResponseBody[list[ReservationQueryResponse]],
+    response_model=ApiResponseBody[ReservationQueryResponse],
 )
 @limiter.limit("5/second")
 async def reservation_get(
     request: Request, roomId: int | None = None, keyword: str = "", status: str = "", page: int = 0
-) -> ApiResponse[list[ReservationQueryResponse]]:
+) -> ApiResponse[ReservationQueryResponse]:
     if roomId and not get_room_by_id(roomId):
         return ApiResponse(success=False, message="Room not found.", status_code=404)
 
@@ -479,26 +479,29 @@ async def reservation_get(
 
     reservations = get_reservation(keyword, roomId, status, page)
     classes = get_class()
-    res: list[ReservationQueryResponse] = []
+    res: List[ReservationResponseDetail] = []
+    pages = get_reservation_page_count(keyword, roomId, status)
     for reservation in reservations:
         class_name = next(
             (cls.name for cls in classes if cls.id == reservation.classId), None
         )
         room = reservation.room
         res.append(
-            ReservationQueryResponse(
+            ReservationResponseDetail(
                 id=reservation.id,
                 startTime=reservation.startTime,
                 endTime=reservation.endTime,
                 studentName=reservation.studentName,
                 email=reservation.email,
                 reason=reservation.reason,
+                status=reservation.status,
                 className=class_name,
                 roomName=room.name if room else None,
-                status=reservation.status,
             )
         )
-    return ApiResponse(success=True, data=res)
+    return ApiResponse(
+        success=True, data=ReservationQueryResponse(reservations=res, pages=pages)
+    )
 
 
 @app.post(
@@ -752,7 +755,7 @@ async def reservation_approval(
     "/reservation/all",
     response_model=ApiResponseBody[list[ReservationFullResponse]],
 )
-@limiter.limit("5/second")
+@limiter.limit("1/second")
 async def reservation_all(
     request: Request, admin_login=Depends(get_current_user)
 ) -> ApiResponse[list[ReservationFullResponse]]:

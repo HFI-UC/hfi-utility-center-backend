@@ -410,10 +410,13 @@ class ReservationResponseBase(ORMBaseModel):
     reason: str
     status: str
 
-
-class ReservationQueryResponse(ReservationResponseBase):
-    className: str | None = None
+class ReservationResponseDetail(ReservationResponseBase):
     roomName: str | None = None
+    className: str | None = None
+
+class ReservationQueryResponse(BaseModel):
+    pages: int
+    reservations: List["ReservationResponseDetail"] = []
 
 
 class ReservationUpcomingResponse(ReservationResponseBase):
