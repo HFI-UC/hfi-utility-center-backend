@@ -463,25 +463,28 @@ async def reservation_create(
     )
 
 
-@app.post(
+@app.get(
     "/reservation/get",
     response_model=ApiResponseBody[list[ReservationQueryResponse]],
 )
 @limiter.limit("5/second")
 async def reservation_get(
-    request: Request, payload: ReservationGetRequest
+    request: Request, roomId: int | None = None, keyword: str = "", status: str = "", page: int = 1
 ) -> ApiResponse[list[ReservationQueryResponse]]:
-    if payload.room and not get_room_by_id(payload.room):
+    if roomId and not get_room_by_id(roomId):
         return ApiResponse(success=False, message="Room not found.", status_code=404)
 
-    reservations = get_reservation(payload.keyword, payload.room, payload.status)
+    if page < 0:
+        return ApiResponse(success=False, message="Invalid page number.", status_code=400)
+
+    reservations = get_reservation(keyword, roomId, status, page)
     classes = get_class()
     res: list[ReservationQueryResponse] = []
     for reservation in reservations:
         class_name = next(
             (cls.name for cls in classes if cls.id == reservation.classId), None
         )
-        room = get_room_by_id(reservation.roomId)
+        room = reservation.room
         res.append(
             ReservationQueryResponse(
                 id=reservation.id,

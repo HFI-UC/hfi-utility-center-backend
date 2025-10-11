@@ -133,11 +133,11 @@ def get_admin_by_email(email: str) -> Admin | None:
 
 
 def get_reservation(
-    keyword: str | None = None, room_id: int | None = None, status: str | None = None
+    keyword: str | None = None, room_id: int | None = None, status: str | None = None, page: int = 1
 ) -> Sequence[Reservation]:
     query = select(Reservation)
     if keyword:
-        query = query.join(Room).where(
+        query = query.join(Room).join(Class).where(
             or_(
                 column("email").like(f"%{keyword}%"),
                 column("reason").like(f"%{keyword}%"),
@@ -153,7 +153,7 @@ def get_reservation(
         query = query.where(
             Reservation.startTime >= datetime.now(timezone.utc) - timedelta(days=1)
         )
-    reservations = session.exec(query).all()[:100]
+    reservations = session.exec(query.offset(page * 10).limit(10)).all()
     return reservations
 
 
