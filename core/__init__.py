@@ -848,6 +848,7 @@ async def reservation_all(
             20,
             datetime.fromtimestamp(startTime, timezone.utc) if startTime else None,
             datetime.fromtimestamp(endTime, timezone.utc) if endTime else None,
+            True
         )
 
         classes = get_class(session)

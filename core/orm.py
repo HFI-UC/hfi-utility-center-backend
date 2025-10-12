@@ -139,6 +139,7 @@ def get_reservation(
     page_size: int = 20,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
+    seach_student_id: bool = False,
 ) -> tuple[Sequence[Reservation], int]:
     query = select(Reservation).order_by(col(Reservation.id).desc())
     if keyword:
@@ -149,9 +150,10 @@ def get_reservation(
                 or_(
                     col(Reservation.email).like(f"%{keyword}%"),
                     col(Reservation.reason).like(f"%{keyword}%"),
-                    col(Reservation.studentId).like(f"%{keyword}%"),
+                    col(Reservation.studentId).like(f"%{keyword}%") if seach_student_id else False,
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
+                    col(Reservation.id).like(f"%{keyword}%"),
                 )
             )
         )
@@ -175,6 +177,7 @@ def get_reservation_count(
     keyword: str | None = None,
     room_id: int | None = None,
     status: str | None = None,
+    seach_student_id: bool = False,
 ) -> int:
     query = select(Reservation)
     if keyword:
@@ -185,9 +188,10 @@ def get_reservation_count(
                 or_(
                     col(Reservation.email).like(f"%{keyword}%"),
                     col(Reservation.reason).like(f"%{keyword}%"),
-                    col(Reservation.studentId).like(f"%{keyword}%"),
+                    col(Reservation.studentId).like(f"%{keyword}%") if seach_student_id else False,
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
+                    col(Reservation.id).like(f"%{keyword}%"),
                 )
             )
         )
