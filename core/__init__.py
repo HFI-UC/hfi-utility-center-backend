@@ -400,7 +400,7 @@ async def reservation_create(
         )
         if not approvers:
             return ApiResponse(
-                success=False, message="No approvers found.", status_code=404
+                success=False, message="No approvers found, please contact support.", status_code=404
             )
 
         result = create_reservation(session, payload)
