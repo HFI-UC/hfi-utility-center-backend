@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Sequence
+from typing import Literal, Sequence
 
 import httpx
 from openpyxl import Workbook
@@ -11,7 +11,10 @@ from core.env import *
 from core.orm import *
 
 
-def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
+def get_exported_xlsx(
+    reservations: Sequence[Reservation],
+    format: Literal["by-room", "single-sheet"] = "by-room"
+) -> Workbook:
     workbook = Workbook()
     default = workbook.active
     if default is not None:
@@ -31,30 +34,13 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
         "Creation Time",
         "Campus Name",
     ]
-    reservations_by_room: dict[int | None, list[Reservation]] = defaultdict(list)
-    for reservation in reservations:
-        reservations_by_room[reservation.roomId].append(reservation)
-
-    used = set()
-    for room_id, room_reservations in reservations_by_room.items():
-        room_obj = next((res.room for res in room_reservations if res.room), None)
-        room_name = (room_obj.name if room_obj else None) or f"Room-{room_id}"
-        base = (room_name or "")[:31]
-        sheet_name = base
-        i = 1
-        while sheet_name in used:
-            suffix = f"-{i}"
-            if len(base) + len(suffix) > 31:
-                sheet_name = base[: 31 - len(suffix)] + suffix
-            else:
-                sheet_name = base + suffix
-            i += 1
-        used.add(sheet_name)
-
-        ws: Worksheet = workbook.create_sheet(title=sheet_name)
+    
+    if format == "single_sheet":
+        # 所有预订合并到一个sheet中
+        ws: Worksheet = workbook.create_sheet(title="All Reservations")
         ws.append(headers)
-
-        for reservation in room_reservations:
+        
+        for reservation in reservations:
             room = reservation.room
             class_ = reservation.class_
             campus = room.campus if room and room.campus else None
@@ -86,6 +72,63 @@ def get_exported_xlsx(reservations: Sequence[Reservation]) -> Workbook:
                     campus.name if campus else None,
                 ]
             )
+    else:
+        # 按教室分sheet
+        reservations_by_room: dict[int | None, list[Reservation]] = defaultdict(list)
+        for reservation in reservations:
+            reservations_by_room[reservation.roomId].append(reservation)
+
+        used = set()
+        for room_id, room_reservations in reservations_by_room.items():
+            room_obj = next((res.room for res in room_reservations if res.room), None)
+            room_name = (room_obj.name if room_obj else None) or f"Room-{room_id}"
+            base = (room_name or "")[:31]
+            sheet_name = base
+            i = 1
+            while sheet_name in used:
+                suffix = f"-{i}"
+                if len(base) + len(suffix) > 31:
+                    sheet_name = base[: 31 - len(suffix)] + suffix
+                else:
+                    sheet_name = base + suffix
+                i += 1
+            used.add(sheet_name)
+
+            ws: Worksheet = workbook.create_sheet(title=sheet_name)
+            ws.append(headers)
+
+            for reservation in room_reservations:
+                room = reservation.room
+                class_ = reservation.class_
+                campus = room.campus if room and room.campus else None
+                ws.append(
+                    [
+                        reservation.id,
+                        (
+                            reservation.startTime.replace(tzinfo=None)
+                            if reservation.startTime
+                            else None
+                        ),
+                        (
+                            reservation.endTime.replace(tzinfo=None)
+                            if reservation.endTime
+                            else None
+                        ),
+                        reservation.studentName,
+                        reservation.studentId,
+                        reservation.email,
+                        reservation.reason,
+                        room.name if room else None,
+                        class_.name if class_ else None,
+                        reservation.status.capitalize() if reservation.status else None,
+                        (
+                            reservation.createdAt.replace(tzinfo=None)
+                            if reservation.createdAt
+                            else None
+                        ),
+                        campus.name if campus else None,
+                    ]
+                )
     return workbook
 
 

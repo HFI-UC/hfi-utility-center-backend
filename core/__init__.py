@@ -896,6 +896,7 @@ async def reservation_export(
     request: Request,
     startTime: int = -1,
     endTime: int = -1,
+    mode: Literal["by-room", "single-sheet"] = "by-room",
     admin_login=Depends(get_current_user),
 ) -> FileResponse | ApiResponse[Any]:
     if not admin_login:
@@ -916,7 +917,7 @@ async def reservation_export(
             return ApiResponse(
                 success=False, message="No reservations found.", status_code=404
             )
-        workbook = get_exported_xlsx(reservations)
+        workbook = get_exported_xlsx(reservations, mode)
         export_uuid = uuid.uuid4()
         workbook.save(f"cache/reservations_{export_uuid}.xlsx")
         return FileResponse(
