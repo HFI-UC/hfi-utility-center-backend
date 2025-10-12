@@ -6,9 +6,10 @@ from typing import Iterable, Mapping, Optional
 
 from sqlalchemy import MetaData, Table, create_engine, select as sa_select
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, select
+from sqlmodel import Session, select, SQLModel
 
 from core.types import Admin, Class, Reservation, Room
+from core.orm import create_db_and_tables, engine
 
 from dotenv import load_dotenv
 
@@ -223,52 +224,69 @@ def _build_reservation(session: Session, row: Mapping[str, object]) -> Optional[
 	return reservation
 
 
+def _create_reservation_via_orm(session: Session, reservation: Reservation) -> None:
+	"""使用ORM方式创建预约记录"""
+	session.add(reservation)
+	session.commit()
+	session.refresh(reservation)
+
+
 def migrate() -> None:
+	"""
+	迁移流程：
+	1. 删除所有表
+	2. 使用ORM重建表结构
+	3. 使用ORM方式创建预约记录
+	"""
+	# 确保目标数据库引擎
 	target_engine = _ensure_engine(database_url, "DATABASE_URL")
 	source_engine = (
 		create_engine(legacy_database_url)
 		if legacy_database_url
 		else target_engine
 	)
+	
+	# Step 1: 删除所有表
+	logger.info("Dropping all tables...")
+	SQLModel.metadata.drop_all(engine)
+	
+	# Step 2: 使用ORM重建表
+	logger.info("Recreating tables using ORM...")
+	create_db_and_tables()
+	
+	# Step 3: 迁移数据
+	logger.info("Starting data migration...")
 	inserted = 0
-	updated = 0
 	skipped = 0
 
-	with Session(target_engine) as session:
+	with Session(engine) as session:
 		for source_table, row in _load_source_rows(source_engine):
 			reservation = _build_reservation(session, row)
 			if reservation is None:
 				skipped += 1
 				continue
-			existing = session.get(Reservation, reservation.id)
-			if existing:
-				for field in (
-					"roomId",
-					"startTime",
-					"endTime",
-					"studentName",
-					"email",
-					"reason",
-					"classId",
-					"studentId",
-					"status",
-					"latestExecutorId",
-					"createdAt",
-				):
-					setattr(existing, field, getattr(reservation, field))
-				updated += 1
-			else:
-				session.add(reservation)
+			
+			# 使用ORM方式创建预约
+			try:
+				_create_reservation_via_orm(session, reservation)
 				inserted += 1
-			logger.debug(
-				"Processed reservation %s from %s", reservation.id if reservation else "<unknown>", source_table
-			)
-		session.commit()
+				logger.debug(
+					"Inserted reservation %s from %s", 
+					reservation.id, 
+					source_table
+				)
+			except Exception as e:
+				logger.error(
+					"Failed to insert reservation %s: %s",
+					reservation.id,
+					str(e)
+				)
+				skipped += 1
+				session.rollback()
 
 	logger.info(
-		"Migration finished: %s inserted, %s updated, %s skipped",
+		"Migration finished: %s inserted, %s skipped",
 		inserted,
-		updated,
 		skipped,
 	)
 
