@@ -312,6 +312,10 @@ async def reservation_create(
     with Session(engine) as session:
         reservations = get_reservation_by_room_id(session, payload.room)
         room = get_room_by_id(session, payload.room)
+        if not room:
+            return ApiResponse(
+                success=False, message="Room not found.", status_code=404
+            )
         errors = []
         class_ = get_class_by_id(session, payload.classId)
         if not room or not room.enabled:
@@ -395,10 +399,7 @@ async def reservation_create(
                 success=False, message="\n".join(errors), status_code=400
             )
 
-        approvers = get_room_approvers_by_room_id(
-            session, room.id if room and room.id else -1
-        )
-        if not approvers:
+        if not room.approvers:
             return ApiResponse(
                 success=False, message="No approvers found, please contact support.", status_code=404
             )
@@ -459,8 +460,8 @@ async def reservation_create(
                 data=ReservationCreateResponse(reservationId=result),
             )
 
-        for approver in approvers:
-            admin = get_admin_by_id(session, approver.id or -1)
+        for approver in room.approvers:
+            admin = approver.admin
             if not admin:
                 continue
             token = hashlib.md5(
