@@ -708,13 +708,20 @@ async def reservation_approval(
 
     with Session(engine) as session:
         reservation = get_reservation_by_id(session, payload.id)
-
         admin = get_admin_by_email(session, admin_login.email)
 
         if not reservation:
             return ApiResponse(
                 success=False, message="Reservation not found.", status_code=404
             )
+        
+        room = get_room_by_id(session, reservation.roomId)
+
+        if not room:
+            return ApiResponse(
+                success=False, message="Room not found.", status_code=404
+            )
+
         if (
             reservation.latestExecutorId is not None
             and reservation.latestExecutorId != admin.id
@@ -755,15 +762,7 @@ async def reservation_approval(
             return ApiResponse(
                 success=False, message="User is not a room approver.", status_code=403
             )
-        approvers = get_room_approvers_by_admin_id(
-            session, admin.id if admin and admin.id is not None else -1
-        )
-
-        if not approvers:
-            return ApiResponse(
-                success=False, message="User is not a room approver.", status_code=403
-            )
-        authorized = all(approver.admin == admin.id for approver in approvers)
+        authorized = all(approver.adminId == admin.id for approver in room.approvers)
 
         if not authorized:
             return ApiResponse(
