@@ -894,8 +894,8 @@ async def reservation_all(
 @limiter.limit("1/second")
 async def reservation_export(
     request: Request,
-    startTime: int = -1,
-    endTime: int = -1,
+    startTime: int | None = None,
+    endTime: int | None = None,
     mode: Literal["by-room", "single-sheet"] = "by-room",
     admin_login=Depends(get_current_user),
 ) -> FileResponse | ApiResponse[Any]:
@@ -903,15 +903,15 @@ async def reservation_export(
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
-    if startTime != -1 and endTime != -1 and startTime > endTime:
+    if startTime and endTime and startTime > endTime:
         return ApiResponse(
             success=False, message="Invalid time range.", status_code=400
         )
     with Session(engine) as session:
         reservations = get_reservations_by_time_range(
             session,
-            datetime.fromtimestamp(startTime) if startTime != -1 else None,
-            datetime.fromtimestamp(endTime) if endTime != -1 else None,
+            datetime.fromtimestamp(startTime) if startTime else None,
+            datetime.fromtimestamp(endTime) if endTime else None,
         )
         if not reservations:
             return ApiResponse(
