@@ -160,7 +160,7 @@ def get_reservation(
                     col(Reservation.studentName).like(f"%{keyword}%"),
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
-                    str(Reservation.id) == keyword,
+                    Reservation.id == int(keyword) if keyword.isdigit() else False,
                 )
             )
         )
@@ -203,7 +203,7 @@ def get_reservation_count(
                     col(Reservation.studentName).like(f"%{keyword}%"),
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
-                    str(Reservation.id) == keyword,
+                    Reservation.id == int(keyword) if keyword.isdigit() else False,
                 )
             )
         )
