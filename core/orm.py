@@ -245,11 +245,12 @@ def get_future_reservations_by_approver_id(
         .join(RoomApprover)
         .where(Reservation.startTime >= datetime.now(timezone.utc))
         .where(RoomApprover.adminId == approver_id)
-        # .where(
-        #     Reservation.latestExecutorId == approver_id
-        #     if Reservation.latestExecutor
-        #     else True
-        # )
+        .where(
+            or_(
+                Reservation.latestExecutorId == approver_id,
+                Reservation.latestExecutorId == None
+            )
+        )
     ).all()
     return reservations
 
