@@ -54,7 +54,9 @@ def get_policy(session: Session) -> Sequence[RoomPolicy]:
     return policies
 
 
-def get_policy_by_room_id(session: Session, room_id: int | None) -> Sequence[RoomPolicy]:
+def get_policy_by_room_id(
+    session: Session, room_id: int | None
+) -> Sequence[RoomPolicy]:
     policies = session.exec(
         select(RoomPolicy).where(RoomPolicy.roomId == room_id)
     ).all()
@@ -150,10 +152,14 @@ def get_reservation(
                 or_(
                     col(Reservation.email).like(f"%{keyword}%"),
                     col(Reservation.reason).like(f"%{keyword}%"),
-                    col(Reservation.studentId).like(f"%{keyword}%") if seach_student_id else False,
+                    (
+                        col(Reservation.studentId).like(f"%{keyword}%")
+                        if seach_student_id
+                        else False
+                    ),
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
-                    col(Reservation.id).like(f"%{keyword}%"),
+                    str(Reservation.id) == keyword,
                 )
             )
         )
@@ -188,10 +194,14 @@ def get_reservation_count(
                 or_(
                     col(Reservation.email).like(f"%{keyword}%"),
                     col(Reservation.reason).like(f"%{keyword}%"),
-                    col(Reservation.studentId).like(f"%{keyword}%") if seach_student_id else False,
+                    (
+                        col(Reservation.studentId).like(f"%{keyword}%")
+                        if seach_student_id
+                        else False
+                    ),
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
-                    col(Reservation.id).like(f"%{keyword}%"),
+                    str(Reservation.id) == keyword,
                 )
             )
         )
@@ -434,9 +444,7 @@ def create_policy(
 
 
 def get_policy_by_id(session: Session, id: int | None) -> RoomPolicy | None:
-    policy = session.exec(
-        select(RoomPolicy).where(RoomPolicy.id == id)
-    ).one_or_none()
+    policy = session.exec(select(RoomPolicy).where(RoomPolicy.id == id)).one_or_none()
     return policy
 
 
