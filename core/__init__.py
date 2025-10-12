@@ -810,34 +810,61 @@ async def reservation_approval(
 
 @app.get(
     "/reservation/all",
-    response_model=ApiResponseBody[list[ReservationFullResponse]],
+    response_model=ApiResponseBody[ReservationFullQueryResponse],
 )
 @limiter.limit("1/second")
 async def reservation_all(
-    request: Request, admin_login=Depends(get_current_user)
-) -> ApiResponse[list[ReservationFullResponse]]:
+    request: Request,
+    admin_login=Depends(get_current_user),
+    roomId: int | None = None,
+    keyword: str = "",
+    status: str = "",
+    page: int = 0,
+    startTime: int | None = None,
+    endTime: int | None = None,
+) -> ApiResponse[ReservationFullQueryResponse]:
     if not admin_login:
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
         )
 
     with Session(engine) as session:
-        all_reservations = get_all_reservations(session)
+        if roomId and not get_room_by_id(session, roomId):
+            return ApiResponse(
+                success=False, message="Room not found.", status_code=404
+            )
+
+        if page < 0:
+            return ApiResponse(
+                success=False, message="Invalid page number.", status_code=400
+            )
+
+        reservations, total = get_reservation(
+            session,
+            keyword,
+            roomId,
+            status,
+            page,
+            20,
+            datetime.fromtimestamp(startTime, timezone.utc) if startTime else None,
+            datetime.fromtimestamp(endTime, timezone.utc) if endTime else None,
+        )
+
         classes = get_class(session)
         res: list[ReservationFullResponse] = []
-        for reservation in all_reservations:
+        for reservation in reservations:
             class_name = next(
                 (cls.name for cls in classes if cls.id == reservation.classId), None
             )
             room = get_room_by_id(session, reservation.roomId)
             campus = (
                 get_campus_by_id(session, room.campusId)
-                if room and room.campus
+                if room and room.campusId
                 else None
             )
             executor = (
                 get_admin_by_id(session, reservation.latestExecutorId)
-                if reservation.latestExecutor
+                if reservation.latestExecutorId
                 else None
             )
             res.append(
@@ -857,7 +884,9 @@ async def reservation_all(
                     latestExecutor=executor.email if executor else None,
                 )
             )
-        return ApiResponse(success=True, data=res)
+        return ApiResponse(
+            success=True, data=ReservationFullQueryResponse(reservations=res, total=total)
+        )
 
 
 @app.get("/reservation/export", response_model=None)

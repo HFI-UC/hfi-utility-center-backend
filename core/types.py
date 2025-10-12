@@ -436,6 +436,11 @@ class ReservationFullResponse(ReservationResponseBase):
     latestExecutor: str | None = None
 
 
+class ReservationFullQueryResponse(BaseModel):
+    total: int
+    reservations: List["ReservationFullResponse"] = []
+
+
 class ReservationCreateResponse(BaseModel):
     reservationId: int
 
