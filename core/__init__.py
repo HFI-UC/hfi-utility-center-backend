@@ -812,7 +812,7 @@ async def reservation_approval(
     "/reservation/all",
     response_model=ApiResponseBody[ReservationFullQueryResponse],
 )
-@limiter.limit("1/second")
+@limiter.limit("5/second")
 async def reservation_all(
     request: Request,
     admin_login=Depends(get_current_user),
