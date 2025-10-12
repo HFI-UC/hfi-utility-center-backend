@@ -35,7 +35,7 @@ def get_exported_xlsx(
         "Campus Name",
     ]
     
-    if format == "single_sheet":
+    if format == "single-sheet":
         # 所有预订合并到一个sheet中
         ws: Worksheet = workbook.create_sheet(title="All Reservations")
         ws.append(headers)
