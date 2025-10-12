@@ -366,7 +366,7 @@ def get_all_reservations(session: Session) -> Sequence[Reservation]:
 def get_reservations_by_time_range(
     session: Session, start: datetime | None, end: datetime | None
 ) -> Sequence[Reservation]:
-    query = select(Reservation)
+    query = select(Reservation).order_by(col(Reservation.id).asc())
     if start:
         query = query.where(Reservation.startTime >= start)
     if end:
