@@ -157,6 +157,7 @@ def get_reservation(
                         if seach_student_id
                         else False
                     ),
+                    col(Reservation.studentName).like(f"%{keyword}%"),
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
                     str(Reservation.id) == keyword,
@@ -199,6 +200,7 @@ def get_reservation_count(
                         if seach_student_id
                         else False
                     ),
+                    col(Reservation.studentName).like(f"%{keyword}%"),
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
                     str(Reservation.id) == keyword,
