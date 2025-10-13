@@ -405,17 +405,17 @@ async def reservation_create(
             )
         
         if admin:
-            payload.studentId = ""
+            payload.studentId = "-"
 
         result = create_reservation(session, payload)
 
         background_task.add_task(
             send_normal_update_email,
             email_title="Reservation Created",
-            title=f"Hi {payload.studentName}! Your reservation has been created.",
+            title=f"Hi {payload.studentName}! Your reservation #{result} has been created.",
             email=payload.email,
             details=(
-                f"Your reservation for room {room.name if room else 'Unknown'} for the time period "
+                f"Your reservation #{result} for room {room.name if room else 'Unknown'} for the time period "
                 f"<b>{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - "
                 f"{datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}</b> has been created and is currently pending approval."
             ),
@@ -427,9 +427,9 @@ async def reservation_create(
                 None,
             )
             change_reservation_status_by_id(
-                session, result, "rejected", admin.id or -1
+                session, result, "approved", admin.id or -1
             )
-            
+
             background_task.add_task(
                 send_reservation_approval_email,
                 email_title="Reservation Approval",
@@ -445,8 +445,8 @@ async def reservation_create(
             )
             reservations = get_reservations_by_time_range_and_room(
                 session,
-                datetime.fromtimestamp(payload.startTime),
-                datetime.fromtimestamp(payload.endTime),
+                datetime.fromtimestamp(payload.startTime, timezone.utc),
+                datetime.fromtimestamp(payload.endTime, timezone.utc),
                 room_id=payload.room,
             )
             for reservation in reservations:

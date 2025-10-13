@@ -547,10 +547,15 @@ def get_reservations_by_time_range_and_room(
     session: Session, start: datetime | None, end: datetime | None, room_id: int
 ) -> Sequence[Reservation]:
     query = select(Reservation).where(Reservation.roomId == room_id)
-    if start:
-        query = query.where(Reservation.startTime >= start)
-    if end:
-        query = query.where(Reservation.endTime <= end)
+    if start and end:
+        query = query.where(
+            Reservation.startTime < end,
+            Reservation.endTime > start
+        )
+    elif start:
+        query = query.where(Reservation.endTime > start)
+    elif end:
+        query = query.where(Reservation.startTime < end)
     reservations = session.exec(query).all()
     return reservations
 
