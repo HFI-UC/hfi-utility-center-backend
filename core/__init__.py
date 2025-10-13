@@ -182,7 +182,7 @@ def get_current_user(request: Request) -> AdminLogin | None:
 async def room_list(request: Request, user_login=Depends(get_current_user)) -> ApiResponse[list[RoomResponse] | list[RoomAdminResponse]]:
     with Session(engine) as session:
         rooms = get_room(session)
-        if user_login:
+        if not user_login:
             data = [
                 RoomResponse(
                     id=room.id,
