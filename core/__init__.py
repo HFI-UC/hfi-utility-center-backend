@@ -1228,7 +1228,7 @@ async def approver_toggle(request: Request, payload: RoomApproverNotificationsTo
 
         approver.notificationsEnabled = not approver.notificationsEnabled
         edit_approver(session, approver)
-        return ApiResponse(success=True, message="Approver toggled successfully.")
+        return ApiResponse(success=True, message="Approver notifications toggled successfully.")
 
 
 @app.post(
