@@ -6,7 +6,7 @@ from typing import Iterable, Mapping, Optional
 
 from sqlalchemy import MetaData, Table, create_engine, select as sa_select
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, select, SQLModel
+from sqlmodel import Session, select
 
 from core.types import Admin, Class, Reservation, Room
 from core.orm import create_db_and_tables, engine
@@ -249,6 +249,8 @@ def migrate() -> None:
 	logger.info("Starting data migration...")
 	inserted = 0
 	skipped = 0
+
+	create_db_and_tables()
 
 	with Session(engine) as session:
 		for source_table, row in _load_source_rows(source_engine):
