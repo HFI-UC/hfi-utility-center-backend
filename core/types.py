@@ -289,7 +289,6 @@ class RoomPolicyEditRequest(BaseModel):
     days: List[int]
     startTime: List[int]
     endTime: List[int]
-    notificationsEnabled: bool
 
 
 class RoomCreateRequest(BaseModel):

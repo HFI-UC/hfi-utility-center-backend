@@ -160,11 +160,11 @@ def _resolve_admin_id(session: Session, operator_value: object | None) -> Option
 
 def _derive_student_id(raw_sid: object | None) -> str:
 	if not raw_sid:
-		return ""
+		return "-"
 	text = str(raw_sid).strip()
 	if len(text) == 8:
 		return f"GJ{text}"
-	return ""
+	return "-"
 
 
 def _normalize_status(raw_status: object | None) -> str:
