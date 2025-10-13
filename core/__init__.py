@@ -766,7 +766,7 @@ async def reservation_approval(
     request: Request,
     payload: ReservationApproveRequest,
     background_task: BackgroundTasks,
-    admin_login=Depends(get_current_user),
+    admin_login: AdminLogin=Depends(get_current_user),
 ) -> ApiResponse[Any]:
     if not admin_login:
         return ApiResponse(
@@ -776,6 +776,11 @@ async def reservation_approval(
     with Session(engine) as session:
         reservation = get_reservation_by_id(session, payload.id)
         admin = get_admin_by_email(session, admin_login.email)
+
+        if not admin:
+            return ApiResponse(
+                success=False, message="Admin not found.", status_code=404
+            )
 
         if not reservation:
             return ApiResponse(
@@ -824,12 +829,7 @@ async def reservation_approval(
                 success=False, message="Invalid approval request.", status_code=400
             )
 
-        admin = get_admin_by_email(session, admin_login.email)
-        if not admin:
-            return ApiResponse(
-                success=False, message="User is not a room approver.", status_code=403
-            )
-        authorized = all(approver.adminId == admin.id for approver in room.approvers)
+        authorized = any(approver.adminId == admin.id if admin else False for approver in room.approvers)
 
         if not authorized:
             return ApiResponse(
