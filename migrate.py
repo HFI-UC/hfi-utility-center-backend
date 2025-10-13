@@ -84,17 +84,19 @@ def _parse_created_at(raw: object | None) -> Optional[datetime]:
 	if text.isdigit():
 		return _parse_epoch(text)
 	normalized = text.replace("T", " ").replace("Z", "+00:00")
-	try:
-		dt = datetime.fromisoformat(normalized)
-		return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-	except ValueError:
-		pass
 	from datetime import timedelta
 	utc_plus_8 = timezone(timedelta(hours=8))
+	try:
+		dt = datetime.fromisoformat(normalized)
+		if dt.tzinfo:
+			return dt.astimezone(timezone.utc)
+		return dt.replace(tzinfo=utc_plus_8).astimezone(timezone.utc)
+	except ValueError:
+		pass
 	for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
 		try:
 			dt = datetime.strptime(text, fmt).replace(tzinfo=utc_plus_8)
-			return dt
+			return dt.astimezone(timezone.utc)
 		except ValueError:
 			continue
 	logger.warning("Unable to parse createdAt value '%s'", text)
