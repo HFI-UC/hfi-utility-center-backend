@@ -398,11 +398,14 @@ async def reservation_create(
             return ApiResponse(
                 success=False, message="\n".join(errors), status_code=400
             )
-
+        
         if not room.approvers:
             return ApiResponse(
                 success=False, message="No approvers found, please contact support.", status_code=404
             )
+        
+        if admin:
+            payload.studentId = ""
 
         result = create_reservation(session, payload)
 
@@ -423,12 +426,16 @@ async def reservation_create(
                 (cls.name for cls in get_class(session) if cls.id == payload.classId),
                 None,
             )
+            change_reservation_status_by_id(
+                session, result, "rejected", admin.id or -1
+            )
+            
             background_task.add_task(
                 send_reservation_approval_email,
                 email_title="Reservation Approval",
                 title="Your reservation has been approved!",
                 email=payload.email,
-                details=f"Hi {payload.studentName}! Your reservation for {room.name if room else None} has been approved. Below is the detailed information.",
+                details=f"Hi {payload.studentName}! Your reservation #{result} for {room.name if room else None} has been approved. Below is the detailed information.",
                 user=payload.studentName,
                 room=room.name if room else "",
                 class_name=class_name or "",
@@ -452,7 +459,7 @@ async def reservation_create(
                         email_title="Reservation Rejected",
                         title="Your reservation has been rejected.",
                         email=reservation.email,
-                        details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected due to a higher priority reservation.",
+                        details=f"Hi {reservation.studentName}! Your reservation #{reservation.id} for {room.name if room else None} has been rejected due to a higher priority reservation.",
                     )
             return ApiResponse(
                 success=True,
@@ -789,7 +796,7 @@ async def reservation_approval(
                 email_title="Reservation Approval",
                 title="Your reservation has been approved!",
                 email=reservation.email,
-                details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been approved. Below is the detailed information.",
+                details=f"Hi {reservation.studentName}! Your reservation #{reservation.id} for {room.name if room else None} has been approved. Below is the detailed information.",
                 user=reservation.studentName,
                 room=room.name if room else "",
                 class_name=class_name or "",
@@ -803,7 +810,7 @@ async def reservation_approval(
                 email_title="Reservation Rejected",
                 title="Your reservation has been rejected.",
                 email=reservation.email,
-                details=f"Hi {reservation.studentName}! Your reservation for {room.name if room else None} has been rejected. Reason: {payload.reason}",
+                details=f"Hi {reservation.studentName}! Your reservation #{reservation.id} for {room.name if room else None} has been rejected. Reason: {payload.reason}",
             )
         return ApiResponse(success=True, message="Reservation updated successfully.")
 
