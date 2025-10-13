@@ -89,9 +89,12 @@ def _parse_created_at(raw: object | None) -> Optional[datetime]:
 		return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 	except ValueError:
 		pass
+	from datetime import timedelta
+	utc_plus_8 = timezone(timedelta(hours=8))
 	for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
 		try:
-			return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+			dt = datetime.strptime(text, fmt).replace(tzinfo=utc_plus_8)
+			return dt.astimezone(timezone.utc)
 		except ValueError:
 			continue
 	logger.warning("Unable to parse createdAt value '%s'", text)
