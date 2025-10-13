@@ -1212,7 +1212,7 @@ async def class_edit(
         edit_class(session, class_)
         return ApiResponse(success=True, message="Class edited successfully.")
 
-@app.get("/approver/toggle-notification", response_model=ApiResponseBody[Any])
+@app.post("/approver/toggle-notification", response_model=ApiResponseBody[Any])
 @limiter.limit("5/second")
 async def approver_toggle(request: Request, payload: RoomApproverNotificationsToggleRequest, admin_login=Depends(get_current_user)) -> ApiResponse[Any]:
     if not admin_login:
