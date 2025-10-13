@@ -176,30 +176,46 @@ def get_current_user(request: Request) -> AdminLogin | None:
 
 @app.get(
     "/room/list",
-    response_model=ApiResponseBody[list[RoomResponse]],
+    response_model=ApiResponseBody[list[RoomResponse] | list[RoomAdminResponse]],
 )
 @limiter.limit("5/second")
-async def room_list(request: Request) -> ApiResponse[list[RoomResponse]]:
+async def room_list(request: Request, user_login=Depends(get_current_user)) -> ApiResponse[list[RoomResponse] | list[RoomAdminResponse]]:
     with Session(engine) as session:
         rooms = get_room(session)
-        data = [
-            RoomResponse(
-                id=room.id,
-                name=room.name,
-                campus=room.campusId,
-                createdAt=room.createdAt,
-                policies=[
-                    RoomPolicyResponseBase.model_validate(policy)
-                    for policy in room.policies
-                ],
-                approvers=[
-                    RoomApproverResponse.model_validate(approver)
-                    for approver in room.approvers
-                ],
-                enabled=room.enabled,
-            )
-            for room in rooms
-        ]
+        if user_login:
+            data = [
+                RoomResponse(
+                    id=room.id,
+                    name=room.name,
+                    campus=room.campusId,
+                    createdAt=room.createdAt,
+                    policies=[
+                        RoomPolicyResponseBase.model_validate(policy)
+                        for policy in room.policies
+                    ],
+                    enabled=room.enabled,
+                )
+                for room in rooms
+            ]
+        else:
+            data =  [
+                RoomAdminResponse(
+                    id=room.id,
+                    name=room.name,
+                    campus=room.campusId,
+                    createdAt=room.createdAt,
+                    policies=[
+                        RoomPolicyResponseBase.model_validate(policy)
+                        for policy in room.policies
+                    ],
+                    approvers=[
+                        RoomApproverResponseBase.model_validate(approver)
+                        for approver in room.approvers
+                    ],
+                    enabled=room.enabled,
+                )
+                for room in rooms
+            ]
         return ApiResponse(success=True, data=data)
 
 
@@ -469,7 +485,7 @@ async def reservation_create(
 
         for approver in room.approvers:
             admin = approver.admin
-            if not admin:
+            if not admin or not approver.notificationsEnabled:
                 continue
             token = hashlib.md5(
                 (
@@ -499,18 +515,19 @@ async def reservation_create(
 
 @app.get(
     "/reservation/get",
-    response_model=ApiResponseBody[ReservationQueryResponse],
+    response_model=ApiResponseBody[ReservationQueryResponse | ReservationFullQueryResponse],
 )
 @limiter.limit("5/second")
 async def reservation_get(
     request: Request,
+    admin_login=Depends(get_current_user),
     roomId: int | None = None,
     keyword: str = "",
     status: str = "",
     page: int = 0,
     startTime: int | None = None,
     endTime: int | None = None,
-) -> ApiResponse[ReservationQueryResponse]:
+) -> ApiResponse[ReservationQueryResponse | ReservationFullQueryResponse]:
     with Session(engine) as session:
         if roomId and not get_room_by_id(session, roomId):
             return ApiResponse(
@@ -522,6 +539,8 @@ async def reservation_get(
                 success=False, message="Invalid page number.", status_code=400
             )
 
+        is_admin = bool(admin_login)
+
         reservations, total = get_reservation(
             session,
             keyword,
@@ -531,20 +550,61 @@ async def reservation_get(
             20,
             datetime.fromtimestamp(startTime, timezone.utc) if startTime else None,
             datetime.fromtimestamp(endTime, timezone.utc) if endTime else None,
+            is_admin,
         )
-        res: List[ReservationResponseDetail] = []
-        for reservation in reservations:
-            room = reservation.room
-            class_ = reservation.class_
 
-            response_item = ReservationResponseDetail.model_validate(reservation)
-            response_item.className = class_.name if class_ else None
-            response_item.roomName = room.name if room else None
+        if is_admin:
+            classes = get_class(session)
+            admin_res: list[ReservationFullResponse] = []
+            for reservation in reservations:
+                class_name = next(
+                    (cls.name for cls in classes if cls.id == reservation.classId), None
+                )
+                room = get_room_by_id(session, reservation.roomId)
+                campus = (
+                    get_campus_by_id(session, room.campusId)
+                    if room and room.campusId
+                    else None
+                )
+                executor = (
+                    get_admin_by_id(session, reservation.latestExecutorId)
+                    if reservation.latestExecutorId
+                    else None
+                )
+                admin_res.append(
+                    ReservationFullResponse(
+                        id=reservation.id,
+                        startTime=reservation.startTime,
+                        endTime=reservation.endTime,
+                        studentName=reservation.studentName,
+                        studentId=reservation.studentId,
+                        email=reservation.email,
+                        reason=reservation.reason,
+                        roomName=room.name if room else None,
+                        className=class_name,
+                        status=reservation.status,
+                        createdAt=reservation.createdAt,
+                        campusName=campus.name if campus else None,
+                        latestExecutor=executor.email if executor else None,
+                    )
+                )
+            return ApiResponse(
+                success=True, data=ReservationFullQueryResponse(reservations=admin_res, total=total)
+            )
+        else:
+            res: List[ReservationResponseDetail] = []
+            for reservation in reservations:
+                room = reservation.room
+                class_ = reservation.class_
 
-            res.append(response_item)
-        return ApiResponse(
-            success=True, data=ReservationQueryResponse(reservations=res, total=total)
-        )
+                response_item = ReservationResponseDetail.model_validate(reservation)
+                response_item.className = class_.name if class_ else None
+                response_item.roomName = room.name if room else None
+
+                res.append(response_item)
+            return ApiResponse(
+                success=True, data=ReservationQueryResponse(reservations=res, total=total)
+            )
 
 
 @app.post(
@@ -813,88 +873,6 @@ async def reservation_approval(
                 details=f"Hi {reservation.studentName}! Your reservation #{reservation.id} for {room.name if room else None} has been rejected. Reason: {payload.reason}",
             )
         return ApiResponse(success=True, message="Reservation updated successfully.")
-
-
-@app.get(
-    "/reservation/all",
-    response_model=ApiResponseBody[ReservationFullQueryResponse],
-)
-@limiter.limit("5/second")
-async def reservation_all(
-    request: Request,
-    admin_login=Depends(get_current_user),
-    roomId: int | None = None,
-    keyword: str = "",
-    status: str = "",
-    page: int = 0,
-    startTime: int | None = None,
-    endTime: int | None = None,
-) -> ApiResponse[ReservationFullQueryResponse]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
-    with Session(engine) as session:
-        if roomId and not get_room_by_id(session, roomId):
-            return ApiResponse(
-                success=False, message="Room not found.", status_code=404
-            )
-
-        if page < 0:
-            return ApiResponse(
-                success=False, message="Invalid page number.", status_code=400
-            )
-
-        reservations, total = get_reservation(
-            session,
-            keyword,
-            roomId,
-            status,
-            page,
-            20,
-            datetime.fromtimestamp(startTime, timezone.utc) if startTime else None,
-            datetime.fromtimestamp(endTime, timezone.utc) if endTime else None,
-            True
-        )
-
-        classes = get_class(session)
-        res: list[ReservationFullResponse] = []
-        for reservation in reservations:
-            class_name = next(
-                (cls.name for cls in classes if cls.id == reservation.classId), None
-            )
-            room = get_room_by_id(session, reservation.roomId)
-            campus = (
-                get_campus_by_id(session, room.campusId)
-                if room and room.campusId
-                else None
-            )
-            executor = (
-                get_admin_by_id(session, reservation.latestExecutorId)
-                if reservation.latestExecutorId
-                else None
-            )
-            res.append(
-                ReservationFullResponse(
-                    id=reservation.id,
-                    startTime=reservation.startTime,
-                    endTime=reservation.endTime,
-                    studentName=reservation.studentName,
-                    studentId=reservation.studentId,
-                    email=reservation.email,
-                    reason=reservation.reason,
-                    roomName=room.name if room else None,
-                    className=class_name,
-                    status=reservation.status,
-                    createdAt=reservation.createdAt,
-                    campusName=campus.name if campus else None,
-                    latestExecutor=executor.email if executor else None,
-                )
-            )
-        return ApiResponse(
-            success=True, data=ReservationFullQueryResponse(reservations=res, total=total)
-        )
 
 
 @app.get("/reservation/export", response_model=None)
@@ -1233,6 +1211,24 @@ async def class_edit(
         class_.campusId = payload.campus
         edit_class(session, class_)
         return ApiResponse(success=True, message="Class edited successfully.")
+
+@app.get("/approver/toggle-notification", response_model=ApiResponseBody[Any])
+@limiter.limit("5/second")
+async def approver_toggle(request: Request, payload: RoomApproverNotificationsToggleRequest, admin_login=Depends(get_current_user)) -> ApiResponse[Any]:
+    if not admin_login:
+        return ApiResponse(
+            success=False, message="User is not logged in.", status_code=401
+        )
+    with Session(engine) as session:
+        approver = get_room_approver_by_id(session, payload.id)
+        if not approver:
+            return ApiResponse(
+                success=False, message="Approver not found.", status_code=404
+            )
+
+        approver.notificationsEnabled = not approver.notificationsEnabled
+        edit_approver(session, approver)
+        return ApiResponse(success=True, message="Approver toggled successfully.")
 
 
 @app.post(

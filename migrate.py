@@ -232,13 +232,6 @@ def _create_reservation_via_orm(session: Session, reservation: Reservation) -> N
 
 
 def migrate() -> None:
-	"""
-	迁移流程：
-	1. 删除所有表
-	2. 使用ORM重建表结构
-	3. 使用ORM方式创建预约记录
-	"""
-	# 确保目标数据库引擎
 	target_engine = _ensure_engine(database_url, "DATABASE_URL")
 	source_engine = (
 		create_engine(legacy_database_url)
@@ -259,7 +252,6 @@ def migrate() -> None:
 				skipped += 1
 				continue
 			
-			# 使用ORM方式创建预约
 			try:
 				_create_reservation_via_orm(session, reservation)
 				inserted += 1

@@ -65,6 +65,7 @@ class RoomApprover(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     roomId: int | None = Field(default=None, foreign_key="room.id")
     adminId: int | None = Field(default=None, foreign_key="admin.id")
+    notificationsEnabled: bool = Field(default=True)
     room: "Room" = Relationship(back_populates="approvers")
     admin: "Admin" = Relationship(back_populates="approvers")
 
@@ -288,6 +289,7 @@ class RoomPolicyEditRequest(BaseModel):
     days: List[int]
     startTime: List[int]
     endTime: List[int]
+    notificationsEnabled: bool
 
 
 class RoomCreateRequest(BaseModel):
@@ -325,6 +327,8 @@ class RoomApproverCreateRequest(BaseModel):
     room: int
     admin: int
 
+class RoomApproverNotificationsToggleRequest(BaseModel):
+    id: int
 
 class RoomApproverDeleteRequest(BaseModel):
     id: int
@@ -369,8 +373,9 @@ class RoomResponse(ORMBaseModel):
     createdAt: datetime | None = None
     enabled: bool = True
     policies: Sequence["RoomPolicyResponseBase"] = []
-    approvers: Sequence["RoomApproverResponse"] = []
 
+class RoomAdminResponse(RoomResponse):
+    approvers: Sequence["RoomApproverResponseBase"] = []
 
 class ClassResponse(ORMBaseModel):
     id: int | None
@@ -388,10 +393,11 @@ class RoomPolicyResponseBase(ORMBaseModel):
     enabled: bool
 
 
-class RoomApproverResponse(ORMBaseModel):
+class RoomApproverResponseBase(ORMBaseModel):
     id: int | None
     roomId: int | None
     adminId: int | None
+    notificationsEnabled: bool
 
 
 class AdminResponse(ORMBaseModel):

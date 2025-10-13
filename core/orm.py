@@ -476,6 +476,10 @@ def edit_class(session: Session, class_: Class) -> None:
     session.add(class_)
     session.commit()
 
+def edit_approver(session: Session, approver: RoomApprover) -> None:
+    session.add(approver)
+    session.commit()
+
 
 def get_temp_admin_login_by_token(
     session: Session, token: str
