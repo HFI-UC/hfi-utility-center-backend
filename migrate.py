@@ -246,15 +246,6 @@ def migrate() -> None:
 		else target_engine
 	)
 	
-	# Step 1: 删除所有表
-	logger.info("Dropping all tables...")
-	SQLModel.metadata.drop_all(engine)
-	
-	# Step 2: 使用ORM重建表
-	logger.info("Recreating tables using ORM...")
-	create_db_and_tables()
-	
-	# Step 3: 迁移数据
 	logger.info("Starting data migration...")
 	inserted = 0
 	skipped = 0
