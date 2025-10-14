@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import Receive, Scope, Send, Message
 from fastapi.requests import Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from slowapi import _rate_limit_exceeded_handler, Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -173,6 +173,11 @@ def get_current_user(request: Request) -> AdminLogin | None:
             return None
         return user_login
 
+
+@app.get("/", response_model=ApiResponseBody[str])
+@limiter.limit("10/second")
+async def root(request: Request) -> RedirectResponse:
+    return RedirectResponse(url="https://wdf.ink/6OUp")
 
 @app.get(
     "/room/list",
