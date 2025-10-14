@@ -147,11 +147,13 @@ def get_reservation(
     if keyword:
         query = (
             query.join(Room)
-            .join(Class)
+            .join(Class, isouter=True)
             .where(
                 or_(
                     col(Reservation.email).like(f"%{keyword}%"),
                     col(Reservation.reason).like(f"%{keyword}%"),
+                    col(Reservation.studentName).like(f"%{keyword}%"),
+                    Reservation.id == int(keyword) if keyword.isdigit() else False,
                     (
                         col(Reservation.studentId).like(f"%{keyword}%")
                         if seach_student_id
@@ -160,7 +162,6 @@ def get_reservation(
                     col(Reservation.studentName).like(f"%{keyword}%"),
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
-                    Reservation.id == int(keyword) if keyword.isdigit() else False,
                 )
             )
         )
