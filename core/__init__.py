@@ -351,20 +351,41 @@ async def reservation_create(
                 success=False, message="\n".join(errors), status_code=400
             )
 
-        def validate_time_conflict(time: datetime) -> bool:
+        def validate_time_conflict(startTime: datetime, endTime: datetime) -> bool:
+            if startTime.tzinfo is None:
+                start = startTime.replace(tzinfo=timezone.utc)
+            else:
+                start = startTime.astimezone(timezone.utc)
+
+            if endTime.tzinfo is None:
+                end = endTime.replace(tzinfo=timezone.utc)
+            else:
+                end = endTime.astimezone(timezone.utc)
+
             for reservation in reservations:
-                if (
-                    reservation.status != "rejected"
-                    and reservation.startTime <= time <= reservation.endTime
-                ):
+                if reservation.status == "rejected":
+                    continue
+
+                res_start = (
+                    reservation.startTime.astimezone(timezone.utc)
+                    if reservation.startTime.tzinfo
+                    else reservation.startTime.replace(tzinfo=timezone.utc)
+                )
+                res_end = (
+                    reservation.endTime.astimezone(timezone.utc)
+                    if reservation.endTime.tzinfo
+                    else reservation.endTime.replace(tzinfo=timezone.utc)
+                )
+                if res_start < end and res_end > start:
                     return False
             return True
 
-        def validate_policy(_time: int) -> bool:
+        def validate_policy(startTime: int, endTime: int) -> bool:
             if room:
                 policies = get_policy_by_room_id(session, room.id)
-                time_obj = datetime.fromtimestamp(_time)
-                day = time_obj.weekday()
+                start_time_obj = datetime.fromtimestamp(startTime)
+                end_time_obj = datetime.fromtimestamp(endTime)
+                day = start_time_obj.weekday()
                 for policy in policies:
                     if not policy.enabled:
                         continue
@@ -372,20 +393,20 @@ async def reservation_create(
                         start_hour, start_minute = policy.startTime
                         end_hour, end_minute = policy.endTime
                         start_time = datetime(
-                            time_obj.year,
-                            time_obj.month,
-                            time_obj.day,
+                            start_time_obj.year,
+                            start_time_obj.month,
+                            start_time_obj.day,
                             start_hour,
                             start_minute,
                         )
                         end_time = datetime(
-                            time_obj.year,
-                            time_obj.month,
-                            time_obj.day,
+                            end_time_obj.year,
+                            end_time_obj.month,
+                            end_time_obj.day,
                             end_hour,
                             end_minute,
                         )
-                        if start_time <= time_obj <= end_time:
+                        if start_time_obj <= end_time and end_time_obj >= start_time:
                             return False
             return True
 
@@ -408,13 +429,10 @@ async def reservation_create(
             errors.append("Start time must be within 30 days.")
         admin = get_admin_by_email(session, payload.email)
         if not admin:
-            if not validate_policy(payload.startTime) or not validate_policy(
-                payload.endTime
-            ):
+            if not validate_policy(payload.startTime, payload.endTime):
                 errors.append("Start or end time violates room policy.")
             if not validate_time_conflict(
-                datetime.fromtimestamp(payload.startTime, timezone.utc)
-            ) or not validate_time_conflict(
+                datetime.fromtimestamp(payload.startTime, timezone.utc),
                 datetime.fromtimestamp(payload.endTime, timezone.utc)
             ):
                 errors.append("Start or end time conflicts with existing reservation.")
