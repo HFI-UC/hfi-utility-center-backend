@@ -7,7 +7,6 @@ from sqlmodel import (
     or_,
     col,
 )
-from sqlalchemy.orm import sessionmaker
 from core.env import *
 from typing import Sequence, List
 from core.types import *
@@ -20,8 +19,6 @@ engine = create_engine(
     pool_recycle=1800,
     pool_pre_ping=True,
 )
-
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def create_error_log(session: Session, error_log: ErrorLog) -> None:

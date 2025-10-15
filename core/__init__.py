@@ -5,7 +5,7 @@ from starlette.types import Receive, Scope, Send, Message
 from fastapi.requests import Request
 from fastapi.responses import FileResponse, RedirectResponse
 from slowapi import _rate_limit_exceeded_handler, Limiter
-from slowapi.util import get_remote_address
+from slowapi.util import get_ipaddr
 from slowapi.errors import RateLimitExceeded
 from starlette.types import ASGIApp, Receive, Scope, Send
 from anyio import to_thread
@@ -48,7 +48,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=get_ipaddr)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
