@@ -406,7 +406,7 @@ async def reservation_create(
                             end_hour,
                             end_minute,
                         )
-                        if start_time_obj <= end_time and end_time_obj >= start_time:
+                        if start_time_obj < end_time and end_time_obj > start_time:
                             return False
             return True
 
@@ -415,7 +415,7 @@ async def reservation_create(
                 return False
             return True
 
-        if not payload.studentId.startswith("GJ") and not len(payload.studentId) == 10:
+        if not payload.studentId.startswith("GJ") and not len(payload.studentId) == 10 and not re.match(r"^\d{8}$", payload.studentId[2:]):
             errors.append("Invalid student ID format.")
         if not validate_email_format(payload.email):
             errors.append("Invalid email format.")
@@ -483,7 +483,7 @@ async def reservation_create(
                 class_name=class_name or "",
                 student_id=payload.studentId,
                 reason=payload.reason,
-                time=f"{datetime.fromtimestamp(payload.startTime).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).astimezone(timezone.utc).strftime('%H:%M')}",
+                time=f"{datetime.fromtimestamp(payload.startTime).astimezone().strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).astimezone().strftime('%H:%M')}",
             )
             reservations = get_reservations_by_time_range_and_room(
                 session,
@@ -895,7 +895,7 @@ async def reservation_approval(
                 class_name=class_name or "",
                 student_id=reservation.studentId,
                 reason=reservation.reason,
-                time=f"{reservation.startTime.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.astimezone(timezone.utc).strftime('%H:%M')}",
+                time=f"{reservation.startTime.astimezone().strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.astimezone().strftime('%H:%M')}",
             )
         else:
             background_task.add_task(

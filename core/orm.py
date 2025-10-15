@@ -7,11 +7,21 @@ from sqlmodel import (
     or_,
     col,
 )
+from sqlalchemy.orm import sessionmaker
 from core.env import *
 from typing import Sequence, List
 from core.types import *
 
-engine = create_engine(database_url)
+engine = create_engine(
+    database_url,
+    pool_size=20,
+    max_overflow=20,
+    pool_timeout=10,
+    pool_recycle=1800,
+    pool_pre_ping=True,
+)
+
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def create_error_log(session: Session, error_log: ErrorLog) -> None:
@@ -249,7 +259,7 @@ def get_future_reservations_by_approver_id(
         .where(
             or_(
                 Reservation.latestExecutorId == approver_id,
-                Reservation.latestExecutorId == None
+                Reservation.latestExecutorId == None,
             )
         )
     ).all()
@@ -477,6 +487,7 @@ def edit_class(session: Session, class_: Class) -> None:
     session.add(class_)
     session.commit()
 
+
 def edit_approver(session: Session, approver: RoomApprover) -> None:
     session.add(approver)
     session.commit()
@@ -553,10 +564,7 @@ def get_reservations_by_time_range_and_room(
 ) -> Sequence[Reservation]:
     query = select(Reservation).where(Reservation.roomId == room_id)
     if start and end:
-        query = query.where(
-            Reservation.startTime < end,
-            Reservation.endTime > start
-        )
+        query = query.where(Reservation.startTime < end, Reservation.endTime > start)
     elif start:
         query = query.where(Reservation.endTime > start)
     elif end:
