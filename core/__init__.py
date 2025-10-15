@@ -483,7 +483,7 @@ async def reservation_create(
                 class_name=class_name or "",
                 student_id=payload.studentId,
                 reason=payload.reason,
-                time=f"{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}",
+                time=f"{datetime.fromtimestamp(payload.startTime).astimezone().strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).astimezone().strftime('%H:%M')}",
             )
             reservations = get_reservations_by_time_range_and_room(
                 session,
@@ -895,7 +895,7 @@ async def reservation_approval(
                 class_name=class_name or "",
                 student_id=reservation.studentId,
                 reason=reservation.reason,
-                time=f"{reservation.startTime.strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.strftime('%H:%M')}",
+                time=f"{reservation.startTime.astimezone().strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.astimezone().strftime('%H:%M')}",
             )
         else:
             background_task.add_task(
