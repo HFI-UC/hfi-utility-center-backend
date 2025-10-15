@@ -179,12 +179,15 @@ def get_current_user(request: Request) -> AdminLogin | None:
 async def root(request: Request) -> RedirectResponse:
     return RedirectResponse(url="https://wdf.ink/6OUp")
 
+
 @app.get(
     "/room/list",
     response_model=ApiResponseBody[list[RoomResponse] | list[RoomAdminResponse]],
 )
 @limiter.limit("5/second")
-async def room_list(request: Request, user_login=Depends(get_current_user)) -> ApiResponse[list[RoomResponse] | list[RoomAdminResponse]]:
+async def room_list(
+    request: Request, user_login=Depends(get_current_user)
+) -> ApiResponse[list[RoomResponse] | list[RoomAdminResponse]]:
     with Session(engine) as session:
         rooms = get_room(session)
         if not user_login:
@@ -203,7 +206,7 @@ async def room_list(request: Request, user_login=Depends(get_current_user)) -> A
                 for room in rooms
             ]
         else:
-            data =  [
+            data = [
                 RoomAdminResponse(
                     id=room.id,
                     name=room.name,
@@ -419,12 +422,14 @@ async def reservation_create(
             return ApiResponse(
                 success=False, message="\n".join(errors), status_code=400
             )
-        
+
         if not room.approvers:
             return ApiResponse(
-                success=False, message="No approvers found, please contact support.", status_code=404
+                success=False,
+                message="No approvers found, please contact support.",
+                status_code=404,
             )
-        
+
         if admin:
             payload.studentId = "-"
 
@@ -447,9 +452,7 @@ async def reservation_create(
                 (cls.name for cls in get_class(session) if cls.id == payload.classId),
                 None,
             )
-            change_reservation_status_by_id(
-                session, result, "approved", admin.id or -1
-            )
+            change_reservation_status_by_id(session, result, "approved", admin.id or -1)
 
             background_task.add_task(
                 send_reservation_approval_email,
@@ -462,7 +465,7 @@ async def reservation_create(
                 class_name=class_name or "",
                 student_id=payload.studentId,
                 reason=payload.reason,
-                time=f"{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}",
+                time=f"{datetime.fromtimestamp(payload.startTime).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).astimezone(timezone.utc).strftime('%H:%M')}",
             )
             reservations = get_reservations_by_time_range_and_room(
                 session,
@@ -520,7 +523,9 @@ async def reservation_create(
 
 @app.get(
     "/reservation/get",
-    response_model=ApiResponseBody[ReservationQueryResponse | ReservationFullQueryResponse],
+    response_model=ApiResponseBody[
+        ReservationQueryResponse | ReservationFullQueryResponse
+    ],
 )
 @limiter.limit("5/second")
 async def reservation_get(
@@ -594,7 +599,8 @@ async def reservation_get(
                     )
                 )
             return ApiResponse(
-                success=True, data=ReservationFullQueryResponse(reservations=admin_res, total=total)
+                success=True,
+                data=ReservationFullQueryResponse(reservations=admin_res, total=total),
             )
         else:
             res: List[ReservationResponseDetail] = []
@@ -608,7 +614,8 @@ async def reservation_get(
 
                 res.append(response_item)
             return ApiResponse(
-                success=True, data=ReservationQueryResponse(reservations=res, total=total)
+                success=True,
+                data=ReservationQueryResponse(reservations=res, total=total),
             )
 
 
@@ -771,7 +778,7 @@ async def reservation_approval(
     request: Request,
     payload: ReservationApproveRequest,
     background_task: BackgroundTasks,
-    admin_login: AdminLogin=Depends(get_current_user),
+    admin_login: AdminLogin = Depends(get_current_user),
 ) -> ApiResponse[Any]:
     if not admin_login:
         return ApiResponse(
@@ -791,7 +798,7 @@ async def reservation_approval(
             return ApiResponse(
                 success=False, message="Reservation not found.", status_code=404
             )
-        
+
         room = get_room_by_id(session, reservation.roomId)
 
         if not room:
@@ -834,7 +841,10 @@ async def reservation_approval(
                 success=False, message="Invalid approval request.", status_code=400
             )
 
-        authorized = any(approver.adminId == admin.id if admin else False for approver in room.approvers)
+        authorized = any(
+            approver.adminId == admin.id if admin else False
+            for approver in room.approvers
+        )
 
         if not authorized:
             return ApiResponse(
@@ -867,7 +877,7 @@ async def reservation_approval(
                 class_name=class_name or "",
                 student_id=reservation.studentId,
                 reason=reservation.reason,
-                time=f"{reservation.startTime.strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.strftime('%H:%M')}",
+                time=f"{reservation.startTime.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.astimezone(timezone.utc).strftime('%H:%M')}",
             )
         else:
             background_task.add_task(
@@ -1217,9 +1227,14 @@ async def class_edit(
         edit_class(session, class_)
         return ApiResponse(success=True, message="Class edited successfully.")
 
+
 @app.post("/approver/toggle-notification", response_model=ApiResponseBody[Any])
 @limiter.limit("5/second")
-async def approver_toggle(request: Request, payload: RoomApproverNotificationsToggleRequest, admin_login=Depends(get_current_user)) -> ApiResponse[Any]:
+async def approver_toggle(
+    request: Request,
+    payload: RoomApproverNotificationsToggleRequest,
+    admin_login=Depends(get_current_user),
+) -> ApiResponse[Any]:
     if not admin_login:
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -1233,7 +1248,9 @@ async def approver_toggle(request: Request, payload: RoomApproverNotificationsTo
 
         approver.notificationsEnabled = not approver.notificationsEnabled
         edit_approver(session, approver)
-        return ApiResponse(success=True, message="Approver notifications toggled successfully.")
+        return ApiResponse(
+            success=True, message="Approver notifications toggled successfully."
+        )
 
 
 @app.post(
