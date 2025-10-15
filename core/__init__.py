@@ -406,7 +406,7 @@ async def reservation_create(
                             end_hour,
                             end_minute,
                         )
-                        if start_time_obj <= end_time and end_time_obj >= start_time:
+                        if start_time_obj < end_time and end_time_obj > start_time:
                             return False
             return True
 
@@ -415,7 +415,7 @@ async def reservation_create(
                 return False
             return True
 
-        if not payload.studentId.startswith("GJ") and not len(payload.studentId) == 10:
+        if not payload.studentId.startswith("GJ") and not len(payload.studentId) == 10 and not re.match(r"^\d{8}$", payload.studentId[2:]):
             errors.append("Invalid student ID format.")
         if not validate_email_format(payload.email):
             errors.append("Invalid email format.")
