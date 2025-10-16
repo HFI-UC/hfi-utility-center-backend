@@ -87,6 +87,8 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
         studentId=request.studentId,
     )
     session.add(reservation)
+    await session.flush()
+    res_id = reservation.id 
     await session.commit()
     await update_analytic(session, datetime.now(timezone.utc), 0, 0, 0, 1, 0)
     await update_analytic(
@@ -98,8 +100,7 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
         0,
         0,
     )
-    await session.flush() 
-    return reservation.id or -1
+    return res_id or -1
 
 
 async def get_reservation_by_room_id(
