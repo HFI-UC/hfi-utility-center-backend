@@ -14,6 +14,7 @@ from core.types import *
 engine = create_async_engine(database_url)
 
 
+
 async def create_error_log(session: AsyncSession, error_log: ErrorLog) -> None:
     try:
         session.add(error_log)
@@ -87,7 +88,7 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
     )
     session.add(reservation)
     await session.commit()
-    await session.refresh(reservation)
+    await session.flush() 
     await update_analytic(session, datetime.now(timezone.utc), 0, 0, 0, 1, 0)
     await update_analytic(
         session,
