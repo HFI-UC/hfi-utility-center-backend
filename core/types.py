@@ -13,14 +13,16 @@ from sqlmodel import (
     Column,
     BIGINT,
     func,
-    Relationship,
+    Relationship as _relationship,
 )
 from datetime import datetime, timedelta, timezone
 
 
 T = TypeVar("T")
 
-
+def Relationship(*args, **kwargs) -> Any:
+    kwargs.setdefault("lazy", "selectin")
+    return _relationship(*args, **kwargs)
 
 class Class(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)

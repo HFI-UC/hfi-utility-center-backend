@@ -12,10 +12,10 @@ import shutil
 scheduler = BackgroundScheduler()
 
 
-def send_daily_reservation_report_email() -> None:
+async def send_daily_reservation_report_email() -> None:
     try:
-        with Session(engine) as session:
-            reservations = get_reservations_by_time_range(
+        async with AsyncSession(engine) as session:
+            reservations = await get_reservations_by_time_range(
                 session,
                 datetime.now(timezone.utc).replace(
                     hour=0, minute=0, second=0, microsecond=0
@@ -56,11 +56,11 @@ def send_daily_reservation_report_email() -> None:
     except Exception:
         pass
 
-def clear_cache() -> None:
+async def clear_cache() -> None:
     try:
         shutil.rmtree("./cache")
-        with Session(engine) as session:
-            clear_all_cache(session)
+        async with AsyncSession(engine) as session:
+            await clear_all_cache(session)
     except Exception:
         pass
 
