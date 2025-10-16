@@ -103,12 +103,12 @@ def get_exported_xlsx(
                     [
                         reservation.id,
                         (
-                            reservation.startTime.replace(tzinfo=None)
+                            reservation.startTime.astimezone()
                             if reservation.startTime
                             else None
                         ),
                         (
-                            reservation.endTime.replace(tzinfo=None)
+                            reservation.endTime.astimezone()
                             if reservation.endTime
                             else None
                         ),
