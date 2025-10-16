@@ -7,6 +7,7 @@ from sqlmodel import (
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.orm import selectinload
 from core.env import *
 from typing import Sequence, List
 from core.types import *
@@ -165,6 +166,11 @@ async def get_reservation(
                     col(Room.name).like(f"%{keyword}%"),
                     col(Class.name).like(f"%{keyword}%"),
                 )
+            )
+            .options(
+                selectinload(Reservation.room).selectinload(Room.campus).selectinload(Room.approvers).selectinload(Room.policies), # type: ignore
+                selectinload(Reservation.class_).selectinload(Class.campus), # type: ignore
+                selectinload(Reservation.latestExecutor) # type: ignore
             )
         )
     if room_id:
