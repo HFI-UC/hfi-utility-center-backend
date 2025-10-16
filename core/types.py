@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 T = TypeVar("T")
 
 def Relationship(*args, **kwargs) -> Any:
-    kwargs.setdefault("lazy", "selectin")
+    kwargs.setdefault("sa_relationship_kwargs", {"lazy": "selectin"})
     return _relationship(*args, **kwargs)
 
 class Class(SQLModel, table=True):
