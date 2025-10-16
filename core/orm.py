@@ -167,11 +167,6 @@ async def get_reservation(
                     col(Class.name).like(f"%{keyword}%"),
                 )
             )
-            .options(
-                selectinload(Reservation.room).selectinload(Room.campus).selectinload(Room.approvers).selectinload(Room.policies), # type: ignore
-                selectinload(Reservation.class_).selectinload(Class.campus), # type: ignore
-                selectinload(Reservation.latestExecutor) # type: ignore
-            )
         )
     if room_id:
         query = query.where(Reservation.roomId == room_id)
