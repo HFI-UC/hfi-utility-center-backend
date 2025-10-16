@@ -6,14 +6,14 @@ from sqlmodel import (
     col,
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from core.env import *
 from typing import Sequence, List
 from core.types import *
 
 engine = create_async_engine(database_url)
 
-
+session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 async def create_error_log(session: AsyncSession, error_log: ErrorLog) -> None:
     try:
@@ -87,8 +87,6 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
         studentId=request.studentId,
     )
     session.add(reservation)
-    await session.flush()
-    res_id = reservation.id 
     await session.commit()
     await update_analytic(session, datetime.now(timezone.utc), 0, 0, 0, 1, 0)
     await update_analytic(
@@ -100,7 +98,8 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
         0,
         0,
     )
-    return res_id or -1
+    await session.flush()
+    return reservation.id or -1
 
 
 async def get_reservation_by_room_id(

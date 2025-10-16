@@ -167,6 +167,7 @@ async def get_current_user(request: Request) -> AdminLogin | None:
         if user_login.expiry < datetime.now(timezone.utc):
             return None
         return user_login
+    
 
 
 @app.get("/", response_model=ApiResponseBody[str])
@@ -328,7 +329,7 @@ async def reservation_create(
         return ApiResponse(
             success=False, message="Turnstile verification failed.", status_code=403
         )
-    async with AsyncSession(engine) as session:
+    async with AsyncSession(engine, expire_on_commit=False) as session:
         reservations = await get_reservation_by_room_id(session, payload.room)
         room = await get_room_by_id(session, payload.room)
         if not room:
