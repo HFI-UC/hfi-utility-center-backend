@@ -72,7 +72,6 @@ def get_exported_xlsx(
                 ]
             )
     else:
-        # 按教室分sheet
         reservations_by_room: dict[int | None, list[Reservation]] = defaultdict(list)
         for reservation in reservations:
             reservations_by_room[reservation.roomId].append(reservation)

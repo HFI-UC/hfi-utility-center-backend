@@ -52,6 +52,7 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
+os.makedirs("cache", exist_ok=True)
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> ApiResponse:
