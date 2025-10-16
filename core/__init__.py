@@ -8,7 +8,6 @@ from slowapi import _rate_limit_exceeded_handler, Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.types import ASGIApp, Receive, Scope, Send
-from anyio import to_thread
 from contextlib import asynccontextmanager
 from core.orm import *
 from core.types import *
@@ -89,15 +88,17 @@ class LogMiddleware(BaseHTTPMiddleware):
 
         status_code = 500
         resp_chunks = []
+        response_sent = False
 
         async def send_wrapper(message: Message) -> None:
-            nonlocal status_code
+            nonlocal status_code, response_sent
             if message["type"] == "http.response.start":
                 status_code = message["status"]
                 message["headers"].append((b"x-request-id", _uuid.encode()))
             elif message["type"] == "http.response.body":
                 resp_chunks.append(message.get("body", b""))
             await send(message)
+            response_sent = True
 
         try:
             await self.app(scope, recv_wrapper, send_wrapper)
@@ -113,7 +114,14 @@ class LogMiddleware(BaseHTTPMiddleware):
                     await create_error_log(session, error_log)
             except Exception:
                 pass
-            raise e from None
+            
+            if not response_sent:
+                response = ApiResponse(
+                    success=False,
+                    message=f"An internal server error occurred. Please contact support with request ID: {_uuid}",
+                    status_code=500,
+                )
+                await response(scope, receive, send)
         finally:
             response_time_ms = int((time.time() - start_time) * 1000)
             headers = dict((k.lower(), v) for k, v in scope.get("headers", []))
@@ -778,7 +786,7 @@ async def reservation_approval(
             success=False, message="User is not logged in.", status_code=401
         )
 
-    async with AsyncSession(engine) as session:
+    async with AsyncSession(engine, expire_on_commit=False) as session:
         reservation = await get_reservation_by_id(session, payload.id)
         admin = await get_admin_by_email(session, admin_login.email)
 
