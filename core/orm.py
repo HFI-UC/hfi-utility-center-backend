@@ -88,7 +88,6 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
     )
     session.add(reservation)
     await session.commit()
-    await session.flush() 
     await update_analytic(session, datetime.now(timezone.utc), 0, 0, 0, 1, 0)
     await update_analytic(
         session,
@@ -99,6 +98,7 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
         0,
         0,
     )
+    await session.flush() 
     return reservation.id or -1
 
 
