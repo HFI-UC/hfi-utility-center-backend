@@ -588,7 +588,7 @@ async def reservation_get(
                 class_name = reservation.class_.name
                 room_name = reservation.room.name
                 campus_name = reservation.room.campus.name
-                executor = reservation.latestExecutor.email
+                executor = reservation.latestExecutor.email if reservation.latestExecutor else None
                 admin_res.append(
                     ReservationFullResponse(
                         id=reservation.id,
