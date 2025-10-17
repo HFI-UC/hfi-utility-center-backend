@@ -15,4 +15,4 @@ debug = os.getenv("DEBUG", "false").lower() == "true"
 daily_report_recipients: list[str] = json.loads(
     os.getenv("DAILY_REPORT_RECIPIENTS") or "[]"
 )
-frontend_url = os.getenv("FRONTEND_URL") or ""
+use_proxy = os.getenv("USE_PROXY", "false").lower() == "true"
