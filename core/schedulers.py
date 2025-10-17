@@ -1,4 +1,4 @@
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from core.orm import *
 from core.utils import *
@@ -9,7 +9,7 @@ from core.env import *
 
 import shutil
 
-scheduler = BackgroundScheduler()
+scheduler = AsyncIOScheduler()
 
 
 async def send_daily_reservation_report_email() -> None:
