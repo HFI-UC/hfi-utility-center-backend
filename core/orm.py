@@ -502,7 +502,7 @@ async def get_room_approvers_by_room_id(
 
 
 async def get_admins(session: AsyncSession) -> Sequence[Admin]:
-    admins = (await session.exec(select(Admin))).all()
+    admins = (await session.exec(select(Admin).order_by(col(Admin.id).asc()))).all()
     return admins
 
 
