@@ -33,6 +33,7 @@ async def lifespan(_: FastAPI):
     await create_db_and_tables()
     scheduler.start()
     yield
+    scheduler.shutdown()
 
 
 
