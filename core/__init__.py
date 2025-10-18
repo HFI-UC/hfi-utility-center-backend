@@ -335,10 +335,6 @@ async def reservation_create(
     payload: ReservationCreateRequest,
     background_task: BackgroundTasks,
 ) -> ApiResponse[ReservationCreateResponse]:
-    if not verify_turnstile_token(payload.turnstileToken):
-        return ApiResponse(
-            success=False, message="Turnstile verification failed.", status_code=403
-        )
     async with AsyncSession(engine, expire_on_commit=False) as session:
         reservations = await get_reservation_by_room_id(session, payload.room)
         room = await get_room_by_id(session, payload.room)

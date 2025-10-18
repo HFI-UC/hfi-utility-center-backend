@@ -231,7 +231,6 @@ class ReservationCreateRequest(BaseModel):
     reason: str
     classId: int
     studentId: str
-    turnstileToken: str
 
 
 class ReservationGetRequest(BaseModel):
