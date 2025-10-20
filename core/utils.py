@@ -72,7 +72,6 @@ def get_exported_xlsx(
                 ]
             )
     else:
-        # 按教室分sheet
         reservations_by_room: dict[int | None, list[Reservation]] = defaultdict(list)
         for reservation in reservations:
             reservations_by_room[reservation.roomId].append(reservation)
@@ -104,12 +103,12 @@ def get_exported_xlsx(
                     [
                         reservation.id,
                         (
-                            reservation.startTime.replace(tzinfo=None)
+                            reservation.startTime.astimezone().replace(tzinfo=None)
                             if reservation.startTime
                             else None
                         ),
                         (
-                            reservation.endTime.replace(tzinfo=None)
+                            reservation.endTime.astimezone().replace(tzinfo=None)
                             if reservation.endTime
                             else None
                         ),

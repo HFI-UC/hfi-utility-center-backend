@@ -13,14 +13,16 @@ from sqlmodel import (
     Column,
     BIGINT,
     func,
-    Relationship,
+    Relationship as _relationship,
 )
 from datetime import datetime, timedelta, timezone
 
 
 T = TypeVar("T")
 
-
+def Relationship(*args, **kwargs) -> Any:
+    kwargs.setdefault("sa_relationship_kwargs", {"lazy": "selectin"})
+    return _relationship(*args, **kwargs)
 
 class Class(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -95,7 +97,7 @@ class Reservation(SQLModel, table=True):
     room: "Room" = Relationship(back_populates="reservations")
     class_: "Class" = Relationship(back_populates="reservations")
     logs: List["ReservationOperationLog"] = Relationship(back_populates="reservation")
-    latestExecutor: "Admin" = Relationship(back_populates="executedReservations")
+    latestExecutor: Optional["Admin"] = Relationship(back_populates="executedReservations")
 
 
 class RoomPolicy(SQLModel, table=True):
@@ -229,7 +231,6 @@ class ReservationCreateRequest(BaseModel):
     reason: str
     classId: int
     studentId: str
-    turnstileToken: str
 
 
 class ReservationGetRequest(BaseModel):
