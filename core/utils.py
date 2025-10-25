@@ -3,7 +3,6 @@ from typing import Literal, Sequence
 
 import httpx
 from openpyxl import Workbook
-from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from playwright.async_api import async_playwright
 
@@ -13,7 +12,7 @@ from core.orm import *
 
 def get_exported_xlsx(
     reservations: Sequence[Reservation],
-    format: Literal["by-room", "single-sheet"] = "by-room"
+    format: Literal["by-room", "single-sheet"] = "by-room",
 ) -> Workbook:
     workbook = Workbook()
     default = workbook.active
@@ -34,11 +33,11 @@ def get_exported_xlsx(
         "Creation Time",
         "Campus Name",
     ]
-    
+
     if format == "single-sheet":
         ws: Worksheet = workbook.create_sheet(title="All Reservations")
         ws.append(headers)
-        
+
         for reservation in reservations:
             room = reservation.room
             class_ = reservation.class_
@@ -46,16 +45,8 @@ def get_exported_xlsx(
             ws.append(
                 [
                     reservation.id,
-                    (
-                        reservation.startTime.replace(tzinfo=None)
-                        if reservation.startTime
-                        else None
-                    ),
-                    (
-                        reservation.endTime.replace(tzinfo=None)
-                        if reservation.endTime
-                        else None
-                    ),
+                    reservation.startTime,
+                    reservation.endTime,
                     reservation.studentName,
                     reservation.studentId,
                     reservation.email,
@@ -63,11 +54,7 @@ def get_exported_xlsx(
                     room.name if room else None,
                     class_.name if class_ else None,
                     reservation.status.capitalize() if reservation.status else None,
-                    (
-                        reservation.createdAt.replace(tzinfo=None)
-                        if reservation.createdAt
-                        else None
-                    ),
+                    reservation.createdAt,
                     campus.name if campus else None,
                 ]
             )
@@ -102,16 +89,8 @@ def get_exported_xlsx(
                 ws.append(
                     [
                         reservation.id,
-                        (
-                            reservation.startTime.astimezone().replace(tzinfo=None)
-                            if reservation.startTime
-                            else None
-                        ),
-                        (
-                            reservation.endTime.astimezone().replace(tzinfo=None)
-                            if reservation.endTime
-                            else None
-                        ),
+                        reservation.startTime,
+                        reservation.endTime,
                         reservation.studentName,
                         reservation.studentId,
                         reservation.email,
@@ -162,7 +141,7 @@ async def get_exported_pdf(url: str, output: str, device_scale: int = 2) -> None
             format="A4",
             print_background=True,
             prefer_css_page_size=True,
-            margin={ "bottom": "6mm", "top": "6mm" }
+            margin={"bottom": "6mm", "top": "6mm"},
         )
         await browser.close()
 

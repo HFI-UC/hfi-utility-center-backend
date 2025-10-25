@@ -15,7 +15,7 @@ from sqlmodel import (
     func,
     Relationship as _relationship,
 )
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 
 T = TypeVar("T")
@@ -29,7 +29,7 @@ class Class(SQLModel, table=True):
     name: str
     campusId: int | None = Field(default=None, foreign_key="campus.id")
     createdAt: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     campus: "Campus" = Relationship(back_populates="classes")
@@ -41,7 +41,7 @@ class Campus(SQLModel, table=True):
     name: str
     isPrivileged: bool = Field(default=False)
     createdAt: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     classes: List["Class"] = Relationship(back_populates="campus")
@@ -53,7 +53,7 @@ class Room(SQLModel, table=True):
     name: str
     campusId: int | None = Field(default=None, foreign_key="campus.id")
     createdAt: datetime | None = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     campus: "Campus" = Relationship(back_populates="rooms")
@@ -76,11 +76,11 @@ class Reservation(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     roomId: int | None = Field(default=None, foreign_key="room.id")
     startTime: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     endTime: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     studentName: str
@@ -91,7 +91,7 @@ class Reservation(SQLModel, table=True):
     status: str = "pending"
     latestExecutorId: int | None = Field(default=None, foreign_key="admin.id")
     createdAt: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     room: "Room" = Relationship(back_populates="reservations")
@@ -116,7 +116,7 @@ class Admin(SQLModel, table=True):
     name: str
     password: str
     createdAt: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     approvers: List["RoomApprover"] = Relationship(back_populates="admin")
@@ -133,7 +133,7 @@ class TempAdminLogin(SQLModel, table=True):
     email: str
     token: str
     createdAt: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
 
@@ -143,12 +143,12 @@ class AdminLogin(SQLModel, table=True):
     email: str
     cookie: str
     createdAt: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     expiry: datetime = Field(
-        sa_column=Column(DateTime(timezone=True)),
-        default_factory=lambda: datetime.now(timezone.utc) + timedelta(hours=1),
+        sa_column=Column(DateTime()),
+        default_factory=lambda: datetime.now() + timedelta(hours=1),
     )
 
 
@@ -156,7 +156,7 @@ class AccessLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     uuid: str
     time: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     userAgent: str
@@ -173,7 +173,7 @@ class ErrorLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     error: str
     time: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     uuid: str | None = None
@@ -187,7 +187,7 @@ class ReservationOperationLog(SQLModel, table=True):
     operation: str
     reason: str | None = None
     time: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
     admin: "Admin" = Relationship(back_populates="operationLogs")
@@ -197,8 +197,8 @@ class ReservationOperationLog(SQLModel, table=True):
 class Analytic(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     date: datetime = Field(
-        sa_column=Column(DateTime(timezone=True)),
-        default_factory=lambda: datetime.now(timezone.utc).replace(
+        sa_column=Column(DateTime()),
+        default_factory=lambda: datetime.now().replace(
             hour=0, minute=0, second=0, microsecond=0
         ),
     )
@@ -208,7 +208,7 @@ class Analytic(SQLModel, table=True):
     rejections: int = 0
     requests: int = Field(sa_column=Column(BIGINT), default=0)
     createdAt: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
 
@@ -217,7 +217,7 @@ class Cache(SQLModel, table=True):
     key: str
     value: dict = Field(sa_column=Column(JSON))
     createdAt: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), server_default=func.now()),
+        sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
 
