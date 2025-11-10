@@ -54,7 +54,6 @@ limiter = Limiter(key_func=get_remote_address, application_limits=["50/second"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
-os.makedirs("cache", exist_ok=True)
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> ApiResponse:
@@ -168,7 +167,7 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 async def get_current_user(request: Request) -> AdminLogin | None:
-    cookie = request.cookies.get("UCCOOKIE")
+    cookie = request.cookies.get("uc")
     if not cookie:
         return None
     async with AsyncSession(engine) as session:
@@ -619,19 +618,12 @@ async def admin_login(
                     message="Invalid token or token expired.",
                     status_code=400,
                 )
-            cookie = hashlib.md5(
-                (
-                    temp_admin_login.email
-                    + temp_admin_login.token
-                    + str(random.randint(100000, 999999))
-                    + str(datetime.now().timestamp())
-                ).encode()
-            ).hexdigest()
+            cookie = secrets.token_hex(32)
             await create_admin_login(session, temp_admin_login.email, cookie)
             await delete_temp_admin_login(session, temp_admin_login)
             response = ApiResponse(success=True, message="Login successful.")
             response.set_cookie(
-                "UCCOOKIE", cookie, httponly=True, samesite="none", secure=True
+                "uc", cookie, httponly=True, samesite="none", secure=True
             )
             return response
         if not payload.email or not payload.password:
@@ -657,7 +649,7 @@ async def admin_login(
         await create_admin_login(session, payload.email, cookie)
         response = ApiResponse(success=True, message="Login successful.")
         response.set_cookie(
-            "UCCOOKIE", cookie, httponly=True, samesite="none", secure=True
+            "uc", cookie, httponly=True, samesite="none", secure=True
         )
         return response
 
@@ -675,7 +667,7 @@ async def admin_logout(
             success=False, message="User is not logged in.", status_code=401
         )
     response = ApiResponse(success=True, message="Logout successful.")
-    response.delete_cookie("UCCOOKIE")
+    response.delete_cookie("uc")
     return response
 
 

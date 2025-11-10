@@ -14,6 +14,7 @@ def get_exported_xlsx(
     reservations: Sequence[Reservation],
     format: Literal["by-room", "single-sheet"] = "by-room",
 ) -> Workbook:
+    os.makedirs("cache", exist_ok=True)
     workbook = Workbook()
     default = workbook.active
     if default is not None:
@@ -126,6 +127,7 @@ def verify_turnstile_token(token: str) -> bool:
 
 
 async def get_exported_pdf(url: str, output: str, device_scale: int = 2) -> None:
+    os.makedirs("cache", exist_ok=True)
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         context = await browser.new_context(
@@ -147,6 +149,7 @@ async def get_exported_pdf(url: str, output: str, device_scale: int = 2) -> None
 
 
 async def get_screenshot(url: str, output: str, device_scale: int = 2) -> None:
+    os.makedirs("cache", exist_ok=True)
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         context = await browser.new_context(
