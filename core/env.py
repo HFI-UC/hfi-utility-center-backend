@@ -12,6 +12,7 @@ base_url = os.getenv("BASE_URL") or ""
 cloudflare_secret = os.getenv("CLOUDFLARE_SECRET") or ""
 port = int(os.getenv("PORT") or 8000)
 debug = os.getenv("DEBUG", "false").lower() == "true"
+domain = os.getenv("DOMAIN") or "localhost"
 daily_report_recipients: list[str] = json.loads(
     os.getenv("DAILY_REPORT_RECIPIENTS") or "[]"
 )
