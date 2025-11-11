@@ -211,7 +211,7 @@ async def _csrf(request: Request) -> ApiResponse[str]:
     token = secrets.token_hex(32)
     csrf_tokens.append(token)
     response = ApiResponse(success=True)
-    response.set_cookie("_csrf", token, httponly=False, samesite="lax", secure=True)
+    response.set_cookie("_csrf", token, httponly=False, samesite="none", secure=True)
     return response
 
 
