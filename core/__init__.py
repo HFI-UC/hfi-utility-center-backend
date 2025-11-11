@@ -53,7 +53,7 @@ app.add_middleware(
 limiter = Limiter(key_func=get_remote_address, application_limits=["50/second"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
-
+csrf_tokens: list[str] = []
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> ApiResponse:
@@ -65,6 +65,25 @@ async def generic_exception_handler(request: Request, exc: Exception) -> ApiResp
         status_code=500,
     )
 
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.scope.get("type") != "http":
+            return await call_next(request)
+
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            csrf_token = request.headers.get("x-csrf-token", "") or ""
+            if not csrf_token or csrf_token not in csrf_tokens:
+                return ApiResponse(
+                    success=False, message="CSRF token missing or invalid.", status_code=403
+                )
+            try:
+                csrf_tokens.remove(csrf_token)
+            except ValueError:
+                pass
+
+        response = await call_next(request)
+        return response
 
 class LogMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp):
@@ -152,7 +171,7 @@ class LogMiddleware(BaseHTTPMiddleware):
             except Exception:
                 pass
 
-
+app.add_middleware(CSRFMiddleware)
 app.add_middleware(LogMiddleware)
 
 
@@ -184,6 +203,16 @@ async def get_current_user(request: Request) -> AdminLogin | None:
 @limiter.limit("10/second")
 async def root(request: Request) -> RedirectResponse:
     return RedirectResponse(url="https://wdf.ink/6OUp")
+
+
+@app.get("/_csrf", response_model=ApiResponseBody[str])
+@limiter.limit("10/second")
+async def _csrf(request: Request) -> ApiResponse[str]:
+    token = secrets.token_hex(32)
+    csrf_tokens.append(token)
+    response = ApiResponse(success=True)
+    response.set_cookie("_csrf", token, httponly=False, samesite="lax", secure=True)
+    return response
 
 
 @app.get(
