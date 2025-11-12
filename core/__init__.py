@@ -14,7 +14,7 @@ from core.types import *
 from core.email import *
 from core.utils import *
 from core.schedulers import *
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 import uuid
@@ -26,6 +26,7 @@ import traceback
 import time
 import jieba
 import unicodedata
+import secrets
 
 
 @asynccontextmanager
@@ -52,8 +53,7 @@ app.add_middleware(
 limiter = Limiter(key_func=get_remote_address, application_limits=["50/second"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
-
-os.makedirs("cache", exist_ok=True)
+csrf_tokens: list[str] = []
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> ApiResponse:
@@ -65,6 +65,25 @@ async def generic_exception_handler(request: Request, exc: Exception) -> ApiResp
         status_code=500,
     )
 
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.scope.get("type") != "http":
+            return await call_next(request)
+
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            csrf_token = request.headers.get("x-csrf-token", "") or ""
+            if not csrf_token or csrf_token not in csrf_tokens:
+                return ApiResponse(
+                    success=False, message="CSRF token missing or invalid.", status_code=403
+                )
+            try:
+                csrf_tokens.remove(csrf_token)
+            except ValueError:
+                pass
+
+        response = await call_next(request)
+        return response
 
 class LogMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp):
@@ -152,7 +171,7 @@ class LogMiddleware(BaseHTTPMiddleware):
             except Exception:
                 pass
 
-
+app.add_middleware(CSRFMiddleware)
 app.add_middleware(LogMiddleware)
 
 
@@ -167,14 +186,14 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 async def get_current_user(request: Request) -> AdminLogin | None:
-    cookie = request.cookies.get("UCCOOKIE")
+    cookie = request.cookies.get("uc")
     if not cookie:
         return None
     async with AsyncSession(engine) as session:
         user_login = await get_admin_login_by_cookie(session, cookie)
         if not user_login:
             return None
-        if user_login.expiry < datetime.now(timezone.utc):
+        if user_login.expiry < datetime.now():
             return None
         return user_login
     
@@ -184,6 +203,16 @@ async def get_current_user(request: Request) -> AdminLogin | None:
 @limiter.limit("10/second")
 async def root(request: Request) -> RedirectResponse:
     return RedirectResponse(url="https://wdf.ink/6OUp")
+
+
+@app.get("/_csrf", response_model=ApiResponseBody[str])
+@limiter.limit("10/second")
+async def _csrf(request: Request) -> ApiResponse[str]:
+    token = secrets.token_hex(32)
+    csrf_tokens.append(token)
+    response = ApiResponse(success=True)
+    response.set_cookie("_csrf", token, httponly=False, samesite="none", secure=True, domain=domain)
+    return response
 
 
 @app.get(
@@ -353,40 +382,19 @@ async def reservation_create(
                 success=False, message="\n".join(errors), status_code=400
             )
 
-        def validate_time_conflict(startTime: datetime, endTime: datetime) -> bool:
-            if startTime.tzinfo is None:
-                start = startTime.replace(tzinfo=timezone.utc)
-            else:
-                start = startTime.astimezone(timezone.utc)
-
-            if endTime.tzinfo is None:
-                end = endTime.replace(tzinfo=timezone.utc)
-            else:
-                end = endTime.astimezone(timezone.utc)
-
+        def validate_time_conflict(start_time: datetime, end_time: datetime) -> bool:
             for reservation in reservations:
                 if reservation.status == "rejected":
                     continue
-
-                res_start = (
-                    reservation.startTime.astimezone(timezone.utc)
-                    if reservation.startTime.tzinfo
-                    else reservation.startTime.replace(tzinfo=timezone.utc)
-                )
-                res_end = (
-                    reservation.endTime.astimezone(timezone.utc)
-                    if reservation.endTime.tzinfo
-                    else reservation.endTime.replace(tzinfo=timezone.utc)
-                )
-                if res_start < end and res_end > start:
+                if reservation.startTime < end_time and reservation.endTime > start_time:
                     return False
             return True
 
-        def validate_policy(startTime: int, endTime: int) -> bool:
+        def validate_policy(_start_time: int, _end_time: int) -> bool:
             if room:
                 policies = room.policies
-                start_time_obj = datetime.fromtimestamp(startTime)
-                end_time_obj = datetime.fromtimestamp(endTime)
+                start_time_obj = datetime.fromtimestamp(_start_time)
+                end_time_obj = datetime.fromtimestamp(_end_time)
                 day = start_time_obj.weekday()
                 for policy in policies:
                     if not policy.enabled:
@@ -434,8 +442,8 @@ async def reservation_create(
             if not validate_policy(payload.startTime, payload.endTime):
                 errors.append("Start or end time violates room policy.")
             if not validate_time_conflict(
-                datetime.fromtimestamp(payload.startTime, timezone.utc),
-                datetime.fromtimestamp(payload.endTime, timezone.utc)
+                datetime.fromtimestamp(payload.startTime),
+                datetime.fromtimestamp(payload.endTime)
             ):
                 errors.append("Start or end time conflicts with existing reservation.")
         if errors:
@@ -482,12 +490,12 @@ async def reservation_create(
                 class_name=class_name or "",
                 student_id=payload.studentId,
                 reason=payload.reason,
-                time=f"{datetime.fromtimestamp(payload.startTime).astimezone().strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).astimezone().strftime('%H:%M')}",
+                time=f"{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}",
             )
             reservations = await get_reservations_by_time_range_and_room(
                 session,
-                datetime.fromtimestamp(payload.startTime, timezone.utc),
-                datetime.fromtimestamp(payload.endTime, timezone.utc),
+                datetime.fromtimestamp(payload.startTime),
+                datetime.fromtimestamp(payload.endTime),
                 room_id=payload.room,
             )
             for reservation in reservations:
@@ -512,15 +520,7 @@ async def reservation_create(
             admin = approver.admin
             if not admin or not approver.notificationsEnabled:
                 continue
-            token = hashlib.md5(
-                (
-                    payload.email
-                    + payload.studentName
-                    + str(payload.startTime)
-                    + str(random.randint(100000, 999999))
-                    + str(datetime.now().timestamp())
-                ).encode()
-            ).hexdigest()
+            token = secrets.token_hex(32)
             background_task.add_task(
                 send_normal_update_with_external_link_email,
                 email_title="New Reservation Request",
@@ -575,8 +575,8 @@ async def reservation_get(
             status,
             page,
             20,
-            datetime.fromtimestamp(startTime, timezone.utc) if startTime else None,
-            datetime.fromtimestamp(endTime, timezone.utc) if endTime else None,
+            datetime.fromtimestamp(startTime) if startTime else None,
+            datetime.fromtimestamp(endTime) if endTime else None,
             is_admin,
         )
 
@@ -647,19 +647,12 @@ async def admin_login(
                     message="Invalid token or token expired.",
                     status_code=400,
                 )
-            cookie = hashlib.md5(
-                (
-                    temp_admin_login.email
-                    + temp_admin_login.token
-                    + str(random.randint(100000, 999999))
-                    + str(datetime.now().timestamp())
-                ).encode()
-            ).hexdigest()
+            cookie = secrets.token_hex(32)
             await create_admin_login(session, temp_admin_login.email, cookie)
             await delete_temp_admin_login(session, temp_admin_login)
             response = ApiResponse(success=True, message="Login successful.")
             response.set_cookie(
-                "UCCOOKIE", cookie, httponly=True, samesite="none", secure=True
+                "uc", cookie, httponly=True, samesite="none", secure=True
             )
             return response
         if not payload.email or not payload.password:
@@ -681,18 +674,11 @@ async def admin_login(
             return ApiResponse(
                 success=False, message="Invalid email or password.", status_code=401
             )
-        cookie = hashlib.md5(
-            (
-                payload.email
-                + payload.password
-                + str(random.randint(100000, 999999))
-                + str(datetime.now().timestamp())
-            ).encode()
-        ).hexdigest()
+        cookie = secrets.token_hex(32)
         await create_admin_login(session, payload.email, cookie)
         response = ApiResponse(success=True, message="Login successful.")
         response.set_cookie(
-            "UCCOOKIE", cookie, httponly=True, samesite="none", secure=True
+            "uc", cookie, httponly=True, samesite="none", secure=True
         )
         return response
 
@@ -710,7 +696,7 @@ async def admin_logout(
             success=False, message="User is not logged in.", status_code=401
         )
     response = ApiResponse(success=True, message="Logout successful.")
-    response.delete_cookie("UCCOOKIE")
+    response.delete_cookie("uc")
     return response
 
 
@@ -823,7 +809,7 @@ async def reservation_approval(
                 message="Reason is required for rejection.",
                 status_code=400,
             )
-        if reservation.startTime < datetime.now(timezone.utc):
+        if reservation.startTime < datetime.now():
             return ApiResponse(
                 success=False, message="Cannot change status of past reservations."
             )
@@ -873,7 +859,7 @@ async def reservation_approval(
                 class_name=class_name or "",
                 student_id=reservation.studentId,
                 reason=reservation.reason,
-                time=f"{reservation.startTime.astimezone().strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.astimezone().strftime('%H:%M')}",
+                time=f"{reservation.startTime.strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.strftime('%H:%M')}",
             )
         else:
             background_task.add_task(
@@ -1484,7 +1470,7 @@ async def analytics_overview(
     monthly_reservation_creations: list[int] = []
     monthly_approvals: list[int] = []
     monthly_rejections: list[int] = []
-    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     start = now - timedelta(days=365)
     async with AsyncSession(engine) as session:
         analytics = await get_analytics_between(session, start, now)
@@ -1590,7 +1576,7 @@ async def analytics_weekly(
             return False
         return True
 
-    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     start = now - timedelta(days=now.weekday() + 7)
     end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
@@ -1639,8 +1625,8 @@ async def analytics_weekly(
                     if reservation.startTime.date() == day:
                         room_reservations += 1
                         if reservation.status == "approved":
-                            start_hour = reservation.startTime.astimezone().hour
-                            end_hour = reservation.endTime.astimezone().hour
+                            start_hour = reservation.startTime.hour
+                            end_hour = reservation.endTime.hour
                             current_hour = start_hour
                             while current_hour != end_hour:
                                 hourly_reservations[current_hour] += 1
@@ -1733,9 +1719,9 @@ async def analytics_weekly_export(
         )
     export_uuid = uuid.uuid4()
     start = (
-        datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         - timedelta(
-            days=datetime.now(timezone.utc)
+            days=datetime.now()
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .weekday()
             + 7

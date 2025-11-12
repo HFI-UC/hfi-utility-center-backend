@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from sqlmodel import (
     SQLModel,
     select,
@@ -7,7 +7,6 @@ from sqlmodel import (
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy.orm import selectinload
 from core.env import *
 from typing import Sequence, List
 from core.types import *
@@ -79,8 +78,8 @@ async def get_room(session: AsyncSession) -> Sequence[Room]:
 async def create_reservation(session: AsyncSession, request: ReservationCreateRequest) -> int:
     reservation = Reservation(
         roomId=request.room,
-        startTime=datetime.fromtimestamp(request.startTime, tz=timezone.utc),
-        endTime=datetime.fromtimestamp(request.endTime, tz=timezone.utc),
+        startTime=datetime.fromtimestamp(request.startTime),
+        endTime=datetime.fromtimestamp(request.endTime),
         studentName=request.studentName,
         email=request.email,
         reason=request.reason,
@@ -89,10 +88,10 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
     )
     session.add(reservation)
     await session.commit()
-    await update_analytic(session, datetime.now(timezone.utc), 0, 0, 0, 1, 0)
+    await update_analytic(session, datetime.now(), 0, 0, 0, 1, 0)
     await update_analytic(
         session,
-        datetime.fromtimestamp(request.startTime, tz=timezone.utc),
+        datetime.fromtimestamp(request.startTime),
         1,
         0,
         0,
@@ -187,7 +186,7 @@ async def create_admin_login(session: AsyncSession, email: str, cookie: str) -> 
     user_login = AdminLogin(
         email=email,
         cookie=cookie,
-        expiry=datetime.now(timezone.utc) + timedelta(seconds=3600),
+        expiry=datetime.now() + timedelta(seconds=3600),
     )
     session.add(user_login)
     await session.commit()
@@ -195,7 +194,7 @@ async def create_admin_login(session: AsyncSession, email: str, cookie: str) -> 
 
 async def get_future_reservations(session: AsyncSession) -> Sequence[Reservation]:
     reservations = (await session.exec(
-        select(Reservation).where(Reservation.startTime >= datetime.now(timezone.utc))
+        select(Reservation).where(Reservation.startTime >= datetime.now())
     )).all()
     return reservations
 
@@ -207,7 +206,7 @@ async def get_future_reservations_by_approver_id(
         select(Reservation)
         .join(Room)
         .join(RoomApprover)
-        .where(Reservation.startTime >= datetime.now(timezone.utc))
+        .where(Reservation.startTime >= datetime.now())
         .where(RoomApprover.adminId == approver_id)
         .where(
             or_(
@@ -235,7 +234,7 @@ async def change_reservation_status_by_id(
         )
         await update_analytic(
             session,
-            datetime.now(timezone.utc),
+            datetime.now(),
             0,
             1 if status == "approved" else 0,
             1 if status == "rejected" else 0,
@@ -270,14 +269,14 @@ async def update_analytic(
     analytic = (await session.exec(
         select(Analytic).where(
             Analytic.date
-            == date.astimezone(timezone.utc).replace(
+            == date.replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
         )
     )).one_or_none()
     if not analytic:
         analytic = Analytic(
-            date=date.astimezone(timezone.utc).replace(
+            date=date.replace(
                 hour=0, minute=0, second=0, microsecond=0
             ),
             reservations=reservations,
@@ -302,7 +301,7 @@ async def get_analytic_by_date(session: AsyncSession, date: datetime) -> Analyti
     analytic = (await session.exec(
         select(Analytic).where(
             Analytic.date
-            == date.astimezone(timezone.utc).replace(
+            == date.replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
         )
@@ -313,10 +312,10 @@ async def get_analytic_by_date(session: AsyncSession, date: datetime) -> Analyti
 async def get_analytics_between(
     session: AsyncSession, start: datetime, end: datetime
 ) -> Sequence[Analytic]:
-    s = start.astimezone(timezone.utc).replace(
+    s = start.replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    e = end.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    e = end.replace(hour=0, minute=0, second=0, microsecond=0)
     analytics = (await session.exec(
         select(Analytic).where(Analytic.date >= s).where(Analytic.date <= e)
     )).all()

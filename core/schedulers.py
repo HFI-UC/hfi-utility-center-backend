@@ -17,11 +17,11 @@ async def send_daily_reservation_report_email() -> None:
         async with AsyncSession(engine) as session:
             reservations = await get_reservations_by_time_range(
                 session,
-                datetime.now(timezone.utc).replace(
+                datetime.now().replace(
                     hour=0, minute=0, second=0, microsecond=0
                 )
                 + timedelta(days=1),
-                datetime.now(timezone.utc).replace(
+                datetime.now().replace(
                     hour=23, minute=59, second=59, microsecond=999999
                 )
                 + timedelta(days=1),
@@ -47,7 +47,7 @@ async def send_daily_reservation_report_email() -> None:
                 "Please find the attached reservation report for tomorrow.",
                 [
                     (
-                        f"reservation_{(datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%d')}.xlsx",
+                        f"reservation_{(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')}.xlsx",
                         output,
                     )
                 ],
