@@ -100,7 +100,7 @@ def get_exported_xlsx(
                         class_.name if class_ else None,
                         reservation.status.capitalize() if reservation.status else None,
                         (
-                            reservation.createdAt.replace(tzinfo=None)
+                            reservation.createdAt
                             if reservation.createdAt
                             else None
                         ),
