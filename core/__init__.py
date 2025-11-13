@@ -421,7 +421,7 @@ async def reservation_create(
             return True
 
         def validate_email_format(email: str) -> bool:
-            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
                 return False
             return True
 
@@ -1346,7 +1346,7 @@ async def admin_create(
             return ApiResponse(
                 success=False, message="Admin already exists.", status_code=409
             )
-        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
+        if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", payload.email):
             return ApiResponse(
                 success=False, message="Invalid email format.", status_code=400
             )
@@ -1413,7 +1413,7 @@ async def admin_edit(
             return ApiResponse(
                 success=False, message="Email already in use.", status_code=409
             )
-        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", payload.email):
+        if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", payload.email):
             return ApiResponse(
                 success=False, message="Invalid email format.", status_code=400
             )
