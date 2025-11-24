@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 
 from core.env import *
 from core.orm import *
-
+from core.email import *
 
 def get_exported_xlsx(
     reservations: Sequence[Reservation],
@@ -165,3 +165,44 @@ async def get_screenshot(url: str, output: str, device_scale: int = 2) -> None:
             full_page=True,
         )
         await browser.close()
+
+
+async def ai_approval(session: AsyncSession, id: int) -> None:
+    reservation = await get_reservation_by_id(session, id)
+    if not reservation:
+        return
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            ai_approval_url,
+            params={"s": ai_approval_secret, "reason": reservation.reason},
+        )
+        response_json = response.json()
+        data = AIApprovalResponse.model_validate(response_json)
+        if data.status != "pending":
+            await change_reservation_status_by_id(
+                session,
+                reservation.id,
+                "approved" if data.status == "approved" else "rejected",
+                ai_approval_admin_id,
+                data.message,
+            )
+        if data.status == "approved":
+            send_reservation_approval_email(
+                email_title="Reservation Approval",
+                title="Your reservation has been approved!",
+                email=reservation.email,
+                details=f"Hi {reservation.studentName}! Your reservation #{reservation.id} for {reservation.room.name if reservation.room else None} has been approved. Below is the detailed information.",
+                user=reservation.studentName,
+                room=reservation.room.name if reservation.room else "",
+                class_name=reservation.class_.name or "",
+                student_id=reservation.studentId,
+                reason=reservation.reason,
+                time=f"{reservation.startTime.strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.strftime('%H:%M')}",
+            )
+        elif data.status == "rejected":
+            send_normal_update_email(
+                email_title="Reservation Rejected",
+                title="Your reservation has been rejected.",
+                email=reservation.email,
+                details=f"Hi {reservation.studentName}! Your reservation #{reservation.id} for {reservation.room.name if reservation.room else None} has been rejected. Reason: {data.message}",
+            )

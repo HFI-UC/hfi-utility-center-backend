@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Generic, List, Optional, TypeVar, Sequence
+from typing import Any, Generic, List, Optional, TypeVar, Sequence, Literal
 
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -220,6 +220,10 @@ class Cache(SQLModel, table=True):
         sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
+
+class AIApprovalResponse(BaseModel):
+    status: Literal["approved", "rejected", "pending"]
+    message: str | None = None
 
 
 class ReservationCreateRequest(BaseModel):

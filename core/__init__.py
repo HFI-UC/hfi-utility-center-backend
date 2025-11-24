@@ -531,6 +531,8 @@ async def reservation_create(
                 link=f"{base_url}/admin/reservation/?token={token}",
             )
             await create_temp_admin_login(session, admin.email, token)
+        if ai_approval_enabled:
+            background_task.add_task(ai_approval, session, result)
         return ApiResponse(
             success=True,
             message="Your reservation has been created.",
