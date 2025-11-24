@@ -516,21 +516,25 @@ async def reservation_create(
                 data=ReservationCreateResponse(reservationId=result),
             )
 
-        for approver in room.approvers:
-            admin = approver.admin
-            if not admin or not approver.notificationsEnabled:
-                continue
-            token = secrets.token_hex(32)
-            background_task.add_task(
-                send_normal_update_with_external_link_email,
-                email_title="New Reservation Request",
-                title=f"Hi {admin.name}! A new reservation request has been created.",
-                email=admin.email,
-                details=f"Reservation ID #{result}, click the button below for reservation details.",
-                button_text="View Reservation",
-                link=f"{base_url}/admin/reservation/?token={token}",
-            )
-            await create_temp_admin_login(session, admin.email, token)
+        
+        if ai_approval_enabled:
+            background_task.add_task(ai_approval, session, result)
+        else:
+            for approver in room.approvers:
+                admin = approver.admin
+                if not admin or not approver.notificationsEnabled:
+                    continue
+                token = secrets.token_hex(32)
+                background_task.add_task(
+                    send_normal_update_with_external_link_email,
+                    email_title="New Reservation Request",
+                    title=f"Hi {admin.name}! A new reservation request has been created.",
+                    email=admin.email,
+                    details=f"Reservation ID #{result}, click the button below for reservation details.",
+                    button_text="View Reservation",
+                    link=f"{base_url}/admin/reservation/?token={token}",
+                )
+                await create_temp_admin_login(session, admin.email, token)
         return ApiResponse(
             success=True,
             message="Your reservation has been created.",
