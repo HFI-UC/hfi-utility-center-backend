@@ -171,7 +171,7 @@ async def ai_approval(session: AsyncSession, id: int) -> None:
     reservation = await get_reservation_by_id(session, id)
     if not reservation:
         return
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10000) as client:
         response = await client.get(
             ai_approval_url,
             params={"s": ai_approval_secret, "reason": reservation.reason},
