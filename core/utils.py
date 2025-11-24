@@ -1,4 +1,5 @@
 from collections import defaultdict
+import secrets
 from typing import Literal, Sequence
 
 import httpx
@@ -206,3 +207,18 @@ async def ai_approval(session: AsyncSession, id: int) -> None:
                 email=reservation.email,
                 details=f"Hi {reservation.studentName}! Your reservation #{reservation.id} for {reservation.room.name if reservation.room else None} has been rejected. Reason: {data.message}",
             )
+        else:
+            for approver in reservation.room.approvers:
+                admin = approver.admin
+                if not admin or not approver.notificationsEnabled:
+                    continue
+                token = secrets.token_hex(32)
+                send_normal_update_with_external_link_email(
+                    email_title="New Reservation Request",
+                    title=f"Hi {admin.name}! A new reservation request has been created.",
+                    email=admin.email,
+                    details=f"Reservation ID #{reservation.id}, click the button below for reservation details.",
+                    button_text="View Reservation",
+                    link=f"{base_url}/admin/reservation/?token={token}",
+                )
+                await create_temp_admin_login(session, admin.email, token)
