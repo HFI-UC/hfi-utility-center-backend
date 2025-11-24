@@ -168,6 +168,7 @@ async def get_screenshot(url: str, output: str, device_scale: int = 2) -> None:
 
 
 async def ai_approval(session: AsyncSession, id: int) -> None:
+    print(f"AI approval check for reservation ID: {id}")
     reservation = await get_reservation_by_id(session, id)
     if not reservation:
         return
@@ -177,6 +178,7 @@ async def ai_approval(session: AsyncSession, id: int) -> None:
             params={"s": ai_approval_secret, "reason": reservation.reason},
         )
         response_json = response.json()
+        print(response_json)
         data = AIApprovalResponse.model_validate(response_json)
         if data.status != "pending":
             await change_reservation_status_by_id(
