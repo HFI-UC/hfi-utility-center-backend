@@ -308,8 +308,13 @@ async def class_list(request: Request) -> ApiResponse[list[ClassResponse]]:
 )
 @limiter.limit("5/second")
 async def campus_delete(
-    request: Request, payload: CampusDeleteRequest
+    request: Request, payload: CampusDeleteRequest, user_login=Depends(get_current_user)
 ) -> ApiResponse[Any]:
+    if not admin_login:
+        return ApiResponse(
+            success=False, message="User is not logged in.", status_code=401
+        )
+
     async with AsyncSession(engine) as session:
         campus = await get_campus_by_id(session, payload.id)
         if not campus:
@@ -325,7 +330,12 @@ async def campus_delete(
     response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
-async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiResponse[Any]:
+async def room_delete(request: Request, payload: RoomDeleteRequest, user_login=Depends(get_current_user)) -> ApiResponse[Any]:
+    if not admin_login:
+        return ApiResponse(
+            success=False, message="User is not logged in.", status_code=401
+        )
+
     async with AsyncSession(engine) as session:
         room = await get_room_by_id(session, payload.id)
         if not room:
@@ -342,8 +352,13 @@ async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiRespon
 )
 @limiter.limit("5/second")
 async def class_delete(
-    request: Request, payload: ClassDeleteRequest
+    request: Request, payload: ClassDeleteRequest, user_login=Depends(get_current_user)
 ) -> ApiResponse[Any]:
+    if not admin_login:
+        return ApiResponse(
+            success=False, message="User is not logged in.", status_code=401
+        )
+
     async with AsyncSession(engine) as session:
         class_ = await get_class_by_id(session, payload.id)
         if not class_:
@@ -1785,3 +1800,4 @@ async def analytics_weekly_export(
         return ApiResponse(
             success=False, message="Invalid export type.", status_code=400
         )
+
