@@ -308,7 +308,7 @@ async def class_list(request: Request) -> ApiResponse[list[ClassResponse]]:
 )
 @limiter.limit("5/second")
 async def campus_delete(
-    request: Request, payload: CampusDeleteRequest, user_login=Depends(get_current_user)
+    request: Request, payload: CampusDeleteRequest, admin_login=Depends(get_current_user)
 ) -> ApiResponse[Any]:
     if not admin_login:
         return ApiResponse(
@@ -330,7 +330,7 @@ async def campus_delete(
     response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
-async def room_delete(request: Request, payload: RoomDeleteRequest, user_login=Depends(get_current_user)) -> ApiResponse[Any]:
+async def room_delete(request: Request, payload: RoomDeleteRequest, admin_login=Depends(get_current_user)) -> ApiResponse[Any]:
     if not admin_login:
         return ApiResponse(
             success=False, message="User is not logged in.", status_code=401
@@ -352,7 +352,7 @@ async def room_delete(request: Request, payload: RoomDeleteRequest, user_login=D
 )
 @limiter.limit("5/second")
 async def class_delete(
-    request: Request, payload: ClassDeleteRequest, user_login=Depends(get_current_user)
+    request: Request, payload: ClassDeleteRequest, admin_login=Depends(get_current_user)
 ) -> ApiResponse[Any]:
     if not admin_login:
         return ApiResponse(
@@ -1800,4 +1800,5 @@ async def analytics_weekly_export(
         return ApiResponse(
             success=False, message="Invalid export type.", status_code=400
         )
+
 
