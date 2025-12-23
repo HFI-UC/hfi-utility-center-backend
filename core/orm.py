@@ -88,8 +88,8 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
     )
     session.add(reservation)
     await session.commit()
-    await update_analytic(session, datetime.now(), 0, 0, 0, 1, 0)
-    await update_analytic(
+    await update_reservation_analytic(session, datetime.now(), 0, 0, 0, 1, 0)
+    await update_reservation_analytic(
         session,
         datetime.fromtimestamp(request.startTime),
         1,
@@ -115,23 +115,38 @@ async def get_room_by_id(session: AsyncSession, room_id: int | None) -> Room | N
     room = (await session.exec(select(Room).where(Room.id == room_id))).one_or_none()
     return room
 
+async def get_users(session: AsyncSession) -> Sequence[User]:
+    users = (await session.exec(select(User).order_by(col(User.id).asc()))).all()
+    return users
 
-async def create_admin(session: AsyncSession, email: str, name: str, password: str) -> None:
-    admin = Admin(email=email, name=name, password=password)
-    session.add(admin)
-    await session.commit()
-
-
-async def get_admin_login_by_cookie(session: AsyncSession, cookie: str) -> AdminLogin | None:
-    admin_login = (await session.exec(
-        select(AdminLogin).where(AdminLogin.cookie == cookie)
+async def get_user_login_by_cookie(session: AsyncSession, cookie: str) -> UserLogin | None:
+    user_login = (await session.exec(
+        select(UserLogin).where(UserLogin.cookie == cookie)
     )).one_or_none()
-    return admin_login
+    return user_login
 
 
-async def get_admin_by_email(session: AsyncSession, email: str) -> Admin | None:
-    admin = (await session.exec(select(Admin).where(Admin.email == email))).first()
-    return admin
+async def get_user_by_cookie(session: AsyncSession, cookie: str) -> User | None:
+    statement = select(User, UserLogin).where(UserLogin.cookie == cookie).where(User.email == UserLogin.email)
+    result = (await session.exec(statement)).first()
+    if not result:
+        return None
+    user, user_login = result
+    if user_login.expiry < datetime.now():
+        return None
+    return user
+
+
+async def get_admin_by_email(session: AsyncSession, email: str) -> User | None:
+    user = (await session.exec(select(User).where(User.email == email))).first()
+    if user and user.role == Role.ADMIN:
+        return user
+    return None
+
+
+async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
+    user = (await session.exec(select(User).where(User.email == email))).first()
+    return user
 
 
 async def get_reservation(
@@ -182,8 +197,8 @@ async def get_reservation(
     return reservations, total
 
 
-async def create_admin_login(session: AsyncSession, email: str, cookie: str) -> None:
-    user_login = AdminLogin(
+async def create_user_login(session: AsyncSession, email: str, cookie: str) -> None:
+    user_login = UserLogin(
         email=email,
         cookie=cookie,
         expiry=datetime.now() + timedelta(seconds=3600),
@@ -207,7 +222,7 @@ async def get_future_reservations_by_approver_id(
         .join(Room)
         .join(RoomApprover)
         .where(Reservation.startTime >= datetime.now())
-        .where(RoomApprover.adminId == approver_id)
+        .where(RoomApprover.userId == approver_id)
         .where(
             or_(
                 Reservation.latestExecutorId == approver_id,
@@ -219,20 +234,20 @@ async def get_future_reservations_by_approver_id(
 
 
 async def change_reservation_status_by_id(
-    session: AsyncSession, id: int | None, status: str, admin: int, reason: str | None = None
+    session: AsyncSession, id: int | None, status: str, user: int, reason: str | None = None
 ) -> None:
     reservation = (await session.exec(
         select(Reservation).where(Reservation.id == id)
     )).one_or_none()
     if reservation:
         reservation.status = status
-        reservation.latestExecutorId = admin
+        reservation.latestExecutorId = user
         await session.commit()
         await session.refresh(reservation)
         await create_reservation_operation_log(
-            session, admin, reservation.id or -1, reservation.status, reason
+            session, user, reservation.id or -1, reservation.status, reason
         )
-        await update_analytic(
+        await update_reservation_analytic(
             session,
             datetime.now(),
             0,
@@ -245,19 +260,19 @@ async def change_reservation_status_by_id(
 
 async def create_reservation_operation_log(
     session: AsyncSession,
-    admin: int,
+    user: int,
     reservation: int,
     operation: str,
     reason: str | None = None,
 ) -> None:
     log = ReservationOperationLog(
-        adminId=admin, reservationId=reservation, operation=operation, reason=reason
+        userId=user, reservationId=reservation, operation=operation, reason=reason
     )
     session.add(log)
     await session.commit()
 
 
-async def update_analytic(
+async def update_reservation_analytic(
     session: AsyncSession,
     date: datetime,
     reservations: int,
@@ -267,15 +282,15 @@ async def update_analytic(
     requests: int,
 ) -> None:
     analytic = (await session.exec(
-        select(Analytic).where(
-            Analytic.date
+        select(ReservationAnalytic).where(
+            ReservationAnalytic.date
             == date.replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
         )
     )).one_or_none()
     if not analytic:
-        analytic = Analytic(
+        analytic = ReservationAnalytic(
             date=date.replace(
                 hour=0, minute=0, second=0, microsecond=0
             ),
@@ -297,10 +312,10 @@ async def update_analytic(
         await session.commit()
 
 
-async def get_analytic_by_date(session: AsyncSession, date: datetime) -> Analytic | None:
+async def get_reservation_analytic_by_date(session: AsyncSession, date: datetime) -> ReservationAnalytic | None:
     analytic = (await session.exec(
-        select(Analytic).where(
-            Analytic.date
+        select(ReservationAnalytic).where(
+            ReservationAnalytic.date
             == date.replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
@@ -309,15 +324,15 @@ async def get_analytic_by_date(session: AsyncSession, date: datetime) -> Analyti
     return analytic
 
 
-async def get_analytics_between(
+async def get_reservation_analytics_between(
     session: AsyncSession, start: datetime, end: datetime
-) -> Sequence[Analytic]:
+) -> Sequence[ReservationAnalytic]:
     s = start.replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     e = end.replace(hour=0, minute=0, second=0, microsecond=0)
     analytics = (await session.exec(
-        select(Analytic).where(Analytic.date >= s).where(Analytic.date <= e)
+        select(ReservationAnalytic).where(ReservationAnalytic.date >= s).where(ReservationAnalytic.date <= e)
     )).all()
     return analytics
 
@@ -445,27 +460,32 @@ async def edit_approver(session: AsyncSession, approver: RoomApprover) -> None:
     await session.commit()
 
 
-async def get_temp_admin_login_by_token(
+async def get_login_token_by_token(
     session: AsyncSession, token: str
-) -> TempAdminLogin | None:
-    temp_admin_login = (await session.exec(
-        select(TempAdminLogin).where(TempAdminLogin.token == token)
+) -> UserLoginToken | None:
+    user_login_token = (await session.exec(
+        select(UserLoginToken).where(UserLoginToken.token == token)
     )).one_or_none()
-    return temp_admin_login
+    return user_login_token
 
 
-async def delete_temp_admin_login(session: AsyncSession, temp_admin_login: TempAdminLogin) -> None:
-    await session.delete(temp_admin_login)
+async def delete_login_token(session: AsyncSession, login_token: UserLoginToken) -> None:
+    await session.delete(login_token)
     await session.commit()
 
 
-async def get_admin_by_id(session: AsyncSession, admin_id: int | None) -> Admin | None:
-    admin = (await session.exec(select(Admin).where(Admin.id == admin_id))).one_or_none()
-    return admin
+async def get_admin_by_id(session: AsyncSession, user_id: int | None) -> User | None:
+    user = (await session.exec(select(User).where(User.id == user_id))).one_or_none()
+    if user and user.role == Role.ADMIN:
+        return user
+    return None
 
+async def get_user_by_id(session: AsyncSession, user_id: int | None) -> User | None:
+    user = (await session.exec(select(User).where(User.id == user_id))).one_or_none()
+    return user
 
-async def create_room_approver(session: AsyncSession, room: Room, admin: Admin) -> None:
-    approver = RoomApprover(room=room, admin=admin)
+async def create_room_approver(session: AsyncSession, room: Room, user: User) -> None:
+    approver = RoomApprover(room=room, user=user)
     session.add(approver)
     await session.commit()
 
@@ -482,11 +502,11 @@ async def get_room_approver_by_id(session: AsyncSession, id: int | None) -> Room
     return approver
 
 
-async def get_room_approvers_by_admin_id(
-    session: AsyncSession, admin_id: int
+async def get_room_approvers_by_user_id(
+    session: AsyncSession, user_id: int
 ) -> Sequence[RoomApprover] | None:
     approvers = (await session.exec(
-        select(RoomApprover).where(RoomApprover.adminId == admin_id)
+        select(RoomApprover).where(RoomApprover.userId == user_id)
     )).all()
     return approvers
 
@@ -500,14 +520,14 @@ async def get_room_approvers_by_room_id(
     return approvers
 
 
-async def get_admins(session: AsyncSession) -> Sequence[Admin]:
-    admins = (await session.exec(select(Admin).order_by(col(Admin.id).asc()))).all()
-    return admins
+async def get_admins(session: AsyncSession) -> Sequence[User]:
+    users = (await session.exec(select(User).where(User.role == Role.ADMIN).order_by(col(User.id).asc()))).all()
+    return users
 
 
-async def create_temp_admin_login(session: AsyncSession, email: str, token: str) -> None:
-    temp_admin_login = TempAdminLogin(email=email, token=token)
-    session.add(temp_admin_login)
+async def create_login_token(session: AsyncSession, email: str, token: str) -> None:
+    user_login_token = UserLoginToken(email=email, token=token)
+    session.add(user_login_token)
     await session.commit()
 
 
@@ -525,22 +545,22 @@ async def get_reservations_by_time_range_and_room(
     return reservations
 
 
-async def delete_admin(session: AsyncSession, admin: Admin) -> None:
+async def delete_user(session: AsyncSession, user: User) -> None:
     approvers = (await session.exec(
-        select(RoomApprover).where(RoomApprover.adminId == admin.id)
+        select(RoomApprover).where(RoomApprover.userId == user.id)
     )).all()
     for approver in approvers:
         await delete_room_approver(session, approver)
-    await session.delete(admin)
+    await session.delete(user)
     await session.commit()
 
 
-async def change_admin_password(session: AsyncSession, admin_id: int, new_password: str) -> None:
-    admin = (await session.exec(select(Admin).where(Admin.id == admin_id))).one_or_none()
-    if not admin:
+async def change_user_password(session: AsyncSession, user_id: int, new_password: str) -> None:
+    user = (await session.exec(select(User).where(User.id == user_id))).one_or_none()
+    if not user:
         return
-    admin.password = new_password
-    session.add(admin)
+    user.password = new_password
+    session.add(user)
     await session.commit()
 
 
@@ -555,8 +575,8 @@ async def get_error_log_count(session: AsyncSession) -> int:
     return len(data)
 
 
-async def edit_admin(session: AsyncSession, admin: Admin) -> None:
-    session.add(admin)
+async def edit_user(session: AsyncSession, user: User) -> None:
+    session.add(user)
     await session.commit()
 
 
@@ -574,4 +594,32 @@ async def clear_all_cache(session: AsyncSession) -> None:
     caches = (await session.exec(select(Cache))).all()
     for cache in caches:
         await session.delete(cache)
+    await session.commit()
+
+async def create_user_registration_token(session: AsyncSession, email: str, token: str) -> None:
+    user_registration_token = UserRegistrationToken(email=email, token=token, expiry=datetime.now() + timedelta(minutes=10))
+    session.add(user_registration_token)
+    await session.commit()
+
+async def get_user_registration_token_by_email(session: AsyncSession, email: str) -> UserRegistrationToken | None:
+    token = (await session.exec(
+        select(UserRegistrationToken).where(UserRegistrationToken.email == email).order_by(col(UserRegistrationToken.expiry).desc())
+    )).one_or_none()
+    return token
+
+async def get_user_registration_token_by_token(
+    session: AsyncSession, token: str
+) -> UserRegistrationToken | None:
+    user_registration_token = (await session.exec(
+        select(UserRegistrationToken).where(UserRegistrationToken.token == token)
+    )).one_or_none()
+    return user_registration_token
+
+async def create_user(session: AsyncSession, name: str, email: str, password: str, student_id: str | None, role: Role) -> None:
+    user = User(name=name, email=email, password=password, role=role, studentId=student_id)
+    session.add(user)
+    await session.commit()
+
+async def delete_user_registration_token(session: AsyncSession, registration_token: UserRegistrationToken) -> None:
+    await session.delete(registration_token)
     await session.commit()

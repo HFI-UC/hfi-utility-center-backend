@@ -21,3 +21,7 @@ ai_approval_url = os.getenv("AI_APPROVAL_URL") or ""
 ai_approval_secret = os.getenv("AI_APPROVAL_SECRET") or ""
 ai_approval_admin_id = int(os.getenv("AI_APPROVAL_ADMIN_ID") or 0)
 ai_approval_enabled = os.getenv("AI_APPROVAL_ENABLED", "false").lower() == "true"
+cos_secret_id = os.getenv("COS_SECRET_ID") or ""
+cos_secret_key = os.getenv("COS_SECRET_KEY") or ""
+cos_bucket = os.getenv("COS_BUCKET") or ""
+cos_region = os.getenv("COS_REGION") or ""

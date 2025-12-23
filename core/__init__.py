@@ -1,6 +1,7 @@
 from fastapi import BackgroundTasks, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.routing import Match
 from starlette.types import Receive, Scope, Send, Message
 from fastapi.requests import Request
 from fastapi.responses import FileResponse, RedirectResponse
@@ -37,7 +38,6 @@ async def lifespan(_: FastAPI):
     scheduler.shutdown()
 
 
-
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +54,7 @@ limiter = Limiter(key_func=get_remote_address, application_limits=["50/second"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 csrf_tokens: list[str] = []
+
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> ApiResponse:
@@ -73,10 +74,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
             csrf_token = request.headers.get("x-csrf-token", "") or ""
-            if not csrf_token or csrf_token not in csrf_tokens:
-                return ApiResponse(
-                    success=False, message="CSRF token missing or invalid.", status_code=403
-                )
+            # if not csrf_token or csrf_token not in csrf_tokens:
+            #     return ApiResponse(
+            #         success=False, message="CSRF token missing or invalid.", status_code=403
+            #     )
             try:
                 csrf_tokens.remove(csrf_token)
             except ValueError:
@@ -85,11 +86,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
+
 class LogMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp):
         self.app = app
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
 
@@ -135,7 +137,7 @@ class LogMiddleware(BaseHTTPMiddleware):
                     await create_error_log(session, error_log)
             except Exception:
                 pass
-            
+
             if not response_sent:
                 response = ApiResponse(
                     success=False,
@@ -167,10 +169,58 @@ class LogMiddleware(BaseHTTPMiddleware):
             try:
                 async with AsyncSession(engine) as session:
                     await create_access_log(session, log)
-                    await update_analytic(session, datetime.now(), 0, 0, 0, 0, 1)
+                    await update_reservation_analytic(
+                        session, datetime.now(), 0, 0, 0, 0, 1
+                    )
             except Exception:
                 pass
 
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.scope["type"] != "http":
+            return await call_next(request)
+
+        for route in request.app.routes:
+            match, child_scope = route.matches(request.scope)
+            if match == Match.FULL:
+                if "user" in getattr(route, "tags", []):
+                    cookie = request.cookies.get("uc")
+                    if not cookie:
+                        return ApiResponse(
+                            success=False,
+                            message="User is not logged in.",
+                            status_code=401,
+                        )
+
+                    async with AsyncSession(engine) as session:
+                        user = await get_user_by_cookie(session, cookie)
+                        if not user:
+                            return ApiResponse(
+                                success=False,
+                                message="User is not logged in or session expired.",
+                                status_code=401,
+                            )
+
+                        required_roles = [
+                            tag.split(":")[1]
+                            for tag in getattr(route, "tags", [])
+                            if tag.startswith("role:")
+                        ]
+                        if required_roles:
+                            if user.role not in required_roles:
+                                return ApiResponse(
+                                    success=False,
+                                    message="Insufficient permissions.",
+                                    status_code=403,
+                                )
+                break
+
+        response = await call_next(request)
+        return response
+
+
+app.add_middleware(AuthMiddleware)
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(LogMiddleware)
 
@@ -185,18 +235,21 @@ def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
 
-async def get_current_user(request: Request) -> AdminLogin | None:
+async def get_current_user(request: Request) -> User | None:
     cookie = request.cookies.get("uc")
     if not cookie:
         return None
     async with AsyncSession(engine) as session:
-        user_login = await get_admin_login_by_cookie(session, cookie)
-        if not user_login:
-            return None
-        if user_login.expiry < datetime.now():
-            return None
-        return user_login
-    
+        user = await get_user_by_cookie(session, cookie)
+        return user
+
+
+async def get_current_admin(
+    user: User | None = Depends(get_current_user),
+) -> User | None:
+    if not user or user.role != "admin":
+        return None
+    return user
 
 
 @app.get("/", response_model=ApiResponseBody[str])
@@ -211,7 +264,9 @@ async def _csrf(request: Request) -> ApiResponse[str]:
     token = secrets.token_hex(32)
     csrf_tokens.append(token)
     response = ApiResponse(success=True)
-    response.set_cookie("_csrf", token, httponly=False, samesite="none", secure=True, domain=domain)
+    response.set_cookie(
+        "_csrf", token, httponly=False, samesite="none", secure=True, domain=domain
+    )
     return response
 
 
@@ -221,11 +276,11 @@ async def _csrf(request: Request) -> ApiResponse[str]:
 )
 @limiter.limit("5/second")
 async def room_list(
-    request: Request, user_login=Depends(get_current_user)
+    request: Request, user: User | None = Depends(get_current_admin)
 ) -> ApiResponse[list[RoomResponse] | list[RoomAdminResponse]]:
     async with AsyncSession(engine) as session:
         rooms = await get_room(session)
-        if not user_login:
+        if not user:
             data = [
                 RoomResponse(
                     id=room.id,
@@ -305,6 +360,7 @@ async def class_list(request: Request) -> ApiResponse[list[ClassResponse]]:
 @app.post(
     "/campus/delete",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def campus_delete(
@@ -323,6 +379,7 @@ async def campus_delete(
 @app.post(
     "/room/delete",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiResponse[Any]:
@@ -339,6 +396,7 @@ async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiRespon
 @app.post(
     "/class/delete",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def class_delete(
@@ -386,7 +444,10 @@ async def reservation_create(
             for reservation in reservations:
                 if reservation.status == "rejected":
                     continue
-                if reservation.startTime < end_time and reservation.endTime > start_time:
+                if (
+                    reservation.startTime < end_time
+                    and reservation.endTime > start_time
+                ):
                     return False
             return True
 
@@ -425,7 +486,11 @@ async def reservation_create(
                 return False
             return True
 
-        if not payload.studentId.startswith("GJ") and not len(payload.studentId) == 10 and not re.match(r"^\d{8}$", payload.studentId[2:]):
+        if (
+            not payload.studentId.startswith("GJ")
+            and not len(payload.studentId) == 10
+            and not re.match(r"^\d{8}$", payload.studentId[2:])
+        ):
             errors.append("Invalid student ID format.")
         if not validate_email_format(payload.email):
             errors.append("Invalid email format.")
@@ -443,7 +508,7 @@ async def reservation_create(
                 errors.append("Start or end time violates room policy.")
             if not validate_time_conflict(
                 datetime.fromtimestamp(payload.startTime),
-                datetime.fromtimestamp(payload.endTime)
+                datetime.fromtimestamp(payload.endTime),
             ):
                 errors.append("Start or end time conflicts with existing reservation.")
         if errors:
@@ -477,7 +542,9 @@ async def reservation_create(
 
         if admin:
             class_name = class_.name if class_ else None
-            await change_reservation_status_by_id(session, result, "approved", admin.id or -1)
+            await change_reservation_status_by_id(
+                session, result, "approved", admin.id or -1
+            )
 
             background_task.add_task(
                 send_reservation_approval_email,
@@ -516,25 +583,24 @@ async def reservation_create(
                 data=ReservationCreateResponse(reservationId=result),
             )
 
-        
         if ai_approval_enabled:
             background_task.add_task(ai_approval, session, result)
         else:
             for approver in room.approvers:
-                admin = approver.admin
-                if not admin or not approver.notificationsEnabled:
+                user = approver.user
+                if not user or not approver.notificationsEnabled:
                     continue
                 token = secrets.token_hex(32)
                 background_task.add_task(
                     send_normal_update_with_external_link_email,
                     email_title="New Reservation Request",
-                    title=f"Hi {admin.name}! A new reservation request has been created.",
-                    email=admin.email,
+                    title=f"Hi {user.name}! A new reservation request has been created.",
+                    email=user.email,
                     details=f"Reservation ID #{result}, click the button below for reservation details.",
                     button_text="View Reservation",
                     link=f"{base_url}/admin/reservation/?token={token}",
                 )
-                await create_temp_admin_login(session, admin.email, token)
+                await create_login_token(session, user.email, token)
         return ApiResponse(
             success=True,
             message="Your reservation has been created.",
@@ -551,7 +617,7 @@ async def reservation_create(
 @limiter.limit("5/second")
 async def reservation_get(
     request: Request,
-    admin_login=Depends(get_current_user),
+    user: User | None = Depends(get_current_user),
     roomId: int | None = None,
     keyword: str = "",
     status: str = "",
@@ -570,7 +636,7 @@ async def reservation_get(
                 success=False, message="Invalid page number.", status_code=400
             )
 
-        is_admin = bool(admin_login)
+        is_authorized = bool(user and user.role in ["admin", "approver"])
 
         reservations, total = await get_reservation(
             session,
@@ -581,16 +647,20 @@ async def reservation_get(
             20,
             datetime.fromtimestamp(startTime) if startTime else None,
             datetime.fromtimestamp(endTime) if endTime else None,
-            is_admin,
+            is_authorized,
         )
 
-        if is_admin:
+        if is_authorized:
             admin_res: list[ReservationFullResponse] = []
             for reservation in reservations:
                 class_name = reservation.class_.name
                 room_name = reservation.room.name
                 campus_name = reservation.room.campus.name
-                executor = reservation.latestExecutor.email if reservation.latestExecutor else None
+                executor = (
+                    reservation.latestExecutor.email
+                    if reservation.latestExecutor
+                    else None
+                )
                 admin_res.append(
                     ReservationFullResponse(
                         id=reservation.id,
@@ -628,32 +698,120 @@ async def reservation_get(
                 data=ReservationQueryResponse(reservations=res, total=total),
             )
 
+@app.post("/user/pre-register", response_model=ApiResponseBody[Any])
+@limiter.limit("5/second")
+async def user_pre_register(
+    request: Request,
+    payload: UserPreRegisterRequest,
+    background_task: BackgroundTasks,
+    user: User | None = Depends(get_current_user)
+) -> ApiResponse[Any]:
+    if user:
+        return ApiResponse(
+            success=False, message="User already logged in.", status_code=400
+        )
+    if not payload.turnstileToken or not verify_turnstile_token(
+            payload.turnstileToken
+        ):
+            return ApiResponse(
+                success=False, message="Turnstile verification failed.", status_code=403
+            )
+    async with AsyncSession(engine) as session:
+        existing_user = await get_user_by_email(session, payload.email)
+        if existing_user:
+            return ApiResponse(
+                success=False, message="Email already registered.", status_code=409
+            )
+        existing_token = await get_user_registration_token_by_email(session, payload.email)
+        if existing_token and existing_token.expiry > datetime.now():
+            return ApiResponse(
+                success=False,
+                message="A registration token has already been sent to this email. Please check your inbox.",
+                status_code=409,
+            )
+        token = secrets.token_hex(32)
+        await create_user_registration_token(session, payload.email, token)
+        registration_link = f"{base_url}/user/register?token={token}"
+        background_task.add_task(
+            send_normal_update_with_external_link_email,
+            email_title="Complete Your Registration",
+            title="Welcome to HFI Utility Center!",
+            details="Hi! Complete your registration by clicking the link below.",
+            email=payload.email,
+            button_text="Complete",
+            link=registration_link,
+        )
+        return ApiResponse(
+            success=True,
+            message="Pre-registration successful. Please check your email to complete registration.",
+        )
+    
+@app.post("/user/register", response_model=ApiResponseBody[Any])
+@limiter.limit("5/second")
+async def user_register(
+    request: Request,
+    payload: UserRegisterRequest,
+) -> ApiResponse[Any]:
+    async with AsyncSession(engine) as session:
+        registration_token = await get_user_registration_token_by_token(
+            session, payload.token
+        )
+        if not registration_token or registration_token.expiry < datetime.now():
+            return ApiResponse(
+                success=False,
+                message="Invalid or expired registration token.",
+                status_code=400,
+            )
+        existing_user = await get_user_by_email(session, registration_token.email)
+        if existing_user:
+            return ApiResponse(
+                success=False, message="Email already registered.", status_code=409
+            )
+        if payload.studentId:
+            if (
+                not payload.studentId.startswith("GJ")
+                and not len(payload.studentId) == 10
+                and not re.match(r"^\d{8}$", payload.studentId[2:])
+            ):
+                return ApiResponse(
+                    success=False, message="Invalid student ID format.", status_code=400
+                )
+        hashed_password = password_hash(payload.password)
+        await create_user(session, payload.name, registration_token.email, hashed_password, payload.studentId, Role.STUDENT)
+        await delete_user_registration_token(session, registration_token)
+        return ApiResponse(
+            success=True, message="Registration successful. You can now log in."
+        )
 
 @app.post(
-    "/admin/login",
+    "/user/login",
     response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
-async def admin_login(
-    request: Request, payload: AdminLoginRequest, admin_login=Depends(get_current_user)
+async def user_login(
+    request: Request,
+    payload: UserLoginRequest,
+    user: User | None = Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if admin_login:
+    if user:
         return ApiResponse(
             success=False, message="User already logged in.", status_code=400
         )
 
     async with AsyncSession(engine) as session:
         if payload.token:
-            temp_admin_login = await get_temp_admin_login_by_token(session, payload.token)
-            if not temp_admin_login:
+            login_token = await get_login_token_by_token(
+                session, payload.token
+            )
+            if not login_token:
                 return ApiResponse(
                     success=False,
                     message="Invalid token or token expired.",
                     status_code=400,
                 )
             cookie = secrets.token_hex(32)
-            await create_admin_login(session, temp_admin_login.email, cookie)
-            await delete_temp_admin_login(session, temp_admin_login)
+            await create_user_login(session, login_token.email, cookie)
+            await delete_login_token(session, login_token)
             response = ApiResponse(success=True, message="Login successful.")
             response.set_cookie(
                 "uc", cookie, httponly=True, samesite="none", secure=True
@@ -673,64 +831,53 @@ async def admin_login(
                 success=False, message="Turnstile verification failed.", status_code=403
             )
 
-        admin = await get_admin_by_email(session, payload.email)
-        if not admin or not verify_password(payload.password, admin.password):
+        user = await get_user_by_email(session, payload.email)
+        if not user or not verify_password(payload.password, user.password):
             return ApiResponse(
                 success=False, message="Invalid email or password.", status_code=401
             )
         cookie = secrets.token_hex(32)
-        await create_admin_login(session, payload.email, cookie)
+        await create_user_login(session, payload.email, cookie)
         response = ApiResponse(success=True, message="Login successful.")
-        response.set_cookie(
-            "uc", cookie, httponly=True, samesite="none", secure=True
-        )
+        response.set_cookie("uc", cookie, httponly=True, samesite="none", secure=True)
         return response
 
 
 @app.get(
-    "/admin/logout",
-    response_model=ApiResponseBody[Any],
+    "/user/logout", response_model=ApiResponseBody[Any], tags=["user"]
 )
 @limiter.limit("5/second")
-async def admin_logout(
-    request: Request, user_login=Depends(get_current_user)
+async def user_logout(
+    request: Request, user: User | None = Depends(get_current_user)
 ) -> ApiResponse[Any]:
-    if not user_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
     response = ApiResponse(success=True, message="Logout successful.")
     response.delete_cookie("uc")
     return response
 
 
 @app.get(
-    "/admin/check-login",
+    "/user/check-login",
     response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
-async def admin_check_login(
-    request: Request, user_login=Depends(get_current_user)
+async def user_check_login(
+    request: Request, user: User | None = Depends(get_current_user)
 ) -> ApiResponse[Any]:
-    if user_login:
-        return ApiResponse(success=True)
+    if user:
+        return ApiResponse(success=True, data={"role": user.role, "name": user.name, "id": user.id})
     return ApiResponse(success=False, status_code=400)
 
 
 @app.get(
     "/reservation/future",
     response_model=ApiResponseBody[list[ReservationUpcomingResponse]],
+    tags=["user"],
 )
 @limiter.limit("5/second")
 async def reservation_future(
-    request: Request, admin_login=Depends(get_current_user)
+    request: Request, admin: User | None = Depends(get_current_admin)
 ) -> ApiResponse[list[ReservationUpcomingResponse]]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
     async with AsyncSession(engine) as session:
-        admin = await get_admin_by_email(session, admin_login.email)
         future_reservations = await get_future_reservations_by_approver_id(
             session, admin.id if admin and admin.id is not None else -1
         )
@@ -761,26 +908,22 @@ async def reservation_future(
 @app.post(
     "/reservation/approval",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin", "role:approver"],
 )
 @limiter.limit("5/second")
 async def reservation_approval(
     request: Request,
     payload: ReservationApproveRequest,
     background_task: BackgroundTasks,
-    admin_login: AdminLogin = Depends(get_current_user),
+    user: User | None = Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
 
     async with AsyncSession(engine, expire_on_commit=False) as session:
         reservation = await get_reservation_by_id(session, payload.id)
-        admin = await get_admin_by_email(session, admin_login.email)
 
-        if not admin:
+        if not user:
             return ApiResponse(
-                success=False, message="Admin not found.", status_code=404
+                success=False, message="User not found.", status_code=404
             )
 
         if not reservation:
@@ -797,8 +940,8 @@ async def reservation_approval(
 
         if (
             reservation.latestExecutorId is not None
-            and reservation.latestExecutorId != admin.id
-            if admin and admin.id
+            and reservation.latestExecutorId != user.id
+            if user and user.id
             else -1
         ):
             return ApiResponse(
@@ -831,7 +974,7 @@ async def reservation_approval(
             )
 
         authorized = any(
-            approver.adminId == admin.id if admin else False
+            approver.userId == user.id if user else False
             for approver in room.approvers
         )
 
@@ -846,7 +989,7 @@ async def reservation_approval(
             session,
             payload.id,
             "approved" if payload.approved else "rejected",
-            admin.id or -1,
+            user.id or -1,
             payload.reason,
         )
 
@@ -876,19 +1019,14 @@ async def reservation_approval(
         return ApiResponse(success=True, message="Reservation updated successfully.")
 
 
-@app.get("/reservation/export", response_model=None)
+@app.get("/reservation/export", response_model=None, tags=["user", "role:admin", "role:approver"])
 @limiter.limit("1/second")
 async def reservation_export(
     request: Request,
     startTime: int | None = None,
     endTime: int | None = None,
     mode: Literal["by-room", "single-sheet"] = "by-room",
-    admin_login=Depends(get_current_user),
 ) -> FileResponse | ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
     if startTime and endTime and startTime > endTime:
         return ApiResponse(
             success=False, message="Invalid time range.", status_code=400
@@ -915,20 +1053,22 @@ async def reservation_export(
 @app.post(
     "/class/create",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def class_create(
-    request: Request, payload: ClassCreateRequest, admin_login=Depends(get_current_user)
+    request: Request, payload: ClassCreateRequest
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
     async with AsyncSession(engine) as session:
         campus = await get_campus_by_id(session, payload.campus)
         if not campus:
             return ApiResponse(
                 success=False, message="Invalid campus.", status_code=400
+            )
+        classes = await get_class(session)
+        if any(c.name == payload.name and c.campusId == payload.campus for c in classes):
+            return ApiResponse(
+                success=False, message="Class already exists.", status_code=409
             )
         await create_class(session, name=payload.name, campus=campus)
         return ApiResponse(success=True, message="Class created successfully.")
@@ -937,19 +1077,19 @@ async def class_create(
 @app.post(
     "/campus/create",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def campus_create(
     request: Request,
     payload: CampusCreateRequest,
-    admin_login=Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
     async with AsyncSession(engine) as session:
+        campuses = await get_campus(session)
+        if any(c.name == payload.name for c in campuses):
+            return ApiResponse(
+                success=False, message="Campus already exists.", status_code=409
+            )
         await create_campus(session, name=payload.name)
         return ApiResponse(success=True, message="Campus created successfully.")
 
@@ -957,20 +1097,20 @@ async def campus_create(
 @app.post(
     "/room/create",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
-async def room_create(
-    request: Request, payload: RoomCreateRequest, admin_login=Depends(get_current_user)
-) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
+async def room_create(request: Request, payload: RoomCreateRequest) -> ApiResponse[Any]:
     async with AsyncSession(engine) as session:
         campus = await get_campus_by_id(session, payload.campus)
         if not campus:
             return ApiResponse(
                 success=False, message="Invalid campus.", status_code=400
+            )
+        rooms = await get_room(session)
+        if any(r.name == payload.name and r.campusId == payload.campus for r in rooms):
+            return ApiResponse(
+                success=False, message="Room already exists.", status_code=409
             )
         await create_room(session, name=payload.name, campus=campus)
         return ApiResponse(success=True, message="Room created successfully.")
@@ -979,18 +1119,13 @@ async def room_create(
 @app.post(
     "/policy/create",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def policy_create(
     request: Request,
     payload: RoomPolicyCreateRequest,
-    admin_login=Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
     if len(payload.days) != len(set(payload.days)):
         return ApiResponse(
             success=False, message="Days must be unique.", status_code=400
@@ -1033,17 +1168,13 @@ async def policy_create(
 @app.post(
     "/policy/delete",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def policy_delete(
     request: Request,
     payload: RoomPolicyDeleteRequest,
-    admin_login=Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
 
     async with AsyncSession(engine) as session:
         policy = await get_policy_by_id(session, payload.id)
@@ -1058,18 +1189,13 @@ async def policy_delete(
 @app.post(
     "/policy/toggle",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def policy_toggle(
     request: Request,
     payload: RoomPolicyToggleRequest,
-    admin_login=Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
     async with AsyncSession(engine) as session:
         policy = await get_policy_by_id(session, payload.id)
         if not policy:
@@ -1083,18 +1209,13 @@ async def policy_toggle(
 @app.post(
     "/policy/edit",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def policy_edit(
     request: Request,
     payload: RoomPolicyEditRequest,
-    admin_login=Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
     async with AsyncSession(engine) as session:
         policy = await get_policy_by_id(session, payload.id)
         if not policy:
@@ -1139,16 +1260,10 @@ async def policy_edit(
 @app.post(
     "/room/edit",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
-async def room_edit(
-    request: Request, payload: RoomEditRequest, admin_login=Depends(get_current_user)
-) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
+async def room_edit(request: Request, payload: RoomEditRequest) -> ApiResponse[Any]:
     async with AsyncSession(engine) as session:
         room = await get_room_by_id(session, payload.id)
         if not room:
@@ -1166,16 +1281,10 @@ async def room_edit(
 @app.post(
     "/campus/edit",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
-async def campus_edit(
-    request: Request, payload: CampusEditRequest, admin_login=Depends(get_current_user)
-) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
+async def campus_edit(request: Request, payload: CampusEditRequest) -> ApiResponse[Any]:
     async with AsyncSession(engine) as session:
         campus = await get_campus_by_id(session, payload.id)
         if not campus:
@@ -1191,16 +1300,10 @@ async def campus_edit(
 @app.post(
     "/class/edit",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
-async def class_edit(
-    request: Request, payload: ClassEditRequest, admin_login=Depends(get_current_user)
-) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
+async def class_edit(request: Request, payload: ClassEditRequest) -> ApiResponse[Any]:
     async with AsyncSession(engine) as session:
         class_ = await get_class_by_id(session, payload.id)
         if not class_:
@@ -1214,17 +1317,16 @@ async def class_edit(
         return ApiResponse(success=True, message="Class edited successfully.")
 
 
-@app.post("/approver/toggle-notification", response_model=ApiResponseBody[Any])
+@app.post(
+    "/approver/toggle-notification",
+    response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
+)
 @limiter.limit("5/second")
 async def approver_toggle(
     request: Request,
     payload: RoomApproverNotificationsToggleRequest,
-    admin_login=Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
     async with AsyncSession(engine) as session:
         approver = await get_room_approver_by_id(session, payload.id)
         if not approver:
@@ -1242,59 +1344,51 @@ async def approver_toggle(
 @app.post(
     "/approver/create",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def approver_create(
     request: Request,
     payload: RoomApproverCreateRequest,
-    admin_login=Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
     async with AsyncSession(engine) as session:
         room = await get_room_by_id(session, payload.room)
-        admin = await get_admin_by_id(session, payload.admin)
+        user = await get_user_by_id(session, payload.userId)
         if not room:
             return ApiResponse(
                 success=False, message="Room not found.", status_code=404
             )
 
-        if not admin:
+        if not user:
             return ApiResponse(
-                success=False, message="Admin not found.", status_code=404
+                success=False, message="User not found.", status_code=404
             )
 
         approvers = await get_room_approvers_by_room_id(session, payload.room)
 
-        if approvers and any(approver.admin == payload.admin for approver in approvers):
+        if approvers and any(
+            approver.userId == payload.userId for approver in approvers
+        ):
             return ApiResponse(
                 success=False,
                 message="Admin is already an approver for this room.",
                 status_code=409,
             )
 
-        await create_room_approver(session, room=room, admin=admin)
+        await create_room_approver(session, room=room, user=user)
         return ApiResponse(success=True, message="Room approver created successfully.")
 
 
 @app.post(
     "/approver/delete",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def approver_delete(
     request: Request,
     payload: RoomApproverDeleteRequest,
-    admin_login=Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
     async with AsyncSession(engine) as session:
         approver = await get_room_approver_by_id(session, payload.id)
         if not approver:
@@ -1307,50 +1401,44 @@ async def approver_delete(
 
 
 @app.get(
-    "/admin/list",
-    response_model=ApiResponseBody[list[AdminResponse]],
+    "/user/list",
+    response_model=ApiResponseBody[list[UserResponse]],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
-async def admin_list(
-    request: Request, admin_login=Depends(get_current_user)
-) -> ApiResponse[list[AdminResponse]]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
-
+async def user_list(request: Request) -> ApiResponse[list[UserResponse]]:
     async with AsyncSession(engine) as session:
-        admins = await get_admins(session)
+        users = await get_users(session)
         res = [
-            AdminResponse(
-                id=admin.id,
-                name=admin.name,
-                email=admin.email,
-                createdAt=admin.createdAt,
+            UserResponse(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                createdAt=user.createdAt,
+                role=user.role,
             )
-            for admin in admins
+            for user in users
         ]
         return ApiResponse(success=True, data=res)
 
 
 @app.post(
-    "/admin/create",
+    "/user/create",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
-async def admin_create(
-    request: Request, payload: AdminCreateRequest, admin_login=Depends(get_current_user)
+async def user_create(
+    request: Request, payload: UserCreateRequest
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
     async with AsyncSession(engine) as session:
-        if await get_admin_by_email(session, payload.email):
+        if await get_user_by_email(session, payload.email):
             return ApiResponse(
-                success=False, message="Admin already exists.", status_code=409
+                success=False, message="User already exists.", status_code=409
             )
-        if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", payload.email):
+        if not re.match(
+            r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", payload.email
+        ):
             return ApiResponse(
                 success=False, message="Invalid email format.", status_code=400
             )
@@ -1360,103 +1448,98 @@ async def admin_create(
                 message="Password must be at least 6 characters.",
                 status_code=400,
             )
-        await create_admin(
+        await create_user(
             session,
             name=payload.name,
             email=payload.email,
             password=password_hash(payload.password),
+            role=payload.role or Role.STUDENT,
+            student_id=None,
         )
-        return ApiResponse(success=True, message="Admin created successfully.")
+        return ApiResponse(success=True, message="User created successfully.")
 
 
 @app.post(
     "/admin/edit-password",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
-async def admin_edit_password(
+async def user_edit_password(
     request: Request,
     payload: AdminEditPasswordRequest,
-    admin_login=Depends(get_current_user),
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
     async with AsyncSession(engine) as session:
-        admin = await get_admin_by_id(session, payload.admin)
-        if not admin:
+        user = await get_user_by_id(session, payload.user)
+        if not user:
             return ApiResponse(
-                success=False, message="Admin not found.", status_code=404
+                success=False, message="User not found.", status_code=404
             )
-        await change_admin_password(
-            session, payload.admin, password_hash(payload.newPassword)
+        await change_user_password(
+            session, payload.user, password_hash(payload.newPassword)
         )
         return ApiResponse(success=True, message="Password changed successfully.")
 
 
 @app.post(
-    "/admin/edit",
+    "/user/edit",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
-async def admin_edit(
-    request: Request, payload: AdminEditRequest, admin_login=Depends(get_current_user)
-) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
+async def user_edit(request: Request, payload: UserEditRequest) -> ApiResponse[Any]:
     async with AsyncSession(engine) as session:
-        admin = await get_admin_by_id(session, payload.id)
-        if not admin:
+        user = await get_user_by_id(session, payload.id)
+        if not user:
             return ApiResponse(
-                success=False, message="Admin not found.", status_code=404
+                success=False, message="User not found.", status_code=404
             )
-        if admin.email != payload.email and await get_admin_by_email(session, payload.email):
+        if user.email != payload.email and await get_user_by_email(
+            session, payload.email
+        ):
             return ApiResponse(
                 success=False, message="Email already in use.", status_code=409
             )
-        if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", payload.email):
+        if not re.match(
+            r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", payload.email
+        ):
             return ApiResponse(
                 success=False, message="Invalid email format.", status_code=400
             )
-        if admin.name == payload.name and admin.email == payload.email:
+        if user.name == payload.name and user.email == payload.email and user.role == payload.role:
             return ApiResponse(success=True, message="No changes detected.")
-        admin.name = payload.name
-        admin.email = payload.email
-        await edit_admin(session, admin)
-        return ApiResponse(success=True, message="Admin edited successfully.")
+        user.name = payload.name
+        user.email = payload.email
+        user.role = payload.role
+        await edit_user(session, user)
+        return ApiResponse(success=True, message="User edited successfully.")
 
 
 @app.post(
-    "/admin/delete",
+    "/user/delete",
     response_model=ApiResponseBody[Any],
+    tags=["user", "role:admin"],
 )
 @limiter.limit("5/second")
 async def admin_delete(
-    request: Request, payload: AdminDeleteRequest, admin_login=Depends(get_current_user)
+    request: Request, payload: UserDeleteRequest
 ) -> ApiResponse[Any]:
-    if not admin_login:
-        return ApiResponse(
-            success=False, message="User is not logged in.", status_code=401
-        )
     async with AsyncSession(engine) as session:
-        admin = await get_admin_by_id(session, payload.id)
-        if not admin:
+        user = await get_user_by_id(session, payload.id)
+        if not user:
             return ApiResponse(
-                success=False, message="Admin not found.", status_code=404
+                success=False, message="User not found.", status_code=404
             )
-        await delete_admin(session, admin)
-        return ApiResponse(success=True, message="Admin deleted successfully.")
+        await delete_user(session, user)
+        return ApiResponse(success=True, message="User deleted successfully.")
 
 
 @app.get(
-    "/analytics/overview",
+    "/reservation/analytics/overview",
     response_model=ApiResponseBody[AnalyticsOverviewResponse],
 )
 @limiter.limit("1/second")
-async def analytics_overview(
+async def reservation_analytics_overview(
     request: Request,
 ) -> ApiResponse[AnalyticsOverviewResponse]:
     daily_reservations: list[int] = []
@@ -1477,8 +1560,10 @@ async def analytics_overview(
     now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     start = now - timedelta(days=365)
     async with AsyncSession(engine) as session:
-        analytics = await get_analytics_between(session, start, now)
-    analytics_by_date: dict[Any, Analytic] = {a.date.date(): a for a in analytics}
+        analytics = await get_reservation_analytics_between(session, start, now)
+    analytics_by_date: dict[Any, ReservationAnalytic] = {
+        a.date.date(): a for a in analytics
+    }
     for i in range(30):
         d = (now - timedelta(days=29 - i)).date()
         a = analytics_by_date.get(d)
@@ -1566,9 +1651,12 @@ async def analytics_overview(
     return ApiResponse(success=True, data=data)
 
 
-@app.get("/analytics/weekly", response_model=ApiResponseBody[AnalyticsWeeklyResponse])
+@app.get(
+    "/reservation/analytics/weekly",
+    response_model=ApiResponseBody[AnalyticsWeeklyResponse],
+)
 @limiter.limit("1/second")
-async def analytics_weekly(
+async def reservation_analytics_weekly(
     request: Request,
 ) -> ApiResponse[AnalyticsWeeklyResponse]:
     def is_meaningful(token: str) -> bool:
@@ -1585,14 +1673,18 @@ async def analytics_weekly(
     end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
     async with AsyncSession(engine) as session:
-        if cached := await get_cache_by_key(session, f"analytics-weekly-{start.date()}"):
+        if cached := await get_cache_by_key(
+            session, f"analytics-weekly-{start.date()}"
+        ):
             return ApiResponse(
                 success=True,
                 data=AnalyticsWeeklyResponse.model_validate(cached.value),
             )
 
-        analytics = await get_analytics_between(session, start, end)
-        analytics_by_date: dict[Any, Analytic] = {a.date.date(): a for a in analytics}
+        analytics = await get_reservation_analytics_between(session, start, end)
+        analytics_by_date: dict[Any, ReservationAnalytic] = {
+            a.date.date(): a for a in analytics
+        }
         total_reservations = 0
         total_reservation_creations = 0
         total_approvals = 0
@@ -1675,9 +1767,9 @@ async def analytics_weekly(
         return ApiResponse(success=True, data=data)
 
 
-@app.get("/analytics/overview/export", response_model=None)
+@app.get("/reservation/analytics/overview/export", response_model=None)
 @limiter.limit("1/second")
-async def analytics_overview_export(
+async def reservation_analytics_overview_export(
     request: Request,
     type: str,
     turnstileToken: str,
@@ -1710,9 +1802,9 @@ async def analytics_overview_export(
     return ApiResponse(success=False, message="Invalid export type.", status_code=400)
 
 
-@app.get("/analytics/weekly/export", response_model=None)
+@app.get("/reservation/analytics/weekly/export", response_model=None)
 @limiter.limit("1/second")
-async def analytics_weekly_export(
+async def reservation_analytics_weekly_export(
     request: Request,
     type: str,
     turnstileToken: str,
@@ -1785,3 +1877,15 @@ async def analytics_weekly_export(
         return ApiResponse(
             success=False, message="Invalid export type.", status_code=400
         )
+
+
+@app.get("/cos/credentials", response_model=ApiResponseBody[COSCredentialsResponse])
+@limiter.limit("5/second")
+async def get_cos_credentials(
+    request: Request, ext: str
+) -> ApiResponse[COSCredentialsResponse]:
+    res = get_temp_cos_security_token(ext)
+    return ApiResponse(
+        success=True,
+        data=res,
+    )

@@ -1,15 +1,19 @@
 from collections import defaultdict
-import secrets
 from typing import Literal, Sequence
-
-import httpx
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from playwright.async_api import async_playwright
-
 from core.env import *
 from core.orm import *
 from core.email import *
+import secrets
+import uuid
+import httpx
+import hashlib
+import hmac
+import time
+import json
+
 
 def get_exported_xlsx(
     reservations: Sequence[Reservation],
@@ -100,11 +104,7 @@ def get_exported_xlsx(
                         room.name if room else None,
                         class_.name if class_ else None,
                         reservation.status.capitalize() if reservation.status else None,
-                        (
-                            reservation.createdAt
-                            if reservation.createdAt
-                            else None
-                        ),
+                        (reservation.createdAt if reservation.createdAt else None),
                         campus.name if campus else None,
                     ]
                 )
@@ -209,16 +209,129 @@ async def ai_approval(session: AsyncSession, id: int) -> None:
             )
         else:
             for approver in reservation.room.approvers:
-                admin = approver.admin
-                if not admin or not approver.notificationsEnabled:
+                user = approver.user
+                if not user or not approver.notificationsEnabled:
                     continue
                 token = secrets.token_hex(32)
                 send_normal_update_with_external_link_email(
                     email_title="New Reservation Request",
-                    title=f"Hi {admin.name}! A new reservation request has been created.",
-                    email=admin.email,
+                    title=f"Hi {user.name}! A new reservation request has been created.",
+                    email=user.email,
                     details=f"Reservation ID #{reservation.id}, click the button below for reservation details.",
                     button_text="View Reservation",
                     link=f"{base_url}/admin/reservation/?token={token}",
                 )
-                await create_temp_admin_login(session, admin.email, token)
+                await create_login_token(session, user.email, token)
+
+
+def get_temp_cos_security_token(ext: str) -> COSCredentialsResponse | None:
+    def generate_cos_key(ext: str) -> str:
+        file_name = f"{uuid.uuid4()}{ext if ext else ''}"
+        return f"file/{datetime.now().strftime('%Y%m%d')}/{file_name}"
+
+    key = generate_cos_key(ext)
+    resource = (
+        f"qcs::cos:{cos_region}:uid/{str(cos_bucket).split('-')[1]}:{cos_bucket}/{key}"
+    )
+    policy = {
+        "version": "2.0",
+        "statement": [
+            {
+                "action": [
+                    "name/cos:PutObject",
+                    "name/cos:InitiateMultipartUpload",
+                    "name/cos:ListMultipartUploads",
+                    "name/cos:ListParts",
+                    "name/cos:UploadPart",
+                    "name/cos:CompleteMultipartUpload",
+                ],
+                "effect": "allow",
+                "resource": [resource],
+                "condition": {
+                    "string_like": {"cos:content-type": "image/*"},
+                    "numeric_less_than_equal": {"cos:content-length": 5 * 1024 * 1024},
+                },
+            }
+        ],
+    }
+
+    action = "GetFederationToken"
+    version = "2018-08-13"
+    algorithm = "TC3-HMAC-SHA256"
+    timestamp = int(time.time())
+    date = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+
+    params = {
+        "DurationSeconds": 180,
+        "Name": "hfi-utility-center-temp-token",
+        "Policy": json.dumps(policy, separators=(",", ":")),
+    }
+    payload = json.dumps(params, separators=(",", ":"))
+
+    ct = "application/json; charset=utf-8"
+    canonical_headers = f"content-type:{ct}\nhost:sts.tencentcloudapi.com\nx-tc-action:{action.lower()}\n"
+    signed_headers = "content-type;host;x-tc-action"
+    hashed_request_payload = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    canonical_request = (
+        f"POST\n/\n\n{canonical_headers}\n{signed_headers}\n{hashed_request_payload}"
+    )
+
+    credential_scope = f"{date}/sts/tc3_request"
+    hashed_canonical_request = hashlib.sha256(
+        canonical_request.encode("utf-8")
+    ).hexdigest()
+    string_to_sign = (
+        f"{algorithm}\n{timestamp}\n{credential_scope}\n{hashed_canonical_request}"
+    )
+
+    def sign(key, msg):
+        return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+    secret_date = sign(("TC3" + cos_secret_key).encode("utf-8"), date)
+    secret_service = sign(secret_date, "sts")
+    secret_signing = sign(secret_service, "tc3_request")
+    signature = hmac.new(
+        secret_signing, string_to_sign.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+    authorization = (
+        f"{algorithm} "
+        f"Credential={cos_secret_id}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, "
+        f"Signature={signature}"
+    )
+
+    headers = {
+        "Content-Type": ct,
+        "Host": "sts.tencentcloudapi.com",
+        "X-TC-Action": action,
+        "X-TC-Version": version,
+        "X-TC-Timestamp": str(timestamp),
+        "X-TC-Region": cos_region,
+        "Authorization": authorization,
+    }
+
+    try:
+        with httpx.Client() as client:
+            response = client.post(
+                "https://sts.tencentcloudapi.com/",
+                headers=headers,
+                content=payload,
+            )
+            data = response.json()
+            print(data)
+            if "Response" not in data or "Credentials" not in data["Response"]:
+                return None
+            return COSCredentialsResponse(
+                **{
+                    **data["Response"]["Credentials"],
+                    "StartTime": timestamp,
+                    "ExpiredTime": data["Response"]["ExpiredTime"],
+                    "Key": key,
+                    "Bucket": cos_bucket,
+                    "Region": cos_region,
+                }
+            )
+    except Exception as e:
+        print(f"Exception getting token: {e}")
+        return None

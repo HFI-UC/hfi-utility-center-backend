@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, Generic, List, Optional, TypeVar, Sequence, Literal
+from enum import Enum
 
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -66,10 +67,10 @@ class Room(SQLModel, table=True):
 class RoomApprover(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     roomId: int | None = Field(default=None, foreign_key="room.id")
-    adminId: int | None = Field(default=None, foreign_key="admin.id")
+    userId: int | None = Field(default=None, foreign_key="user.id")
     notificationsEnabled: bool = Field(default=True)
     room: "Room" = Relationship(back_populates="approvers")
-    admin: "Admin" = Relationship(back_populates="approvers")
+    user: "User" = Relationship(back_populates="approvers")
 
 
 class Reservation(SQLModel, table=True):
@@ -89,7 +90,7 @@ class Reservation(SQLModel, table=True):
     classId: int | None = Field(default=None, foreign_key="class.id")
     studentId: str
     status: str = "pending"
-    latestExecutorId: int | None = Field(default=None, foreign_key="admin.id")
+    latestExecutorId: int | None = Field(default=None, foreign_key="user.id")
     createdAt: datetime = Field(
         sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
@@ -97,7 +98,7 @@ class Reservation(SQLModel, table=True):
     room: "Room" = Relationship(back_populates="reservations")
     class_: "Class" = Relationship(back_populates="reservations")
     logs: List["ReservationOperationLog"] = Relationship(back_populates="reservation")
-    latestExecutor: Optional["Admin"] = Relationship(back_populates="executedReservations")
+    latestExecutor: Optional["User"] = Relationship(back_populates="executedReservations")
 
 
 class RoomPolicy(SQLModel, table=True):
@@ -110,25 +111,31 @@ class RoomPolicy(SQLModel, table=True):
     room: "Room" = Relationship(back_populates="policies")
 
 
-class Admin(SQLModel, table=True):
+class Role(str, Enum):
+    ADMIN = "admin"
+    APPROVER = "approver"
+    TEACHER = "teacher"
+    SYSTEM = "system"
+    STUDENT = "student"
+
+
+class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str
     name: str
     password: str
+    studentId: str | None = Field(default=None)
     createdAt: datetime = Field(
         sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
-    approvers: List["RoomApprover"] = Relationship(back_populates="admin")
-    operationLogs: List["ReservationOperationLog"] = Relationship(
-        back_populates="admin"
-    )
-    executedReservations: List["Reservation"] = Relationship(
-        back_populates="latestExecutor"
-    )
+    role: Role = Field(default=Role.STUDENT)
+    approvers: List["RoomApprover"] = Relationship(back_populates="user")
+    executedReservations: List["Reservation"] = Relationship(back_populates="latestExecutor")
+    operationLogs: List["ReservationOperationLog"] = Relationship(back_populates="user")
 
 
-class TempAdminLogin(SQLModel, table=True):
+class UserLoginToken(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str
     token: str
@@ -137,8 +144,18 @@ class TempAdminLogin(SQLModel, table=True):
         default_factory=None,
     )
 
+class UserRegistrationToken(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    email: str
+    token: str
+    expiry: datetime
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(), server_default=func.now()),
+        default_factory=None,
+    )
 
-class AdminLogin(SQLModel, table=True):
+
+class UserLogin(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str
     cookie: str
@@ -182,7 +199,7 @@ class ErrorLog(SQLModel, table=True):
 
 class ReservationOperationLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    adminId: int | None = Field(default=None, foreign_key="admin.id")
+    userId: int | None = Field(default=None, foreign_key="user.id")
     reservationId: int | None = Field(default=None, foreign_key="reservation.id")
     operation: str
     reason: str | None = None
@@ -190,11 +207,11 @@ class ReservationOperationLog(SQLModel, table=True):
         sa_column=Column(DateTime(), server_default=func.now()),
         default_factory=None,
     )
-    admin: "Admin" = Relationship(back_populates="operationLogs")
+    user: "User" = Relationship(back_populates="operationLogs")
     reservation: "Reservation" = Relationship(back_populates="logs")
 
 
-class Analytic(SQLModel, table=True):
+class ReservationAnalytic(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     date: datetime = Field(
         sa_column=Column(DateTime()),
@@ -243,7 +260,7 @@ class ReservationGetRequest(BaseModel):
     status: str | None
 
 
-class AdminLoginRequest(BaseModel):
+class UserLoginRequest(BaseModel):
     email: str | None
     password: str | None
     token: str | None
@@ -329,7 +346,7 @@ class ClassEditRequest(BaseModel):
 
 class RoomApproverCreateRequest(BaseModel):
     room: int
-    admin: int
+    userId: int
 
 class RoomApproverNotificationsToggleRequest(BaseModel):
     id: int
@@ -338,26 +355,37 @@ class RoomApproverDeleteRequest(BaseModel):
     id: int
 
 
-class AdminCreateRequest(BaseModel):
+class UserCreateRequest(BaseModel):
     name: str
     email: str
     password: str
+    role: Role | None = Role.ADMIN
 
 
 class AdminEditPasswordRequest(BaseModel):
     newPassword: str
-    admin: int
+    user: int
 
 
-class AdminDeleteRequest(BaseModel):
+class UserDeleteRequest(BaseModel):
     id: int
 
 
-class AdminEditRequest(BaseModel):
+class UserEditRequest(BaseModel):
     id: int
     name: str
     email: str
+    role: Role
 
+class UserRegisterRequest(BaseModel):
+    name: str
+    password: str
+    studentId: str | None = None
+    token: str
+
+class UserPreRegisterRequest(BaseModel):
+    email: str
+    turnstileToken: str
 
 class ORMBaseModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -400,14 +428,15 @@ class RoomPolicyResponseBase(ORMBaseModel):
 class RoomApproverResponseBase(ORMBaseModel):
     id: int | None
     roomId: int | None
-    adminId: int | None
+    userId: int | None
     notificationsEnabled: bool
 
 
-class AdminResponse(ORMBaseModel):
+class UserResponse(ORMBaseModel):
     id: int | None
     name: str
     email: str
+    role: Role
     createdAt: datetime | None = None
 
 
@@ -510,6 +539,16 @@ class AnalyticsWeeklyResponse(BaseModel):
     hourlyReservations: List[int]
     dailyReservations: List[int]
     dailyReservationCreations: List[int]
+
+class COSCredentialsResponse(BaseModel):
+    TmpSecretId: str | None
+    TmpSecretKey: str | None
+    Token: str | None
+    Key: str | None
+    Bucket: str | None
+    Region: str | None
+    StartTime: int | None
+    ExpiredTime: int | None
 
 
 class ApiResponseBody(BaseModel, Generic[T]):
