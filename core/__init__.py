@@ -475,7 +475,7 @@ async def reservation_create(
 
         user_reservations = await get_reservation(session, keyword=payload.email, start_time=datetime.fromtimestamp(payload.startTime).replace(hour=0, minute=0, second=0, microsecond=0), end_time=datetime.fromtimestamp(payload.startTime).replace(hour=23, minute=59, second=59, microsecond=999999))
 
-        if len(user_reservations) == 2:
+        if not admin and len(user_reservations) == 2:
             return ApiResponse(
                 success=False,
                 message="You have reached your limit on reservation requests on this day.",
