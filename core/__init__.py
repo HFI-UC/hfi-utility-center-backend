@@ -473,6 +473,15 @@ async def reservation_create(
                 status_code=404,
             )
 
+        user_reservations = await get_reservation(session, keyword=payload.email, start_time=datetime.fromtimestamp(payload.startTime).replace(hour=0, minute=0, second=0, microsecond=0), end_time=datetime.fromtimestamp(payload.startTime).replace(hour=23, minute=59, second=59, microsecond=999999))
+
+        if len(user_reservations) == 2:
+            return ApiResponse(
+                success=False,
+                message="You have reached your limit on today's reservation requests.",
+                status_code=400,
+            )
+
         if admin:
             payload.studentId = "-"
 
