@@ -478,7 +478,7 @@ async def reservation_create(
         if len(user_reservations) == 2:
             return ApiResponse(
                 success=False,
-                message="You have reached your limit on today's reservation requests.",
+                message="You have reached your limit on reservation requests on this day.",
                 status_code=400,
             )
 
