@@ -410,7 +410,7 @@ async def reservation_create(
                 policies = room.policies
                 start_time_obj = datetime.fromtimestamp(_start_time)
                 end_time_obj = datetime.fromtimestamp(_end_time)
-                day = start_time_obj.weekday()
+                day = (start_time_obj.weekday() + 1) % 6 # for the freaking JavaScript Date().getDay()
                 for policy in policies:
                     if not policy.enabled:
                         continue
