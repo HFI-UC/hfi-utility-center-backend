@@ -88,6 +88,10 @@ class Reservation(SQLModel, table=True):
     reason: str
     classId: int | None = Field(default=None, foreign_key="class.id")
     studentId: str
+    purposeType: str = Field(default="personal")
+    multimediaRequired: bool = Field(default=False)
+    multimediaDetails: str | None = Field(default=None)
+    locale: str = Field(default="zh-CN")
     status: str = "pending"
     latestExecutorId: int | None = Field(default=None, foreign_key="admin.id")
     createdAt: datetime = Field(
@@ -149,6 +153,21 @@ class AdminLogin(SQLModel, table=True):
     expiry: datetime = Field(
         sa_column=Column(DateTime()),
         default_factory=lambda: datetime.now() + timedelta(hours=1),
+    )
+
+
+class NativeSession(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    adminEmail: str = Field(index=True)
+    accessTokenHash: str = Field(index=True, unique=True)
+    refreshTokenHash: str = Field(index=True, unique=True)
+    deviceName: str | None = None
+    accessExpiry: datetime
+    refreshExpiry: datetime
+    revokedAt: datetime | None = None
+    createdAt: datetime = Field(
+        sa_column=Column(DateTime(), server_default=func.now()),
+        default_factory=None,
     )
 
 
@@ -221,6 +240,11 @@ class Cache(SQLModel, table=True):
         default_factory=None,
     )
 
+
+class AppSetting(SQLModel, table=True):
+    key: str = Field(primary_key=True)
+    value: str
+
 class AIApprovalResponse(BaseModel):
     status: Literal["approved", "rejected", "pending"]
     message: str | None = None
@@ -235,6 +259,10 @@ class ReservationCreateRequest(BaseModel):
     reason: str
     classId: int
     studentId: str
+    purposeType: Literal["personal", "class", "club"] = "personal"
+    multimediaRequired: bool = False
+    multimediaDetails: str | None = None
+    locale: Literal["zh-CN", "en-US"] = "zh-CN"
 
 
 class ReservationGetRequest(BaseModel):
@@ -419,6 +447,10 @@ class ReservationResponseBase(ORMBaseModel):
     email: str
     reason: str
     status: str
+    purposeType: str = "personal"
+    multimediaRequired: bool = False
+    multimediaDetails: str | None = None
+    locale: str = "zh-CN"
 
 class ReservationResponseDetail(ReservationResponseBase):
     roomName: str | None = None
@@ -516,6 +548,7 @@ class ApiResponseBody(BaseModel, Generic[T]):
     success: bool
     data: Optional[T] = None
     message: Optional[str] = None
+    code: Optional[str] = None
 
 
 class ApiResponse(JSONResponse, Generic[T]):
@@ -524,9 +557,10 @@ class ApiResponse(JSONResponse, Generic[T]):
         success: bool,
         message: Optional[str] = None,
         data: Optional[T] = None,
+        code: Optional[str] = None,
         status_code: int = 200,
         **kwargs: Any,
     ) -> None:
-        body = ApiResponseBody[T](success=success, data=data, message=message)
+        body = ApiResponseBody[T](success=success, data=data, message=message, code=code)
         content = jsonable_encoder(body.model_dump(exclude_none=True))
         super().__init__(content=content, status_code=status_code, **kwargs)

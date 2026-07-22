@@ -27,6 +27,7 @@ import time
 import jieba
 import unicodedata
 import secrets
+import asyncio
 
 
 @asynccontextmanager
@@ -71,7 +72,14 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if request.scope.get("type") != "http":
             return await call_next(request)
 
-        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        authorization = request.headers.get("authorization", "")
+        native_auth_path = request.url.path.startswith("/api/v1/auth/")
+        uses_bearer = authorization.lower().startswith("bearer ")
+        if (
+            request.method in ("POST", "PUT", "DELETE", "PATCH")
+            and not native_auth_path
+            and not uses_bearer
+        ):
             csrf_token = request.headers.get("x-csrf-token", "") or ""
             if not csrf_token or csrf_token not in csrf_tokens:
                 return ApiResponse(
@@ -174,6 +182,20 @@ class LogMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(LogMiddleware)
 
+reservation_create_lock = asyncio.Lock()
+
+class ReservationCreateLockMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method == "POST" and request.url.path in (
+            "/reservation/create",
+            "/api/v1/reservations/create",
+        ):
+            async with reservation_create_lock:
+                return await call_next(request)
+        return await call_next(request)
+
+app.add_middleware(ReservationCreateLockMiddleware)
+
 
 def password_hash(password: str) -> str:
     salt = bcrypt.gensalt()
@@ -188,7 +210,9 @@ def verify_password(password: str, hashed: str) -> bool:
 async def get_current_user(request: Request) -> AdminLogin | None:
     cookie = request.cookies.get("uc")
     if not cookie:
-        return None
+        from core.native_auth import get_native_principal
+
+        return await get_native_principal(request)
     async with AsyncSession(engine) as session:
         user_login = await get_admin_login_by_cookie(session, cookie)
         if not user_login:
@@ -373,6 +397,10 @@ async def class_delete(
     "/reservation/create",
     response_model=ApiResponseBody[ReservationCreateResponse],
 )
+@app.post(
+    "/api/v1/reservations/create",
+    response_model=ApiResponseBody[ReservationCreateResponse],
+)
 @limiter.limit("5/second")
 async def reservation_create(
     request: Request,
@@ -410,7 +438,7 @@ async def reservation_create(
                 policies = room.policies
                 start_time_obj = datetime.fromtimestamp(_start_time)
                 end_time_obj = datetime.fromtimestamp(_end_time)
-                day = (start_time_obj.weekday() + 1) % 6 # for the freaking JavaScript Date().getDay()
+                day = (start_time_obj.weekday() + 1) % 7
                 for policy in policies:
                     if not policy.enabled:
                         continue
@@ -440,10 +468,18 @@ async def reservation_create(
                 return False
             return True
 
-        if not payload.studentId.startswith("GJ") and not len(payload.studentId) == 10 and not re.match(r"^\d{8}$", payload.studentId[2:]):
+        if (
+            not payload.studentId.startswith("GJ")
+            or len(payload.studentId) != 10
+            or not re.match(r"^\d{8}$", payload.studentId[2:])
+        ):
             errors.append("Invalid student ID format.")
         if not validate_email_format(payload.email):
             errors.append("Invalid email format.")
+        if not payload.email.lower().endswith("@gdhfi.com"):
+            errors.append("Email must use the @gdhfi.com domain.")
+        if payload.multimediaRequired and not (payload.multimediaDetails or "").strip():
+            errors.append("Multimedia requirements are required when multimedia is requested.")
         if payload.startTime >= payload.endTime:
             errors.append("Start time must be before end time.")
         if payload.endTime - payload.startTime > 2 * 3600:
@@ -498,16 +534,23 @@ async def reservation_create(
 
         result = await create_reservation(session, payload)
 
+        created_copy = reservation_email_copy(
+            payload.locale,
+            "created",
+            reservation_id=result,
+            student_name=payload.studentName,
+            room_name=room.name if room else "Unknown",
+            time_range=(
+                f"{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - "
+                f"{datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}"
+            ),
+        )
         background_task.add_task(
             send_normal_update_email,
-            email_title="Reservation Created",
-            title=f"Hi {payload.studentName}! Your reservation #{result} has been created.",
+            email_title=created_copy["email_title"],
+            title=created_copy["title"],
             email=payload.email,
-            details=(
-                f"Your reservation #{result} for room {room.name if room else 'Unknown'} for the time period "
-                f"<b>{datetime.fromtimestamp(payload.startTime).strftime('%Y-%m-%d %H:%M')} - "
-                f"{datetime.fromtimestamp(payload.endTime).strftime('%H:%M')}</b> has been created and is currently pending approval."
-            ),
+            details=created_copy["details"],
         )
 
         if admin:
@@ -577,8 +620,19 @@ async def reservation_create(
         )
 
 
+from core.api_v1 import router as api_v1_router
+
+app.include_router(api_v1_router)
+
+
 @app.get(
     "/reservation/get",
+    response_model=ApiResponseBody[
+        ReservationQueryResponse | ReservationFullQueryResponse
+    ],
+)
+@app.get(
+    "/api/v1/reservations",
     response_model=ApiResponseBody[
         ReservationQueryResponse | ReservationFullQueryResponse
     ],
@@ -638,6 +692,10 @@ async def reservation_get(
                         roomName=room_name,
                         className=class_name,
                         status=reservation.status,
+                        purposeType=reservation.purposeType,
+                        multimediaRequired=reservation.multimediaRequired,
+                        multimediaDetails=reservation.multimediaDetails,
+                        locale=reservation.locale,
                         createdAt=reservation.createdAt,
                         campusName=campus_name,
                         latestExecutor=executor,
@@ -786,6 +844,10 @@ async def reservation_future(
                     className=class_name,
                     studentId=reservation.studentId,
                     status=reservation.status,
+                    purposeType=reservation.purposeType,
+                    multimediaRequired=reservation.multimediaRequired,
+                    multimediaDetails=reservation.multimediaDetails,
+                    locale=reservation.locale,
                     createdAt=int(reservation.createdAt.timestamp()),
                     campusName=campus_name,
                 )
@@ -887,12 +949,19 @@ async def reservation_approval(
 
         class_name = reservation.class_.name
         if payload.approved:
+            approval_copy = reservation_email_copy(
+                reservation.locale,
+                "approved",
+                reservation_id=reservation.id,
+                student_name=reservation.studentName,
+                room_name=room.name,
+            )
             background_task.add_task(
                 send_reservation_approval_email,
-                email_title="Reservation Approval",
-                title="Your reservation has been approved!",
+                email_title=approval_copy["email_title"],
+                title=approval_copy["title"],
                 email=reservation.email,
-                details=f"Hi {reservation.studentName}! Your reservation #{reservation.id} for {room.name if room else None} has been approved. Below is the detailed information.",
+                details=approval_copy["details"],
                 user=reservation.studentName,
                 room=room.name if room else "",
                 class_name=class_name or "",
@@ -901,12 +970,20 @@ async def reservation_approval(
                 time=f"{reservation.startTime.strftime('%Y-%m-%d %H:%M')} - {reservation.endTime.strftime('%H:%M')}",
             )
         else:
+            rejection_copy = reservation_email_copy(
+                reservation.locale,
+                "rejected",
+                reservation_id=reservation.id,
+                student_name=reservation.studentName,
+                room_name=room.name,
+                reason=payload.reason,
+            )
             background_task.add_task(
                 send_normal_update_email,
-                email_title="Reservation Rejected",
-                title="Your reservation has been rejected.",
+                email_title=rejection_copy["email_title"],
+                title=rejection_copy["title"],
                 email=reservation.email,
-                details=f"Hi {reservation.studentName}! Your reservation #{reservation.id} for {room.name if room else None} has been rejected. Reason: {payload.reason}",
+                details=rejection_copy["details"],
             )
         return ApiResponse(success=True, message="Reservation updated successfully.")
 

@@ -7,6 +7,7 @@ from sqlmodel import (
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy import inspect, text
 from core.env import *
 from typing import Sequence, List
 from core.types import *
@@ -26,6 +27,20 @@ async def create_error_log(session: AsyncSession, error_log: ErrorLog) -> None:
 async def create_db_and_tables() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
+        await conn.run_sync(_migrate_reservation_columns)
+
+
+def _migrate_reservation_columns(connection) -> None:
+    columns = {column["name"] for column in inspect(connection).get_columns("reservation")}
+    additions = {
+        "purposeType": "VARCHAR NOT NULL DEFAULT 'personal'",
+        "multimediaRequired": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "multimediaDetails": "VARCHAR",
+        "locale": "VARCHAR NOT NULL DEFAULT 'zh-CN'",
+    }
+    for name, definition in additions.items():
+        if name not in columns:
+            connection.execute(text(f'ALTER TABLE reservation ADD COLUMN "{name}" {definition}'))
 
 
 async def create_room(session: AsyncSession, name: str, campus: Campus) -> None:
@@ -85,6 +100,10 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
         reason=request.reason,
         classId=request.classId,
         studentId=request.studentId,
+        purposeType=request.purposeType,
+        multimediaRequired=request.multimediaRequired,
+        multimediaDetails=request.multimediaDetails,
+        locale=request.locale,
     )
     session.add(reservation)
     await session.commit()
@@ -100,6 +119,20 @@ async def create_reservation(session: AsyncSession, request: ReservationCreateRe
     )
     await session.flush()
     return reservation.id or -1
+
+
+async def get_app_setting(session: AsyncSession, key: str, default: str) -> str:
+    setting = await session.get(AppSetting, key)
+    return setting.value if setting else default
+
+
+async def set_app_setting(session: AsyncSession, key: str, value: str) -> None:
+    setting = await session.get(AppSetting, key)
+    if setting:
+        setting.value = value
+    else:
+        session.add(AppSetting(key=key, value=value))
+    await session.commit()
 
 
 async def get_reservation_by_room_id(

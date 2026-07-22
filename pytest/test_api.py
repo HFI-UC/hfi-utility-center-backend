@@ -163,6 +163,11 @@ def client_fixture(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr("core.get_screenshot", fake_screenshot, raising=False)
     monkeypatch.setattr("core.orm.engine", test_engine)
     monkeypatch.setattr("core.engine", test_engine)
+    monkeypatch.setattr("core.api_v1.engine", test_engine)
+    monkeypatch.setattr("core.native_auth.engine", test_engine)
+    monkeypatch.setattr(
+        "core.native_auth.verify_turnstile_token", mock_verify_turnstile_token
+    )
     monkeypatch.setattr("core.env.domain", "testserver")
     monkeypatch.setattr("core.domain", "testserver", raising=False)
     monkeypatch.setattr("core.env.base_url", "https://testserver", raising=False)
@@ -384,9 +389,13 @@ def test_reservation_flow(client: TestClient):
         "endTime": int(end_time.timestamp()),
         "studentName": "Test Student",
         "studentId": "GJ20230000",
-        "email": "student@test.com",
+        "email": "student@gdhfi.com",
         "reason": "Test Reason",
-        "classId": 1
+        "classId": 1,
+        "purposeType": "club",
+        "multimediaRequired": True,
+        "multimediaDetails": "Projector and HDMI input",
+        "locale": "en-US",
     }
     response = client.post("/reservation/create", json=reservation_payload)
     assert response.status_code == 200, response.json()
@@ -481,5 +490,204 @@ def test_analytics(client: TestClient):
     response = client.get("/analytics/weekly/export?type=png&turnstileToken=test")
     assert response.status_code == 200, response.json()
     assert response.headers['content-type'] == 'image/png'
+
+
+def test_api_v1_bootstrap_etag(client: TestClient):
+    response = client.get("/api/v1/bootstrap")
+    assert response.status_code == 200, response.json()
+    assert response.json()["success"] is True
+    assert response.json()["data"]["schemaVersion"] == 2
+    assert response.json()["data"]["specialFacilities"][0]["key"] == "auditorium"
+    assert "dataVersion" in response.json()["data"]
+    etag = response.headers["etag"]
+
+    cached_response = client.get("/api/v1/bootstrap", headers={"If-None-Match": etag})
+    assert cached_response.status_code == 304
+
+
+def test_api_v1_availability_does_not_expose_personal_data(client: TestClient):
+    client.post(
+        "/admin/login",
+        json={
+            "email": "admin@test.com",
+            "password": "password",
+            "turnstileToken": "test",
+            "token": None,
+        },
+    )
+    client.post("/campus/create", json={"name": "Availability Campus"})
+    client.post("/class/create", json={"name": "Availability Class", "campus": 1})
+    client.post("/room/create", json={"name": "Availability Room", "campus": 1})
+    admin_id = client.get("/admin/list").json()["data"][0]["id"]
+    client.post("/approver/create", json={"room": 1, "admin": admin_id})
+
+    from datetime import datetime, timedelta
+
+    start = (datetime.now() + timedelta(days=1)).replace(
+        hour=10, minute=0, second=0, microsecond=0
+    )
+    end = start + timedelta(hours=1)
+    created = client.post(
+        "/reservation/create",
+        json={
+            "room": 1,
+            "startTime": int(start.timestamp()),
+            "endTime": int(end.timestamp()),
+            "studentName": "Private Student",
+            "studentId": "GJ20230000",
+                "email": "private@gdhfi.com",
+            "reason": "Private reason",
+            "classId": 1,
+        },
+    )
+    assert created.status_code == 200, created.json()
+
+    response = client.get(
+        f"/api/v1/availability?roomId=1&date={start.date().isoformat()}"
+    )
+    assert response.status_code == 200, response.json()
+    serialized = response.text
+    assert "Private Student" not in serialized
+    assert "private@gdhfi.com" not in serialized
+    assert "Private reason" not in serialized
+    occupied = [
+        slot
+        for slot in response.json()["data"]["slots"]
+        if slot["status"] == "occupied"
+    ]
+    assert occupied
+
+
+def test_native_token_can_access_legacy_admin_routes(client: TestClient):
+    token_response = client.post(
+        "/api/v1/auth/token",
+        json={
+            "email": "admin@test.com",
+            "password": "password",
+            "turnstileToken": "test",
+            "deviceName": "pytest",
+        },
+    )
+    assert token_response.status_code == 200, token_response.json()
+    tokens = token_response.json()["data"]
+
+    client.cookies.clear()
+    admin_response = client.get(
+        "/admin/list",
+        headers={"Authorization": f"Bearer {tokens['accessToken']}"},
+    )
+    assert admin_response.status_code == 200, admin_response.json()
+    assert admin_response.json()["success"] is True
+
+    refresh_response = client.post(
+        "/api/v1/auth/refresh",
+        json={"refreshToken": tokens["refreshToken"]},
+    )
+    assert refresh_response.status_code == 200, refresh_response.json()
+    refreshed = refresh_response.json()["data"]
+    assert refreshed["accessToken"] != tokens["accessToken"]
+
+    revoke_response = client.post(
+        "/api/v1/auth/revoke",
+        json={"refreshToken": refreshed["refreshToken"]},
+    )
+    assert revoke_response.status_code == 200
+    assert revoke_response.json()["data"]["revoked"] is True
+
+
+def test_v1_reservation_requirements_public_list_and_ai_setting(client: TestClient):
+    login = client.post(
+        "/admin/login",
+        json={
+            "email": "admin@test.com",
+            "password": "password",
+            "turnstileToken": "test",
+            "token": None,
+        },
+    )
+    assert login.status_code == 200
+    assert client.post("/campus/create", json={"name": "V1 Campus"}).status_code == 200
+    assert client.post(
+        "/class/create", json={"name": "V1 Class", "campus": 1}
+    ).status_code == 200
+    assert client.post(
+        "/room/create", json={"name": "V1 Room", "campus": 1}
+    ).status_code == 200
+    admin_id = client.get("/admin/list").json()["data"][0]["id"]
+    assert client.post(
+        "/approver/create", json={"room": 1, "admin": admin_id}
+    ).status_code == 200
+
+    from datetime import datetime, timedelta
+
+    start = datetime.now() + timedelta(days=2)
+    base_payload = {
+        "room": 1,
+        "startTime": int(start.timestamp()),
+        "endTime": int((start + timedelta(hours=1)).timestamp()),
+        "studentName": "中英 Name",
+        "studentId": "GJ20230001",
+        "email": "student@gdhfi.com",
+        "reason": "Detailed class preparation",
+        "classId": 1,
+        "purposeType": "class",
+        "multimediaRequired": False,
+        "multimediaDetails": "",
+        "locale": "zh-CN",
+    }
+
+    invalid_email = client.post(
+        "/api/v1/reservations/create",
+        json={**base_payload, "email": "student@example.com"},
+    )
+    assert invalid_email.status_code == 400
+
+    missing_equipment = client.post(
+        "/api/v1/reservations/create",
+        json={**base_payload, "multimediaRequired": True},
+    )
+    assert missing_equipment.status_code == 400
+
+    created = client.post(
+        "/api/v1/reservations/create",
+        json={
+            **base_payload,
+            "multimediaRequired": True,
+            "multimediaDetails": "Projector",
+        },
+    )
+    assert created.status_code == 200, created.json()
+
+    public_list = client.get("/api/v1/reservations?page=0")
+    assert public_list.status_code == 200, public_list.json()
+    record = public_list.json()["data"]["reservations"][0]
+    assert record["studentName"] == "中英 Name"
+    assert record["email"] == "student@gdhfi.com"
+    assert record["purposeType"] == "class"
+    assert record["multimediaRequired"] is True
+    assert record["multimediaDetails"] == "Projector"
+    assert record["locale"] == "zh-CN"
+
+    token_response = client.post(
+        "/api/v1/auth/token",
+        json={
+            "email": "admin@test.com",
+            "password": "password",
+            "turnstileToken": "test",
+            "deviceName": "pytest-ai-setting",
+        },
+    )
+    access_token = token_response.json()["data"]["accessToken"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    initial = client.get("/api/v1/admin/settings/ai-approval", headers=headers)
+    assert initial.status_code == 200
+    assert initial.json()["data"]["strength"] == "strict"
+    updated = client.put(
+        "/api/v1/admin/settings/ai-approval",
+        headers=headers,
+        json={"strength": "standard"},
+    )
+    assert updated.status_code == 200, updated.json()
+    assert updated.json()["data"]["strength"] == "standard"
 
 
