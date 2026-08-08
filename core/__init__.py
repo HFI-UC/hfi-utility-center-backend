@@ -308,8 +308,13 @@ async def class_list(request: Request) -> ApiResponse[list[ClassResponse]]:
 )
 @limiter.limit("5/second")
 async def campus_delete(
-    request: Request, payload: CampusDeleteRequest
+    request: Request, payload: CampusDeleteRequest, admin_login=Depends(get_current_user)
 ) -> ApiResponse[Any]:
+    if not admin_login:
+        return ApiResponse(
+            success=False, message="User is not logged in.", status_code=401
+        )
+
     async with AsyncSession(engine) as session:
         campus = await get_campus_by_id(session, payload.id)
         if not campus:
@@ -325,7 +330,12 @@ async def campus_delete(
     response_model=ApiResponseBody[Any],
 )
 @limiter.limit("5/second")
-async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiResponse[Any]:
+async def room_delete(request: Request, payload: RoomDeleteRequest, admin_login=Depends(get_current_user)) -> ApiResponse[Any]:
+    if not admin_login:
+        return ApiResponse(
+            success=False, message="User is not logged in.", status_code=401
+        )
+
     async with AsyncSession(engine) as session:
         room = await get_room_by_id(session, payload.id)
         if not room:
@@ -342,8 +352,13 @@ async def room_delete(request: Request, payload: RoomDeleteRequest) -> ApiRespon
 )
 @limiter.limit("5/second")
 async def class_delete(
-    request: Request, payload: ClassDeleteRequest
+    request: Request, payload: ClassDeleteRequest, admin_login=Depends(get_current_user)
 ) -> ApiResponse[Any]:
+    if not admin_login:
+        return ApiResponse(
+            success=False, message="User is not logged in.", status_code=401
+        )
+
     async with AsyncSession(engine) as session:
         class_ = await get_class_by_id(session, payload.id)
         if not class_:
@@ -395,7 +410,7 @@ async def reservation_create(
                 policies = room.policies
                 start_time_obj = datetime.fromtimestamp(_start_time)
                 end_time_obj = datetime.fromtimestamp(_end_time)
-                day = start_time_obj.weekday()
+                day = (start_time_obj.weekday() + 1) % 6 # for the freaking JavaScript Date().getDay()
                 for policy in policies:
                     if not policy.enabled:
                         continue
@@ -456,6 +471,26 @@ async def reservation_create(
                 success=False,
                 message="No approvers found, please contact support.",
                 status_code=404,
+            )
+
+        day_start = datetime.fromtimestamp(payload.startTime).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        day_end = datetime.fromtimestamp(payload.startTime).replace(
+            hour=23, minute=59, second=59, microsecond=999999
+        )
+        _, user_reservation_total = await get_reservation(
+            session,
+            keyword=payload.email,
+            start_time=day_start,
+            end_time=day_end,
+        )
+
+        if not admin and user_reservation_total >= 2:
+            return ApiResponse(
+                success=False,
+                message="You have reached your limit on reservation requests on this day.",
+                status_code=400,
             )
 
         if admin:
@@ -1785,3 +1820,5 @@ async def analytics_weekly_export(
         return ApiResponse(
             success=False, message="Invalid export type.", status_code=400
         )
+
+
