@@ -42,7 +42,7 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
+        "http://localhost:3000",
         "https://www.hfiuc.org",
         "https://preview.hfiuc.org",
     ],
