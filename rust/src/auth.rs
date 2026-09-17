@@ -139,7 +139,7 @@ pub(crate) async fn admin_login(
         response.headers_mut().append(
             header::SET_COOKIE,
             HeaderValue::from_str(&format!(
-                "uc={session}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned"
+                "uc={session}; Path=/; HttpOnly; Secure; SameSite=None"
             ))
             .unwrap(),
         );
@@ -189,7 +189,7 @@ pub(crate) async fn admin_login(
     response.headers_mut().append(
         header::SET_COOKIE,
         HeaderValue::from_str(&format!(
-            "uc={session}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned"
+            "uc={session}; Path=/; HttpOnly; Secure; SameSite=None"
         ))
         .unwrap(),
     );
@@ -212,9 +212,7 @@ pub(crate) async fn admin_logout(State(state): State<AppState>, headers: HeaderM
     let mut response = message("Logout successful.");
     response.headers_mut().append(
         header::SET_COOKIE,
-        HeaderValue::from_static(
-            "uc=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned",
-        ),
+        HeaderValue::from_static("uc=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None"),
     );
     response
 }
