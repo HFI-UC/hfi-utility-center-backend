@@ -1,28 +1,65 @@
 use crate::util::token;
 use crate::*;
 
-pub(crate) fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
+fn cookies(headers: &HeaderMap, name: &str) -> Vec<String> {
     headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|value| {
-            value.split(';').map(str::trim).find_map(|part| {
-                let (key, value) = part.split_once('=')?;
-                (key == name).then(|| value.to_string())
-            })
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|part| {
+            let (key, value) = part.trim().split_once('=')?;
+            (key == name && !value.is_empty()).then(|| value.to_string())
         })
+        .collect()
+}
+
+fn set_session_cookie(response: &mut Response, session: &str) {
+    // Remove the cookie shape used by the previous deployment before setting
+    // the regular same-site cookie. Browsers may otherwise send both values.
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        HeaderValue::from_static(
+            "uc=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned",
+        ),
+    );
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&format!(
+            "uc={session}; Path=/; HttpOnly; Secure; SameSite=Lax"
+        ))
+        .unwrap(),
+    );
+}
+
+fn clear_session_cookies(response: &mut Response) {
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        HeaderValue::from_static("uc=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax"),
+    );
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        HeaderValue::from_static(
+            "uc=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned",
+        ),
+    );
 }
 
 pub(crate) async fn current_admin(state: &AppState, headers: &HeaderMap) -> Option<AdminRow> {
-    let session = cookie(headers, "uc")?;
-    sqlx::query_as::<_, AdminRow>(
-        "SELECT a.id,a.email,a.name,a.password FROM adminlogin l JOIN admin a ON a.email=l.email WHERE l.cookie=$1 AND l.expiry > now()",
-    )
-    .bind(session)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()
+    for session in cookies(headers, "uc") {
+        let admin = sqlx::query_as::<_, AdminRow>(
+            "SELECT a.id,a.email,a.name,a.password FROM adminlogin l JOIN admin a ON a.email=l.email WHERE l.cookie=$1 AND l.expiry > now()",
+        )
+        .bind(session)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+        if admin.is_some() {
+            return admin;
+        }
+    }
+    None
 }
 
 pub(crate) async fn consume_csrf(state: &AppState, headers: &HeaderMap) -> bool {
@@ -136,13 +173,7 @@ pub(crate) async fn admin_login(
             );
         }
         let mut response = message("Login successful.");
-        response.headers_mut().append(
-            header::SET_COOKIE,
-            HeaderValue::from_str(&format!(
-                "uc={session}; Path=/; HttpOnly; Secure; SameSite=None"
-            ))
-            .unwrap(),
-        );
+        set_session_cookie(&mut response, &session);
         return response;
     }
     let Some(email) = payload.email else {
@@ -186,22 +217,17 @@ pub(crate) async fn admin_login(
         );
     }
     let mut response = message("Login successful.");
-    response.headers_mut().append(
-        header::SET_COOKIE,
-        HeaderValue::from_str(&format!(
-            "uc={session}; Path=/; HttpOnly; Secure; SameSite=None"
-        ))
-        .unwrap(),
-    );
+    set_session_cookie(&mut response, &session);
     response
 }
 
 pub(crate) async fn admin_logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let Some(session) = cookie(&headers, "uc") else {
+    let sessions = cookies(&headers, "uc");
+    if sessions.is_empty() {
         return fail(StatusCode::UNAUTHORIZED, "User is not logged in.");
-    };
-    let deleted = sqlx::query("DELETE FROM adminlogin WHERE cookie=$1")
-        .bind(session)
+    }
+    let deleted = sqlx::query("DELETE FROM adminlogin WHERE cookie = ANY($1::text[])")
+        .bind(&sessions)
         .execute(&state.db)
         .await
         .map(|result| result.rows_affected())
@@ -210,10 +236,7 @@ pub(crate) async fn admin_logout(State(state): State<AppState>, headers: HeaderM
         return fail(StatusCode::UNAUTHORIZED, "User is not logged in.");
     }
     let mut response = message("Logout successful.");
-    response.headers_mut().append(
-        header::SET_COOKIE,
-        HeaderValue::from_static("uc=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None"),
-    );
+    clear_session_cookies(&mut response);
     response
 }
 
@@ -239,4 +262,35 @@ pub(crate) async fn require_admin_write(
         ));
     }
     Ok(admin)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_all_duplicate_session_cookies() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            header::COOKIE,
+            HeaderValue::from_static("locale=zh-CN; uc=stale"),
+        );
+        headers.append(
+            header::COOKIE,
+            HeaderValue::from_static("uc=current; theme=light"),
+        );
+
+        assert_eq!(cookies(&headers, "uc"), ["stale", "current"]);
+    }
+
+    #[test]
+    fn ignores_empty_session_cookies() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("uc=; locale=zh-CN"),
+        );
+
+        assert!(cookies(&headers, "uc").is_empty());
+    }
 }
