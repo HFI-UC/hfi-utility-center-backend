@@ -1,5 +1,7 @@
 # HFI Utility Center Rust Backend
 
+<1>
+
 The Rust backend is the production API for HFI Utility Center. It preserves the
 legacy PostgreSQL data model while adding availability queries, reservation
 editing and cancellation, durable email jobs, AI approval, announcements, and
