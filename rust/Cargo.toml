@@ -1,0 +1,39 @@
+[package]
+name = "hfiuc-api"
+version = "2.0.0"
+edition = "2024"
+license = "AGPL-3.0"
+description = "HFI Utility Center high-performance Rust API"
+
+[dependencies]
+axum = { version = "0.8", features = ["macros"] }
+base64 = "0.22"
+bcrypt = "0.17"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+chrono-tz = "0.10"
+http = "1"
+http-body-util = "0.1"
+hyper = "1"
+jsonwebtoken = "9"
+rand = "0.9"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rust_xlsxwriter = "0.92"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "json", "uuid", "macros", "migrate"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "request-id", "timeout", "fs", "set-header"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "abort"
