@@ -1,5 +1,10 @@
-__pycache__
-*.db
-*.env
-cache
-.pytest_cache
+/target/
+/.env
+/deploy/.env
+/backups/
+/secrets/
+*.log
+*.key
+*.pem
+id_*
+*_id_ed25519
