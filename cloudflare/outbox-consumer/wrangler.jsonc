@@ -1,0 +1,19 @@
+{
+  "name": "hfiuc-outbox-consumer",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-23",
+  "vars": {
+    "PHP_PROCESS_URL": "https://api.hfiuc.org/internal/outbox/process"
+  },
+  "queues": {
+    "consumers": [
+      {
+        "queue": "uc",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 8,
+        "retry_delay": 10
+      }
+    ]
+  }
+}
