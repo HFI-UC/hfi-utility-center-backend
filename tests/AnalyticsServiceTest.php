@@ -18,7 +18,13 @@ final class AnalyticsServiceTest extends DatabaseTestCase
         $tomorrow = $noon->modify('+1 day');
         $this->insertReservation($roomId, $tomorrow, $tomorrow->modify('+1 hour'), 'tomorrow@example.com', 'pending');
 
-        $overview = $this->analytics->overview();
+        $this->expectHttp(
+            fn () => $this->analytics->overview($this->request('GET', '/analytics/overview')),
+            401,
+            'User is not logged in.',
+        );
+        $this->insertAdmin('analytics@example.com', 'Analytics');
+        $overview = $this->analytics->overview($this->asAdminRead('analytics@example.com'));
         self::assertSame(1, $overview['today']['reservations']);
         self::assertSame(0, $overview['today']['approvals']);
         self::assertSame(2, $overview['pending']);
@@ -46,7 +52,13 @@ final class AnalyticsServiceTest extends DatabaseTestCase
             );
         }
 
-        $weekly = $this->analytics->weekly();
+        $this->expectHttp(
+            fn () => $this->analytics->weekly($this->request('GET', '/analytics/weekly')),
+            401,
+            'User is not logged in.',
+        );
+        $this->insertAdmin('analytics@example.com', 'Analytics');
+        $weekly = $this->analytics->weekly($this->asAdminRead('analytics@example.com'));
         self::assertSame(3, $weekly['totalReservations']);
         self::assertSame(3, $weekly['totalReservationCreations']);
         self::assertSame(1, $weekly['totalApprovals']);

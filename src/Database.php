@@ -10,25 +10,32 @@ final class Database
 {
     private PDO $pdo;
 
-    public function __construct(Config $config)
+    public function __construct(private readonly Config $config)
     {
-        $dsn = sprintf(
-            'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-            $config->dbHost,
-            $config->dbPort,
-            $config->dbName,
-        );
-        $this->pdo = new PDO($dsn, $config->dbUser, $config->dbPassword, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
-        $this->pdo->exec("SET time_zone = '+08:00'");
+        $this->pdo = $this->connect();
     }
 
     public function pdo(): PDO
     {
         return $this->pdo;
+    }
+
+    public function connect(): PDO
+    {
+        $dsn = sprintf(
+            'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
+            $this->config->dbHost,
+            $this->config->dbPort,
+            $this->config->dbName,
+        );
+        $pdo = new PDO($dsn, $this->config->dbUser, $this->config->dbPassword, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+        $pdo->exec("SET time_zone = '+08:00'");
+
+        return $pdo;
     }
 
     /** @param list<mixed> $params */

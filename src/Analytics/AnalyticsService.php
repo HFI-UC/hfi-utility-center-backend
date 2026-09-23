@@ -18,8 +18,9 @@ final class AnalyticsService
     }
 
     /** @return array<string, mixed> */
-    public function overview(): array
+    public function overview(ServerRequestInterface $request): array
     {
+        $this->auth->requireAdmin($request);
         $start = Clock::now()->setTime(0, 0, 0);
         $end = $start->modify('+1 day');
         $today = $this->count(
@@ -41,8 +42,9 @@ final class AnalyticsService
     }
 
     /** @return array<string, mixed> */
-    public function weekly(): array
+    public function weekly(ServerRequestInterface $request): array
     {
+        $this->auth->requireAdmin($request);
         $end = Clock::now()->setTime(0, 0, 0);
         $start = $end->modify('-7 days');
         $startSql = Clock::sql($start);

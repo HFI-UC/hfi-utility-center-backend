@@ -6,6 +6,7 @@ namespace Hfiuc\Tests;
 
 use Hfiuc\Reservation\ReservationService;
 use Hfiuc\Support\Clock;
+use Hfiuc\Support\RoomLock;
 use Hfiuc\Support\Token;
 use Hfiuc\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -170,6 +171,15 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertNotNull($row);
         self::assertSame('pending', $row['status']);
         self::assertSame($rooms['openRoom'], (int) $row['roomId']);
+        $token = (string) $this->jobPayloads('reservation_created')[0]['cancelToken'];
+        [$nextStart, $nextEnd] = $this->slot(3, 12);
+        $edited = $this->reservations->modify($this->request(
+            'POST',
+            '/reservation/modify',
+            $this->modifyBody($token, $rooms['openRoom'], $nextStart, $nextEnd, 'Moved a historical room'),
+        ));
+        self::assertSame(1, $edited['editCount']);
+        self::assertSame($rooms['openRoom'], (int) $this->db->fetch('SELECT roomId FROM reservation WHERE id = ?', [$created['reservationId']])['roomId']);
     }
 
     public function testQueueFailureRollsBackTheReservation(): void
@@ -560,6 +570,72 @@ final class ReservationServiceTest extends DatabaseTestCase
         [$movedStart, $movedEnd] = $this->slot(6, 19);
         $this->reservations->modify($this->request('POST', '/reservation/modify', $this->modifyBody($approvedToken, $rooms['roomA'], $movedStart, $movedEnd, 'Student changed an approved reservation')));
         self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$approved['reservationId']])['status']);
+    }
+
+    public function testOfficeTeacherEditsKeepTheOverride(): void
+    {
+        $rooms = $this->rooms();
+        $this->people($rooms['roomA'], $rooms['roomB']);
+        [$start, $end] = $this->slot(4, 10);
+        $occupied = $this->createReservation(
+            $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId']),
+            ['x-csrf-token' => $this->csrf()],
+        )['reservationId'];
+        [$night, $nightEnd] = $this->slot(4, 22);
+        $created = $this->createReservation(
+            $this->reservationBody($rooms['roomA'], $night, $nightEnd, $rooms['officeClassId'], [
+                'email' => 'office@example.com',
+                'studentId' => 'not-a-student',
+            ]),
+            ['x-csrf-token' => $this->csrf()],
+        );
+        $id = $created['reservationId'];
+        self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$id])['status']);
+        $token = (string) $this->jobPayloads('reservation_status_changed')[0]['cancelToken'];
+        [$later, $laterEnd] = $this->slot(4, 22, 30);
+        $edited = $this->reservations->modify($this->request(
+            'POST',
+            '/reservation/modify',
+            $this->modifyBody($token, $rooms['roomA'], $later, $laterEnd, 'Office moved outside policy'),
+        ));
+        self::assertSame(1, $edited['editCount']);
+        self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$id])['status']);
+        self::assertSame('Office moved outside policy', $this->db->fetch('SELECT reason FROM reservation WHERE id = ?', [$id])['reason']);
+        self::assertSame([], $this->jobPayloads('ai_approval'));
+
+        $this->reservations->adminEdit($this->asAdmin('super@example.com', $this->editBody($id, $rooms['roomA'], $start, $end, 'Office takes the occupied slot')));
+        self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$id])['status']);
+        self::assertSame(Clock::sql($start), $this->db->fetch('SELECT startTime FROM reservation WHERE id = ?', [$id])['startTime']);
+        self::assertSame('cancelled', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$occupied])['status']);
+    }
+
+    public function testMovingLocksBothRoomsUntilTheTransactionEnds(): void
+    {
+        $rooms = $this->rooms();
+        $lock = new RoomLock($this->db);
+        try {
+            $this->db->transaction(function () use ($lock, $rooms): void {
+                $lock->acquire($rooms['roomB']);
+                $lock->acquire($rooms['roomA']);
+                $owners = [];
+                foreach ([$rooms['roomA'], $rooms['roomB']] as $roomId) {
+                    $owner = $this->db->fetch('SELECT IS_USED_LOCK(?) AS owner', ['hfiuc_room_' . $roomId]);
+                    self::assertNotNull($owner);
+                    self::assertNotNull($owner['owner']);
+                    $owners[] = (string) $owner['owner'];
+                }
+                self::assertNotSame($owners[0], $owners[1]);
+            });
+            foreach ([$rooms['roomA'], $rooms['roomB']] as $roomId) {
+                $stillHeld = $this->db->fetch('SELECT IS_USED_LOCK(?) AS owner', ['hfiuc_room_' . $roomId]);
+                self::assertNotNull($stillHeld);
+                self::assertNotNull($stillHeld['owner']);
+            }
+        } finally {
+            $lock->release();
+        }
+        $released = $this->db->fetch('SELECT IS_USED_LOCK(?) AS owner', ['hfiuc_room_' . $rooms['roomA']]);
+        self::assertTrue($released === null || $released['owner'] === null);
     }
 
     public function testCancelByToken(): void

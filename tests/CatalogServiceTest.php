@@ -214,4 +214,51 @@ final class CatalogServiceTest extends DatabaseTestCase
             'Admin not found.',
         );
     }
+
+    public function testScopedApproverCannotManageAccountsAndInvalidateRequiresAdmin(): void
+    {
+        $campusId = $this->insertCampus('Knowledge City');
+        $roomId = $this->insertRoom('505', $campusId, 1);
+        $scoped = $this->insertAdmin('room@example.com', 'Room');
+        $this->assignRoom($roomId, $scoped);
+        $target = $this->insertAdmin('target@example.com', 'Target', false, 'secret');
+        $denied = 'Only an unrestricted administrator can manage accounts.';
+        $this->expectHttp(
+            fn () => $this->catalog->createAdmin($this->asAdmin('room@example.com', [
+                'name' => 'Evil',
+                'email' => 'evil@example.com',
+                'password' => 'secret1',
+            ])),
+            403,
+            $denied,
+        );
+        $this->expectHttp(
+            fn () => $this->catalog->editPassword($this->asAdmin('room@example.com', [
+                'admin' => $target,
+                'newPassword' => 'secret2',
+            ])),
+            403,
+            $denied,
+        );
+        $this->expectHttp(
+            fn () => $this->catalog->deleteAdmin($this->asAdmin('room@example.com', ['id' => $target])),
+            403,
+            $denied,
+        );
+        self::assertTrue(password_verify('secret', (string) $this->db->fetch('SELECT password FROM admin WHERE id = ?', [$target])['password']));
+        self::assertNull($this->db->fetch('SELECT id FROM admin WHERE email = ?', ['evil@example.com']));
+
+        $this->expectHttp(
+            fn () => $this->catalog->invalidateAndAudit($this->request('POST', '/catalog/invalidate')),
+            401,
+            'User is not logged in.',
+        );
+        $this->db->execute(
+            'INSERT INTO catalogcache (cacheKey, payload, updatedAt) VALUES (?, ?, NOW())',
+            ['campuses', '[]'],
+        );
+        $this->catalog->invalidateAndAudit($this->asAdmin('target@example.com'));
+        self::assertSame(0, (int) $this->db->fetch('SELECT COUNT(*) AS total FROM catalogcache')['total']);
+        self::assertNotNull($this->db->fetch('SELECT id FROM auditlog WHERE action = ?', ['catalog.invalidate']));
+    }
 }

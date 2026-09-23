@@ -199,8 +199,8 @@ final class Application
 
             return Responder::message($response, 'Admin deleted successfully.');
         });
-        $app->get('/analytics/overview', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $analytics->overview()));
-        $app->get('/analytics/weekly', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $analytics->weekly()));
+        $app->get('/analytics/overview', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $analytics->overview($request)));
+        $app->get('/analytics/weekly', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $analytics->weekly($request)));
         $csv = function (ServerRequestInterface $request, ResponseInterface $response) use ($analytics): ResponseInterface {
             $response->getBody()->write($analytics->export($request));
             $response->getBody()->rewind();
@@ -224,7 +224,7 @@ final class Application
             return Responder::message($response, 'Job processed.');
         });
         $app->post('/catalog/invalidate', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
-            $catalog->invalidateAndAudit();
+            $catalog->invalidateAndAudit($request);
 
             return Responder::message($response, 'Catalog cache invalidated.');
         });

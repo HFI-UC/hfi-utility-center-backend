@@ -285,6 +285,7 @@ final class CatalogService
     public function createAdmin(ServerRequestInterface $request): void
     {
         $actor = $this->auth->requireAdminWrite($request);
+        $this->requireSuperAdmin($actor['id']);
         $input = new Input($this->json($request));
         $name = trim((string) $input->string('name'));
         $email = trim((string) $input->string('email'));
@@ -335,7 +336,8 @@ final class CatalogService
 
     public function editPassword(ServerRequestInterface $request): void
     {
-        $this->auth->requireAdminWrite($request);
+        $actor = $this->auth->requireAdminWrite($request);
+        $this->requireSuperAdmin($actor['id']);
         $input = new Input($this->json($request));
         $id = $input->int('admin');
         $password = (string) $input->string('newPassword');
@@ -370,6 +372,7 @@ final class CatalogService
     public function deleteAdmin(ServerRequestInterface $request): void
     {
         $actor = $this->auth->requireAdminWrite($request);
+        $this->requireSuperAdmin($actor['id']);
         $id = (new Input($this->json($request)))->int('id');
         if ($actor['id'] === $id) {
             throw new HttpException(409, 'You cannot delete your active account.');
@@ -385,10 +388,19 @@ final class CatalogService
         $this->db->execute('DELETE FROM catalogcache');
     }
 
-    public function invalidateAndAudit(): void
+    public function invalidateAndAudit(ServerRequestInterface $request): void
     {
+        $this->auth->requireAdminWrite($request);
         $this->invalidate();
         $this->logger->audit('catalog.invalidate', 'catalog');
+    }
+
+    private function requireSuperAdmin(int $adminId): void
+    {
+        $row = $this->db->fetch('SELECT COUNT(*) AS total FROM roomapprover WHERE adminId = ?', [$adminId]);
+        if ((int) ($row['total'] ?? 0) !== 0) {
+            throw new HttpException(403, 'Only an unrestricted administrator can manage accounts.');
+        }
     }
 
     /** @return list<array<string, mixed>> */
