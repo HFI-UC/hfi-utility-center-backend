@@ -1,0 +1,29 @@
+{
+  "name": "hfiuc/api",
+  "description": "HFI Utility Center PHP API",
+  "license": "AGPL-3.0-only",
+  "type": "project",
+  "require": {
+    "php": ">=8.4",
+    "phpmailer/phpmailer": "^6.9",
+    "slim/psr7": "^1.7",
+    "slim/slim": "^4.14",
+    "vlucas/phpdotenv": "^5.6"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.5"
+  },
+  "autoload": {
+    "psr-4": {
+      "Hfiuc\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Hfiuc\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit"
+  }
+}

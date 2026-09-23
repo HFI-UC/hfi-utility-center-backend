@@ -1,6 +1,13 @@
 /target/
 /.env
 /deploy/.env
+/php/.env
+/tests/.env
+/.phpunit.cache/
+/vendor/
+/php/vendor/
+/.cursor/
+/php/.phpunit.cache/
 /backups/
 /secrets/
 *.log
