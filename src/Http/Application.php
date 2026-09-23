@@ -38,7 +38,7 @@ final class Application
         $analytics = new AnalyticsService($db, $auth);
         $app = SlimFactory::create();
 
-        $app->get('/healthz', function (ServerRequestInterface $request, ResponseInterface $response): ResponseInterface {
+        $app->get('/health', function (ServerRequestInterface $request, ResponseInterface $response): ResponseInterface {
             return Responder::data($response, [
                 'status' => 'ok',
                 'service' => 'hfiuc-php',

@@ -6,7 +6,7 @@ info:
 servers:
   - url: https://api.hfiuc.org
 paths:
-  /healthz:
+  /health:
     get:
       summary: Health check
       responses:
