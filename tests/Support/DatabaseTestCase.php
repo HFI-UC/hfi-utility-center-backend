@@ -356,6 +356,7 @@ abstract class DatabaseTestCase extends TestCase
             '',
             '',
             '',
+            true,
             $aiEnabled,
             $aiUrl,
             'test-secret',

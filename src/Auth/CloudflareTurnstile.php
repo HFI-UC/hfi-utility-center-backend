@@ -41,6 +41,8 @@ final class CloudflareTurnstile implements TurnstileVerifier
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 5,
+            CURLOPT_SSL_VERIFYPEER => $this->config->turnstileVerifySsl,
+            CURLOPT_SSL_VERIFYHOST => $this->config->turnstileVerifySsl ? 2 : 0,
             CURLOPT_POSTFIELDS => http_build_query([
                 'secret' => $this->config->cloudflareSecret,
                 'response' => $token,
