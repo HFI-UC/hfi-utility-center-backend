@@ -29,6 +29,7 @@ final class Config
         public readonly string $cfQueueId,
         public readonly string $cfQueueToken,
         public readonly string $queueProcessSecret,
+        public readonly bool $debug,
     ) {
     }
 
@@ -78,6 +79,7 @@ final class Config
             self::string('CF_QUEUE_ID', ''),
             self::string('CF_QUEUE_TOKEN', ''),
             self::string('QUEUE_PROCESS_SECRET', ''),
+            self::bool('DEBUG', false),
         );
     }
 

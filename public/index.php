@@ -12,5 +12,10 @@ try {
     error_log($error->getMessage());
     http_response_code(500);
     header('Content-Type: application/json; charset=utf-8');
-    echo '{"success":false,"message":"Server configuration is missing."}';
+    $debug = filter_var($_ENV['DEBUG'] ?? $_SERVER['DEBUG'] ?? getenv('DEBUG') ?: '', FILTER_VALIDATE_BOOLEAN);
+    $body = ['success' => false, 'message' => 'Server configuration is missing.'];
+    if ($debug) {
+        $body['error'] = \Hfiuc\Http\DebugError::payload($error);
+    }
+    echo json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 }

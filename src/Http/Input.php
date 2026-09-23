@@ -20,13 +20,13 @@ final class Input
     {
         if (!$this->has($key)) {
             if ($required) {
-                throw new HttpException(422, 'Invalid request body.');
+                throw self::invalid($key, 'integer');
             }
 
             return null;
         }
         if (!is_int($this->data[$key])) {
-            throw new HttpException(422, 'Invalid request body.');
+            throw self::invalid($key, 'integer');
         }
 
         return $this->data[$key];
@@ -36,13 +36,13 @@ final class Input
     {
         if (!$this->has($key)) {
             if ($required) {
-                throw new HttpException(422, 'Invalid request body.');
+                throw self::invalid($key, 'string');
             }
 
             return null;
         }
         if (!is_string($this->data[$key])) {
-            throw new HttpException(422, 'Invalid request body.');
+            throw self::invalid($key, 'string');
         }
 
         return $this->data[$key];
@@ -52,13 +52,13 @@ final class Input
     {
         if (!$this->has($key)) {
             if ($default === null) {
-                throw new HttpException(422, 'Invalid request body.');
+                throw self::invalid($key, 'boolean');
             }
 
             return $default;
         }
         if (!is_bool($this->data[$key])) {
-            throw new HttpException(422, 'Invalid request body.');
+            throw self::invalid($key, 'boolean');
         }
 
         return $this->data[$key];
@@ -68,16 +68,24 @@ final class Input
     public function intList(string $key): array
     {
         if (!$this->has($key) || !is_array($this->data[$key])) {
-            throw new HttpException(422, 'Invalid request body.');
+            throw self::invalid($key, 'integer list');
         }
         $values = [];
         foreach ($this->data[$key] as $value) {
             if (!is_int($value)) {
-                throw new HttpException(422, 'Invalid request body.');
+                throw self::invalid($key, 'integer list');
             }
             $values[] = $value;
         }
 
         return $values;
+    }
+
+    private static function invalid(string $field, string $expected): HttpException
+    {
+        return new HttpException(422, 'Invalid request body.', [
+            'field' => $field,
+            'expected' => $expected,
+        ]);
     }
 }

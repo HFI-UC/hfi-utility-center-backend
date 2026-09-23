@@ -19,6 +19,8 @@ final class AuthService
     /** @var list<string> */
     public array $setCookies = [];
 
+    private ?TurnstileVerifier $resolvedTurnstile = null;
+
     public function __construct(
         private readonly Database $db,
         private readonly Config $config,
@@ -118,7 +120,10 @@ final class AuthService
         $turnstile = $input->string('turnstileToken', false);
         if ($turnstile === null || !$this->verifyTurnstile($turnstile)) {
             $this->logger->audit('admin.login.failure', 'admin', null, ['email' => $email, 'reason' => 'turnstile']);
-            throw new HttpException(403, 'Turnstile verification failed.');
+            $detail = $turnstile === null
+                ? ['reason' => 'missing_token']
+                : $this->verifier()->failure();
+            throw new HttpException(403, 'Turnstile verification failed.', $detail);
         }
         $admin = $this->db->fetch('SELECT id, email, name, password FROM admin WHERE email = ?', [$email]);
         if ($admin === null || !password_verify($password, (string) $admin['password'])) {
@@ -223,7 +228,7 @@ final class AuthService
             );
         } catch (PDOException $error) {
             $this->logger->error('Unable to create session', ['error' => $error->getMessage()]);
-            throw new HttpException(500, 'Unable to create session');
+            throw new HttpException(500, 'Unable to create session', [], $error);
         }
         $this->rememberSession($session);
 
@@ -252,9 +257,12 @@ final class AuthService
 
     private function verifyTurnstile(string $token): bool
     {
-        $verifier = $this->turnstile ?? new CloudflareTurnstile($this->config, $this->logger);
+        return $this->verifier()->verify($token);
+    }
 
-        return $verifier->verify($token);
+    private function verifier(): TurnstileVerifier
+    {
+        return $this->resolvedTurnstile ??= $this->turnstile ?? new CloudflareTurnstile($this->config, $this->logger);
     }
 
     /** @return array<string, mixed> */

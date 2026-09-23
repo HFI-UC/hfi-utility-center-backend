@@ -705,6 +705,10 @@ components:
           example: false
         message:
           type: string
+        error:
+          type: object
+          description: Present on every error response when DEBUG=true. Includes the exception type, file, line, stack frames, any field or Turnstile detail, and the previous exception.
+          additionalProperties: true
     ReservationCreate:
       type: object
       required: [room, startTime, endTime, studentName, email, reason, studentId]

@@ -366,6 +366,7 @@ abstract class DatabaseTestCase extends TestCase
             '',
             '',
             '',
+            false,
         );
     }
 

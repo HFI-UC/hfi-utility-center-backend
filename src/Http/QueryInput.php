@@ -18,7 +18,7 @@ final class QueryInput
         }
         $raw = (string) $this->query[$key];
         if (!preg_match('/^-?\d+$/', $raw)) {
-            throw new HttpException(400, 'Invalid query parameter.');
+            throw self::invalid($key, 'integer');
         }
 
         return (int) $raw;
@@ -28,7 +28,7 @@ final class QueryInput
     {
         $value = $this->optionalInt($key);
         if ($value === null) {
-            throw new HttpException(400, 'Invalid query parameter.');
+            throw self::invalid($key, 'integer');
         }
 
         return $value;
@@ -47,7 +47,7 @@ final class QueryInput
     {
         $value = $this->optionalString($key);
         if ($value === null) {
-            throw new HttpException(400, 'Invalid query parameter.');
+            throw self::invalid($key, 'string');
         }
 
         return $value;
@@ -66,6 +66,14 @@ final class QueryInput
         if ($normalized === 'false') {
             return false;
         }
-        throw new HttpException(400, 'Invalid query parameter.');
+        throw self::invalid($key, 'true or false');
+    }
+
+    private static function invalid(string $field, string $expected): HttpException
+    {
+        return new HttpException(400, 'Invalid query parameter.', [
+            'field' => $field,
+            'expected' => $expected,
+        ]);
     }
 }

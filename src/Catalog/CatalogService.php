@@ -127,10 +127,10 @@ final class CatalogService
             $this->db->execute('INSERT INTO class (name, campusId) VALUES (?, ?)', [$name, $campus]);
         } catch (PDOException $error) {
             if ($error->getCode() === '23000') {
-                throw new HttpException(400, 'Invalid campus.');
+                throw new HttpException(400, 'Invalid campus.', [], $error);
             }
             $this->logger->error('Unable to create class', ['error' => $error->getMessage()]);
-            throw new HttpException(500, 'Unable to create class.');
+            throw new HttpException(500, 'Unable to create class.', [], $error);
         }
         $id = $this->db->lastInsertId();
         $this->invalidate();
@@ -148,9 +148,9 @@ final class CatalogService
             $changed = $this->db->execute('UPDATE class SET name = ?, campusId = ? WHERE id = ?', [$name, $campus, $id]);
         } catch (PDOException $error) {
             if ($error->getCode() === '23000') {
-                throw new HttpException(400, 'Invalid campus.');
+                throw new HttpException(400, 'Invalid campus.', [], $error);
             }
-            throw new HttpException(500, 'Unable to edit class.');
+            throw new HttpException(500, 'Unable to edit class.', [], $error);
         }
         if ($changed === 0) {
             throw new HttpException(404, 'Class not found.');
@@ -178,9 +178,9 @@ final class CatalogService
             $this->db->execute('INSERT INTO room (name, campusId, enabled) VALUES (?, ?, 1)', [$name, $campus]);
         } catch (PDOException $error) {
             if ($error->getCode() === '23000') {
-                throw new HttpException(400, 'Invalid campus.');
+                throw new HttpException(400, 'Invalid campus.', [], $error);
             }
-            throw new HttpException(500, 'Unable to create room.');
+            throw new HttpException(500, 'Unable to create room.', [], $error);
         }
         $id = $this->db->lastInsertId();
         $this->invalidate();
@@ -235,9 +235,9 @@ final class CatalogService
             );
         } catch (PDOException $error) {
             if ($error->getCode() === '23000') {
-                throw new HttpException(404, 'Room not found.');
+                throw new HttpException(404, 'Room not found.', [], $error);
             }
-            throw new HttpException(500, 'Unable to create policy.');
+            throw new HttpException(500, 'Unable to create policy.', [], $error);
         }
         $id = $this->db->lastInsertId();
         $this->invalidate();
@@ -300,9 +300,9 @@ final class CatalogService
             $this->db->execute('INSERT INTO admin (name, email, password) VALUES (?, ?, ?)', [$name, $email, $hash]);
         } catch (PDOException $error) {
             if ($error->getCode() === '23000') {
-                throw new HttpException(409, 'Admin already exists.');
+                throw new HttpException(409, 'Admin already exists.', [], $error);
             }
-            throw new HttpException(500, 'Unable to create admin.');
+            throw new HttpException(500, 'Unable to create admin.', [], $error);
         }
         $id = $this->db->lastInsertId();
         $this->logger->setAdminId($actor['id']);
@@ -323,9 +323,9 @@ final class CatalogService
             $changed = $this->db->execute('UPDATE admin SET name = ?, email = ? WHERE id = ?', [$name, $email, $id]);
         } catch (PDOException $error) {
             if ($error->getCode() === '23000') {
-                throw new HttpException(409, 'Admin already exists.');
+                throw new HttpException(409, 'Admin already exists.', [], $error);
             }
-            throw new HttpException(500, 'Unable to edit admin.');
+            throw new HttpException(500, 'Unable to edit admin.', [], $error);
         }
         if ($changed === 0) {
             throw new HttpException(404, 'Admin not found.');
@@ -449,10 +449,10 @@ final class CatalogService
             $changed = $this->db->execute($sql, $params);
         } catch (PDOException $error) {
             if ($error->getCode() === '23000') {
-                throw new HttpException(409, $inUse);
+                throw new HttpException(409, $inUse, [], $error);
             }
             $this->logger->error('Delete failed', ['error' => $error->getMessage()]);
-            throw new HttpException(500, 'Unable to delete record.');
+            throw new HttpException(500, 'Unable to delete record.', [], $error);
         }
         if ($changed === 0) {
             throw new HttpException(404, $missing);
@@ -466,9 +466,9 @@ final class CatalogService
             return $action();
         } catch (PDOException $error) {
             if ($error->getCode() === '23000') {
-                throw new HttpException(400, 'Invalid campus.');
+                throw new HttpException(400, 'Invalid campus.', [], $error);
             }
-            throw new HttpException(500, 'Unable to edit room.');
+            throw new HttpException(500, 'Unable to edit room.', [], $error);
         }
     }
 

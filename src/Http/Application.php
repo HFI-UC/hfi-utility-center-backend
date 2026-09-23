@@ -208,7 +208,7 @@ final class Application
             $provided = $request->getHeaderLine('Authorization');
             $expected = 'Bearer ' . $config->queueProcessSecret;
             if ($config->queueProcessSecret === '' || !hash_equals($expected, $provided)) {
-                return Responder::error($response, 401, 'Unauthorized.');
+                throw new HttpException(401, 'Unauthorized.');
             }
             $body = $request->getAttribute('json');
             $jobId = (new Input(is_array($body) ? $body : []))->int('jobId');
@@ -234,31 +234,32 @@ final class Application
             bool $displayErrorDetails,
             bool $logErrors,
             bool $logErrorDetails,
-        ) use ($logger, $cors): ResponseInterface {
+        ) use ($config, $logger, $cors): ResponseInterface {
             $response = new Response();
             $requestId = $request->getAttribute('requestId');
             if (is_string($requestId) && $requestId !== '') {
                 $response = $response->withHeader('x-request-id', $requestId);
             }
+            $detail = $config->debug ? DebugError::payload($exception) : [];
             if ($exception instanceof HttpException) {
                 if ($exception->status >= 500) {
                     $logger->error($exception->getMessage(), ['status' => $exception->status]);
                 }
 
-                return $cors->decorate($request, Responder::error($response, $exception->status, $exception->getMessage()));
+                return $cors->decorate($request, Responder::error($response, $exception->status, $exception->getMessage(), $detail));
             }
             if ($exception instanceof HttpNotFoundException) {
-                return $cors->decorate($request, Responder::error($response, 404, 'Not found.'));
+                return $cors->decorate($request, Responder::error($response, 404, 'Not found.', $detail));
             }
             if ($exception instanceof HttpMethodNotAllowedException) {
-                return $cors->decorate($request, Responder::error($response, 405, 'Method not allowed.'));
+                return $cors->decorate($request, Responder::error($response, 405, 'Method not allowed.', $detail));
             }
             $logger->error($exception->getMessage(), [
                 'type' => $exception::class,
                 'trace' => substr($exception->getTraceAsString(), 0, 4000),
             ]);
 
-            return $cors->decorate($request, Responder::error($response, 500, 'Internal server error.'));
+            return $cors->decorate($request, Responder::error($response, 500, 'Internal server error.', $detail));
         });
 
         return $app;

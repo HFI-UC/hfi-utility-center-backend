@@ -18,9 +18,10 @@ final class Responder
         return self::send($response, $status, false, null, $message);
     }
 
-    public static function error(ResponseInterface $response, int $status, string $message): ResponseInterface
+    /** @param array<string, mixed> $detail */
+    public static function error(ResponseInterface $response, int $status, string $message, array $detail = []): ResponseInterface
     {
-        return self::send($response, $status, false, null, $message);
+        return self::send($response, $status, false, null, $message, $detail);
     }
 
     private static function send(
@@ -29,6 +30,7 @@ final class Responder
         bool $includeData,
         mixed $data,
         ?string $message,
+        array $detail = [],
     ): ResponseInterface {
         $body = ['success' => $status >= 200 && $status < 300];
         if ($includeData) {
@@ -36,6 +38,9 @@ final class Responder
         }
         if ($message !== null) {
             $body['message'] = $message;
+        }
+        if ($detail !== []) {
+            $body['error'] = $detail;
         }
         $encoded = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($encoded === false) {

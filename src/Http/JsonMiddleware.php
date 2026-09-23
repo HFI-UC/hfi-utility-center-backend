@@ -8,7 +8,6 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Slim\Psr7\Response;
 
 final class JsonMiddleware implements MiddlewareInterface
 {
@@ -19,7 +18,9 @@ final class JsonMiddleware implements MiddlewareInterface
         }
         $contentType = strtolower($request->getHeaderLine('Content-Type'));
         if (!str_contains($contentType, 'application/json')) {
-            return Responder::error(new Response(), 415, 'Content-Type must be application/json.');
+            throw new HttpException(415, 'Content-Type must be application/json.', [
+                'contentType' => $contentType,
+            ]);
         }
         $raw = (string) $request->getBody();
         if (trim($raw) === '') {
@@ -27,11 +28,11 @@ final class JsonMiddleware implements MiddlewareInterface
         }
         try {
             $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return Responder::error(new Response(), 400, 'Invalid JSON.');
+        } catch (\JsonException $error) {
+            throw new HttpException(400, 'Invalid JSON.', ['reason' => $error->getMessage()], $error);
         }
         if (!is_array($decoded)) {
-            return Responder::error(new Response(), 400, 'Invalid JSON.');
+            throw new HttpException(400, 'Invalid JSON.', ['reason' => 'JSON body must be an object.']);
         }
 
         return $handler->handle($request->withAttribute('json', $decoded));

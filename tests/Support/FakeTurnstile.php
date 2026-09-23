@@ -12,4 +12,9 @@ final class FakeTurnstile implements TurnstileVerifier
     {
         return $token === 'pass';
     }
+
+    public function failure(): array
+    {
+        return ['reason' => 'rejected'];
+    }
 }
