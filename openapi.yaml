@@ -1,0 +1,762 @@
+openapi: 3.0.3
+info:
+  title: HFI Utility Center API
+  version: 1.0.0
+  description: PHP Slim API for room reservations, catalog management, and administrator review.
+servers:
+  - url: https://api.hfiuc.org
+paths:
+  /:
+    get:
+      summary: Service landing page
+      responses:
+        '200':
+          description: HTML landing page
+          content:
+            text/html:
+              schema:
+                type: string
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/DataEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            example: ok
+                          service:
+                            type: string
+                            example: hfiuc-php
+                          time:
+                            type: string
+  /_csrf:
+    get:
+      summary: Issue a single-use CSRF token
+      responses:
+        '200':
+          description: Token
+          headers:
+            x-csrf-token:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataEnvelope'
+  /announcement/current:
+    get:
+      summary: Public announcement
+      responses:
+        '200':
+          description: Current announcement, or null when hidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataEnvelope'
+  /announcement/admin:
+    get:
+      summary: Announcement for an administrator
+      security:
+        - session: []
+      responses:
+        '200':
+          description: Stored announcement, including a disabled one
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /announcement/update:
+    post:
+      summary: Replace the global announcement
+      description: Any logged-in administrator with a CSRF token may update it.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content, enabled]
+              properties:
+                title:
+                  type: string
+                  maxLength: 120
+                content:
+                  type: string
+                  maxLength: 4000
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /campus/list:
+    get:
+      summary: List campuses
+      responses:
+        '200':
+          description: Cached campus list
+  /class/list:
+    get:
+      summary: List classes
+      responses:
+        '200':
+          description: Cached class list
+  /room/list:
+    get:
+      summary: List rooms and policies
+      description: Guests receive a cached list. Administrators receive a fresh list.
+      responses:
+        '200':
+          description: Rooms
+  /campus/create:
+    post:
+      summary: Create a campus
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /campus/edit:
+    post:
+      summary: Rename a campus
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          $ref: '#/components/responses/Error'
+  /campus/delete:
+    post:
+      summary: Delete a campus
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '409':
+          $ref: '#/components/responses/Error'
+  /class/create:
+    post:
+      summary: Create a class
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /class/edit:
+    post:
+      summary: Edit a class
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /class/delete:
+    post:
+      summary: Delete a class
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /room/create:
+    post:
+      summary: Create a room
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /room/edit:
+    post:
+      summary: Edit a room
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /room/delete:
+    post:
+      summary: Delete a room
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /policy/create:
+    post:
+      summary: Create a room policy
+      description: Days are 0-6. The end clock must be later than the start clock on the same day.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [room, days, startTime, endTime]
+              properties:
+                room:
+                  type: integer
+                days:
+                  type: array
+                  items:
+                    type: integer
+                startTime:
+                  type: array
+                  items:
+                    type: integer
+                  minItems: 2
+                  maxItems: 2
+                endTime:
+                  type: array
+                  items:
+                    type: integer
+                  minItems: 2
+                  maxItems: 2
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Error'
+  /policy/edit:
+    post:
+      summary: Edit a room policy
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /policy/toggle:
+    post:
+      summary: Enable or disable a room policy
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /policy/delete:
+    post:
+      summary: Delete a room policy
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /reservation/availability:
+    get:
+      summary: Occupied intervals for a room on a date
+      parameters:
+        - in: query
+          name: roomId
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: date
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Occupied intervals, excluding rejected and cancelled reservations
+        '400':
+          $ref: '#/components/responses/Error'
+  /reservation/create:
+    post:
+      summary: Create a reservation
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationCreate'
+      responses:
+        '200':
+          description: Created reservation id
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /reservation/get:
+    get:
+      summary: List reservations
+      description: Guests do not receive email or student ID. Administrators are limited to rooms they can approve, except super admins.
+      responses:
+        '200':
+          description: Page of reservations
+  /reservation/future:
+    get:
+      summary: Future reservations visible to the administrator
+      security:
+        - session: []
+      responses:
+        '200':
+          description: Future reservations
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /reservation/export:
+    get:
+      summary: Export reservations as one XLSX sheet
+      description: mode is included in the download filename. The workbook always contains a single sheet.
+      security:
+        - session: []
+      parameters:
+        - in: query
+          name: mode
+          schema:
+            type: string
+            default: by-room
+        - in: query
+          name: startTime
+          schema:
+            type: integer
+        - in: query
+          name: endTime
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: XLSX file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+  /reservation/cancel/preview:
+    get:
+      summary: Preview a reservation from its management token
+      parameters:
+        - in: query
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reservation preview
+        '404':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+  /reservation/cancel:
+    post:
+      summary: Cancel a reservation with its management token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '409':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+  /reservation/modify:
+    post:
+      summary: Requester edit, limited to two changes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationEdit'
+      responses:
+        '200':
+          description: Updated edit counts
+        '409':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+  /reservation/admin-edit:
+    post:
+      summary: Edit an approved reservation
+      description: The administrator must be able to approve both the current room and the destination room. A room with a null enabled flag remains bookable.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Error'
+  /reservation/approval:
+    post:
+      summary: Approve or reject a pending reservation
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, approved]
+              properties:
+                id:
+                  type: integer
+                approved:
+                  type: boolean
+                reason:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/login:
+    post:
+      summary: Log in with a password or a one-time token
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                turnstileToken:
+                  type: string
+                token:
+                  type: string
+                  description: One-time login token. A token can create only one session.
+      responses:
+        '200':
+          description: Sets the uc session cookie
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/logout:
+    get:
+      summary: Log out
+      security:
+        - session: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/check-login:
+    get:
+      summary: Current administrator identity
+      security:
+        - session: []
+      responses:
+        '200':
+          description: Email and name
+        '400':
+          $ref: '#/components/responses/Error'
+  /admin/list:
+    get:
+      summary: List administrators
+      security:
+        - session: []
+      responses:
+        '200':
+          description: Administrators
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/create:
+    post:
+      summary: Create an administrator
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/edit:
+    post:
+      summary: Edit an administrator
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /admin/edit-password:
+    post:
+      summary: Change an administrator password
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /admin/notification-settings:
+    post:
+      summary: Change reservation notification preference
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /admin/delete:
+    post:
+      summary: Delete another administrator
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '409':
+          $ref: '#/components/responses/Error'
+  /analytics/overview:
+    get:
+      summary: Today's reservation count and pending total
+      responses:
+        '200':
+          description: Overview
+  /analytics/weekly:
+    get:
+      summary: Previous seven days of reservation totals
+      responses:
+        '200':
+          description: Weekly summary
+  /analytics/overview/export:
+    get:
+      summary: Download analytic rows as CSV
+      security:
+        - session: []
+      responses:
+        '200':
+          description: CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+  /analytics/weekly/export:
+    get:
+      summary: Download analytic rows as CSV
+      security:
+        - session: []
+      responses:
+        '200':
+          description: CSV
+  /internal/outbox/process:
+    post:
+      summary: Process one outbox job
+      security:
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jobId]
+              properties:
+                jobId:
+                  type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /catalog/invalidate:
+    post:
+      summary: Clear the catalog cache
+      description: Unauthenticated, matching the previous API. It deletes cached catalog payloads.
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: uc
+    csrf:
+      type: apiKey
+      in: header
+      name: x-csrf-token
+    bearer:
+      type: http
+      scheme: bearer
+  parameters:
+    Csrf:
+      in: header
+      name: x-csrf-token
+      required: true
+      schema:
+        type: string
+  responses:
+    Message:
+      description: Success message
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageEnvelope'
+    Error:
+      description: Request failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Administrator session required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: CSRF token or room permission rejected
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    MessageEnvelope:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+    DataEnvelope:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data: {}
+    ErrorEnvelope:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+    ReservationCreate:
+      type: object
+      required: [room, startTime, endTime, studentName, email, reason, studentId]
+      properties:
+        room:
+          type: integer
+        startTime:
+          type: integer
+          description: Unix seconds
+        endTime:
+          type: integer
+        studentName:
+          type: string
+        email:
+          type: string
+        reason:
+          type: string
+        classId:
+          type: integer
+        studentId:
+          type: string
+        purposeType:
+          type: string
+          enum: [personal, class, club]
+        needsMultimedia:
+          type: boolean
+    ReservationEdit:
+      type: object
+      required: [token, room, startTime, endTime, reason]
+      properties:
+        token:
+          type: string
+        room:
+          type: integer
+        startTime:
+          type: integer
+        endTime:
+          type: integer
+        reason:
+          type: string
+        purposeType:
+          type: string
+          enum: [personal, class, club]
+        needsMultimedia:
+          type: boolean

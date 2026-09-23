@@ -12,7 +12,6 @@ use Hfiuc\Http\Input;
 use Hfiuc\Http\QueryInput;
 use Hfiuc\Log\Logger;
 use Hfiuc\Support\Clock;
-use Hfiuc\Support\RoomLock;
 use Hfiuc\Support\Token;
 use Hfiuc\Worker\Outbox;
 use Hfiuc\Xlsx\SimpleXlsx;
@@ -106,9 +105,7 @@ final class ReservationService
         }
 
         $reservationId = $this->db->transaction(function () use ($roomId, $start, $end, $studentName, $email, $reason, $classId, $studentId, $purpose, $needsMultimedia): int {
-            $lock = new RoomLock($this->db->pdo());
-            try {
-                $lock->acquire($roomId);
+                $this->lockRooms([$roomId]);
                 $room = $this->db->fetch('SELECT id, name, enabled FROM room WHERE id = ?', [$roomId]);
                 if ($room === null) {
                     throw new HttpException(404, 'Room not found.');
@@ -211,9 +208,6 @@ final class ReservationService
                 );
 
                 return $reservationId;
-            } finally {
-                $lock->release();
-            }
         });
         $this->logger->audit('reservation.create', 'reservation', $reservationId, ['roomId' => $roomId]);
 
@@ -399,8 +393,6 @@ final class ReservationService
         }
         [$start, $end] = $this->editTimes($input->int('startTime'), $input->int('endTime'));
         $result = $this->db->transaction(function () use ($token, $roomId, $reason, $purpose, $needsMultimedia, $start, $end): array {
-            $lock = new RoomLock($this->db->pdo());
-            try {
                 $row = $this->db->fetch(
                     'SELECT t.id AS token_id, t.reservationId, t.expiresAt, t.usedAt, r.status, r.startTime, r.editCount FROM reservationcanceltoken t JOIN reservation r ON r.id = t.reservationId WHERE t.tokenHash = ? FOR UPDATE',
                     [Token::hash($token)],
@@ -421,7 +413,7 @@ final class ReservationService
                     throw new HttpException(409, 'This reservation has already been modified twice.');
                 }
                 $reservationId = (int) $row['reservationId'];
-                $lock->acquire($roomId);
+                $this->lockRooms([$roomId]);
                 $this->validateEditedRoom($reservationId, $roomId, $start, $end);
                 $next = $editCount + 1;
                 $this->db->execute(
@@ -439,9 +431,6 @@ final class ReservationService
                 }
 
                 return ['reservationId' => $reservationId, 'editCount' => $next, 'remainingEdits' => 2 - $next];
-            } finally {
-                $lock->release();
-            }
         });
         $this->logger->audit('reservation.modify', 'reservation', $result['reservationId'], ['editCount' => $result['editCount']]);
 
@@ -462,8 +451,6 @@ final class ReservationService
         }
         [$start, $end] = $this->editTimes($input->int('startTime'), $input->int('endTime'));
         $this->db->transaction(function () use ($admin, $id, $roomId, $reason, $purpose, $needsMultimedia, $start, $end): void {
-            $lock = new RoomLock($this->db->pdo());
-            try {
                 $row = $this->db->fetch('SELECT status, endTime, roomId FROM reservation WHERE id = ? FOR UPDATE', [$id]);
                 if ($row === null) {
                     throw new HttpException(404, 'Reservation not found.');
@@ -476,9 +463,7 @@ final class ReservationService
                 if ((string) $row['status'] !== 'approved' || Clock::parseSql((string) $row['endTime']) <= $now) {
                     throw new HttpException(409, 'Only approved, unexpired reservations can be edited by an admin.');
                 }
-                foreach ($this->lockOrder($currentRoom, $roomId) as $lockedRoom) {
-                    $lock->acquire($lockedRoom);
-                }
+                $this->lockRooms([$currentRoom, $roomId]);
                 $this->validateEditedRoom($id, $roomId, $start, $end);
                 $changed = $this->db->execute(
                     'UPDATE reservation SET roomId = ?, startTime = ?, endTime = ?, reason = ?, purposeType = ?, needsMultimedia = ?, latestExecutorId = ? WHERE id = ? AND status = \'approved\'',
@@ -496,9 +481,6 @@ final class ReservationService
                     [$admin['id'], $id],
                 );
                 $this->enqueue('reservation_modified', ['reservationId' => $id, 'status' => 'approved']);
-            } finally {
-                $lock->release();
-            }
         });
         $this->logger->audit('reservation.admin_edit', 'reservation', $id, ['roomId' => $roomId]);
     }
@@ -579,7 +561,7 @@ final class ReservationService
     private function validateEditedRoom(int $reservationId, int $roomId, \DateTimeImmutable $start, \DateTimeImmutable $end): void
     {
         $room = $this->db->fetch('SELECT enabled FROM room WHERE id = ?', [$roomId]);
-        if ($room === null || $room['enabled'] === null || !self::flag($room['enabled'])) {
+        if ($room === null || ($room['enabled'] !== null && !self::flag($room['enabled']))) {
             throw new HttpException(400, 'Room not found or disabled.');
         }
         if (!$this->insidePolicy($roomId, $start, $end)) {
@@ -771,13 +753,25 @@ final class ReservationService
         ];
     }
 
-    /** @return list<int> */
-    private function lockOrder(?int $current, int $target): array
+    /** @param list<int|null> $roomIds */
+    private function lockRooms(array $roomIds): void
     {
-        $rooms = array_values(array_unique(array_filter([$current, $target], static fn (?int $id): bool => $id !== null)));
-        sort($rooms);
-
-        return $rooms;
+        $ids = [];
+        foreach ($roomIds as $roomId) {
+            if ($roomId !== null && $roomId > 0) {
+                $ids[$roomId] = $roomId;
+            }
+        }
+        $ids = array_values($ids);
+        sort($ids);
+        if ($ids === []) {
+            return;
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $this->db->fetchAll(
+            'SELECT id FROM room WHERE id IN (' . $placeholders . ') ORDER BY id FOR UPDATE',
+            $ids,
+        );
     }
 
     /** @param list<mixed> $params */

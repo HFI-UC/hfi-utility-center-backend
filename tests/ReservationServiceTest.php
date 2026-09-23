@@ -170,6 +170,11 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertNotNull($row);
         self::assertSame('pending', $row['status']);
         self::assertSame($rooms['openRoom'], (int) $row['roomId']);
+
+        $this->insertAdmin('super@example.com', 'Super');
+        $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $created['reservationId'], 'approved' => true]));
+        $this->reservations->adminEdit($this->asAdmin('super@example.com', $this->editBody($created['reservationId'], $rooms['openRoom'], $start, $end, 'Still bookable')));
+        self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$created['reservationId']])['status']);
     }
 
     public function testQueueFailureRollsBackTheReservation(): void

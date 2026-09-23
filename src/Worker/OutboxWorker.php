@@ -41,7 +41,7 @@ final class OutboxWorker
         // outboxjob.lockToken is CHAR(36).
         $token = substr(Token::random(), 0, 36);
         $claimed = $this->db->execute(
-            'UPDATE outboxjob SET status = \'processing\', lockedAt = NOW(), attempts = attempts + 1, lockToken = ? WHERE id = ? AND status IN (\'pending\', \'processing\')',
+            'UPDATE outboxjob SET status = \'processing\', lockedAt = NOW(), attempts = attempts + 1, lockToken = ? WHERE id = ? AND (status = \'pending\' OR (status = \'processing\' AND (lockedAt IS NULL OR lockedAt <= DATE_SUB(NOW(), INTERVAL 2 MINUTE))))',
             [$token, $jobId],
         );
         if ($claimed !== 1) {
@@ -57,14 +57,20 @@ final class OutboxWorker
         }
         try {
             $this->dispatch((string) $job['kind'], $payload);
-            $this->db->execute('UPDATE outboxjob SET status = \'completed\', completedAt = NOW() WHERE id = ?', [$jobId]);
+            $completed = $this->db->execute(
+                'UPDATE outboxjob SET status = \'completed\', completedAt = NOW() WHERE id = ? AND lockToken = ?',
+                [$jobId, $token],
+            );
+            if ($completed !== 1) {
+                return;
+            }
             $this->logger->audit('worker.completed', 'outboxjob', $jobId, ['kind' => $job['kind']]);
         } catch (\Throwable $error) {
             $attempts = (int) $job['attempts'];
             $nextStatus = $attempts >= 8 ? 'failed' : 'pending';
             $this->db->execute(
-                'UPDATE outboxjob SET status = ?, lastError = ?, lockToken = NULL WHERE id = ?',
-                [$nextStatus, substr($error->getMessage(), 0, 2000), $jobId],
+                'UPDATE outboxjob SET status = ?, lastError = ?, lockToken = NULL WHERE id = ? AND lockToken = ?',
+                [$nextStatus, substr($error->getMessage(), 0, 2000), $jobId, $token],
             );
             $this->logger->error('Outbox job failed', [
                 'id' => $jobId,

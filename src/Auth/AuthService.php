@@ -180,28 +180,36 @@ final class AuthService
 
     private function loginWithToken(string $loginToken): string
     {
-        $temp = $this->db->fetch(
-            'SELECT id, email FROM tempadminlogin WHERE token = ? AND createdAt > DATE_SUB(NOW(), INTERVAL 15 MINUTE)',
-            [$loginToken],
-        );
-        if ($temp === null) {
-            $this->logger->audit('admin.login.failure', 'admin', null, ['reason' => 'token']);
-            throw new HttpException(400, 'Invalid token or token expired.');
+        try {
+            return $this->db->transaction(function () use ($loginToken): string {
+                $temp = $this->db->fetch(
+                    'SELECT id, email FROM tempadminlogin WHERE token = ? AND createdAt > DATE_SUB(NOW(), INTERVAL 15 MINUTE) FOR UPDATE',
+                    [$loginToken],
+                );
+                if ($temp === null) {
+                    throw new HttpException(400, 'Invalid token or token expired.');
+                }
+                $session = Token::random();
+                $expiry = Clock::sql(Clock::now()->modify('+1 hour'));
+                $this->db->execute(
+                    'INSERT INTO adminlogin (email, cookie, expiry) VALUES (?, ?, ?)',
+                    [$temp['email'], $session, $expiry],
+                );
+                $deleted = $this->db->execute('DELETE FROM tempadminlogin WHERE id = ?', [(int) $temp['id']]);
+                if ($deleted !== 1) {
+                    throw new HttpException(400, 'Invalid token or token expired.');
+                }
+                $this->rememberSession($session);
+                $this->logger->audit('admin.login.success', 'admin', null, ['email' => $temp['email'], 'method' => 'token']);
+
+                return $session;
+            });
+        } catch (HttpException $error) {
+            if ($error->status === 400) {
+                $this->logger->audit('admin.login.failure', 'admin', null, ['reason' => 'token']);
+            }
+            throw $error;
         }
-
-        return $this->db->transaction(function () use ($temp): string {
-            $session = Token::random();
-            $expiry = Clock::sql(Clock::now()->modify('+1 hour'));
-            $this->db->execute(
-                'INSERT INTO adminlogin (email, cookie, expiry) VALUES (?, ?, ?)',
-                [$temp['email'], $session, $expiry],
-            );
-            $this->db->execute('DELETE FROM tempadminlogin WHERE id = ?', [(int) $temp['id']]);
-            $this->rememberSession($session);
-            $this->logger->audit('admin.login.success', 'admin', null, ['email' => $temp['email'], 'method' => 'token']);
-
-            return $session;
-        });
     }
 
     private function createSession(string $email): string

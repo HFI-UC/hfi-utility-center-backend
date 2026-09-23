@@ -36,7 +36,13 @@ final class Rules
             }
         }
 
-        return self::validClock($start) && self::validClock($end);
+        if (!self::validClock($start) || !self::validClock($end)) {
+            return false;
+        }
+        $startMinutes = self::minutes($start);
+        $endMinutes = self::minutes($end);
+
+        return $startMinutes !== null && $endMinutes !== null && $startMinutes < $endMinutes;
     }
 
     /** @param list<int> $clock */

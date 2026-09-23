@@ -40,6 +40,8 @@ final class RulesTest extends TestCase
         self::assertFalse(Rules::validPolicy([7], [8, 0], [9, 0]));
         self::assertFalse(Rules::validPolicy([1], [24, 0], [9, 0]));
         self::assertFalse(Rules::validPolicy([1], [8], [9, 0]));
+        self::assertFalse(Rules::validPolicy([1], [10, 0], [10, 0]));
+        self::assertFalse(Rules::validPolicy([1], [18, 0], [8, 0]));
         self::assertTrue(Rules::validPolicy([0, 6], [8, 0], [21, 30]));
     }
 
