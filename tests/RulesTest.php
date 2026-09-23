@@ -78,6 +78,7 @@ final class RulesTest extends TestCase
             'We received your reservation request. You can review the details below.',
             'A & B',
             'GJ20280001',
+            'G1',
             '505',
             'Knowledge City Campus',
             'Club <meeting>',
@@ -89,9 +90,14 @@ final class RulesTest extends TestCase
         );
         self::assertStringContainsString('A &amp; B', $html);
         self::assertStringContainsString('Club &lt;meeting&gt;', $html);
+        self::assertStringContainsString('Student Class', $html);
+        self::assertStringContainsString('G1', $html);
         self::assertStringContainsString('Manage reservation', $html);
         self::assertStringContainsString('Multimedia equipment required', $html);
         self::assertStringContainsString('https://www.hfiuc.org/reservation/cancel?token=abc', $html);
+        self::assertStringContainsString('Copyright © 2025 MAKERs&#39;.', $html);
+        self::assertStringContainsString('#F97316', $html);
+        self::assertStringContainsString('https://s21.ax1x.com/2025/09/25/pV5T6mt.png', $html);
     }
 
     public function testXlsxContainsHeader(): void

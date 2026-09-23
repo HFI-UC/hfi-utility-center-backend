@@ -129,6 +129,7 @@ final class OutboxWorker
             $details,
             (string) $reservation['studentName'],
             $reservation['studentId'] === null ? '—' : (string) $reservation['studentId'],
+            $reservation['class_name'] === null ? '—' : (string) $reservation['class_name'],
             $reservation['room_name'] === null ? '—' : (string) $reservation['room_name'],
             $reservation['campus_name'] === null ? '—' : (string) $reservation['campus_name'],
             (string) $reservation['reason'],
@@ -177,7 +178,7 @@ final class OutboxWorker
         $reservationId = (int) ($payload['reservationId'] ?? 0);
         $adminId = (int) ($payload['adminId'] ?? 0);
         $row = $this->db->fetch(
-            'SELECT a.email AS admin_email, r.studentName, r.studentId, r.reason, r.startTime, r.endTime, r.purposeType, r.needsMultimedia, rm.name AS room_name, cp.name AS campus_name FROM admin a CROSS JOIN reservation r LEFT JOIN room rm ON rm.id = r.roomId LEFT JOIN campus cp ON cp.id = rm.campusId WHERE a.id = ? AND a.receiveReservationNotifications = 1 AND r.id = ?',
+            'SELECT a.email AS admin_email, r.studentName, r.studentId, r.reason, r.startTime, r.endTime, r.purposeType, r.needsMultimedia, rm.name AS room_name, c.name AS class_name, cp.name AS campus_name FROM admin a CROSS JOIN reservation r LEFT JOIN room rm ON rm.id = r.roomId LEFT JOIN class c ON c.id = r.classId LEFT JOIN campus cp ON cp.id = rm.campusId WHERE a.id = ? AND a.receiveReservationNotifications = 1 AND r.id = ?',
             [$adminId, $reservationId],
         );
         if ($row === null) {
@@ -188,6 +189,7 @@ final class OutboxWorker
             'A new reservation was submitted. Administrators who manage this room can review it in the management platform.',
             (string) $row['studentName'],
             $row['studentId'] === null ? '—' : (string) $row['studentId'],
+            $row['class_name'] === null ? '—' : (string) $row['class_name'],
             $row['room_name'] === null ? '—' : (string) $row['room_name'],
             $row['campus_name'] === null ? '—' : (string) $row['campus_name'],
             (string) $row['reason'],
