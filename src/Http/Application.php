@@ -38,13 +38,6 @@ final class Application
         $analytics = new AnalyticsService($db, $auth);
         $app = SlimFactory::create();
 
-        $app->get('/', function (ServerRequestInterface $request, ResponseInterface $response): ResponseInterface {
-            $html = (string) file_get_contents(dirname(__DIR__, 2) . '/public/index.html');
-            $response->getBody()->write($html);
-            $response->getBody()->rewind();
-
-            return $response->withHeader('Content-Type', 'text/html; charset=utf-8');
-        });
         $app->get('/healthz', function (ServerRequestInterface $request, ResponseInterface $response): ResponseInterface {
             return Responder::data($response, [
                 'status' => 'ok',

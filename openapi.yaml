@@ -6,16 +6,6 @@ info:
 servers:
   - url: https://api.hfiuc.org
 paths:
-  /:
-    get:
-      summary: Service landing page
-      responses:
-        '200':
-          description: HTML landing page
-          content:
-            text/html:
-              schema:
-                type: string
   /healthz:
     get:
       summary: Health check
