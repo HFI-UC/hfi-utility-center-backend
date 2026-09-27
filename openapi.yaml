@@ -471,6 +471,51 @@ paths:
     get:
       summary: List reservations
       description: Public results include the existing name, reason, room, time and status fields, but omit email and student ID. Status is pending, ai_reviewing, approved, rejected or cancelled. Room administrators see only granted rooms; global administrators see all rooms.
+      parameters:
+        - in: query
+          name: keyword
+          schema:
+            type: string
+        - in: query
+          name: campusId
+          schema:
+            type: integer
+        - in: query
+          name: roomId
+          schema:
+            type: integer
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/ReservationStatus'
+        - in: query
+          name: purposeType
+          schema:
+            $ref: '#/components/schemas/PurposeType'
+        - in: query
+          name: needsMultimedia
+          schema:
+            type: boolean
+        - in: query
+          name: startTime
+          schema:
+            type: integer
+            description: Unix seconds
+        - in: query
+          name: endTime
+          schema:
+            type: integer
+            description: Unix seconds
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 0
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [time, sequence]
       responses:
         '200':
           description: Page of reservations
@@ -1240,6 +1285,10 @@ components:
     ReservationStatus:
       type: string
       enum: [pending, ai_reviewing, approved, rejected, cancelled]
+    PurposeType:
+      type: string
+      nullable: true
+      enum: [personal, class, club]
     PriorityConflict:
       type: object
       required: [id, studentName, startTime, endTime, status, roomName]
@@ -1324,8 +1373,7 @@ components:
           type: string
           nullable: true
         purposeType:
-          type: string
-          nullable: true
+          $ref: '#/components/schemas/PurposeType'
         needsMultimedia:
           type: boolean
         editCount:
@@ -1365,8 +1413,7 @@ components:
           type: string
           format: date-time
         purposeType:
-          type: string
-          nullable: true
+          $ref: '#/components/schemas/PurposeType'
         needsMultimedia:
           type: boolean
         editCount:
@@ -1407,6 +1454,7 @@ components:
           type: string
         purposeType:
           type: string
+          nullable: true
           description: Ordinary reservations accept personal, class, or club. Administrator email reservations are not subject to this list.
         needsMultimedia:
           type: boolean
