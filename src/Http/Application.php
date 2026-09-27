@@ -45,6 +45,24 @@ final class Application
                 'time' => gmdate('Y-m-d\TH:i:s\Z'),
             ]);
         });
+        $app->get('/debug', function (ServerRequestInterface $request, ResponseInterface $response) use ($config, $auth, $logger): ResponseInterface {
+            if (!$config->debug) {
+                throw new HttpException(404, 'Not found.');
+            }
+            $admin = $auth->requireAdmin($request);
+            if ($admin['role'] !== 'global') {
+                throw new HttpException(403, 'Global administrator required.');
+            }
+            $logger->audit('debug.secrets.read', 'configuration');
+
+            return Responder::data($response, [
+                'QUEUE_PROCESS_SECRET' => $config->queueProcessSecret,
+                'TASK_PULL_SECRET' => $config->taskPullSecret,
+                'TASK_EXECUTE_SECRET' => $config->taskExecuteSecret,
+            ])
+                ->withHeader('Cache-Control', 'private, no-store')
+                ->withHeader('Pragma', 'no-cache');
+        });
         $app->get('/_csrf', function (ServerRequestInterface $request, ResponseInterface $response) use ($auth): ResponseInterface {
             $token = $auth->issueCsrf();
 

@@ -30,6 +30,50 @@ paths:
                             example: hfiuc-php
                           time:
                             type: string
+  /debug:
+    get:
+      summary: Inspect configured task secrets in debug mode
+      description: Available only when DEBUG=true and the current session belongs to a global administrator. Secret values are returned verbatim.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: Current configured task secrets
+          headers:
+            Cache-Control:
+              description: Prevent storage of the secret-bearing response.
+              schema:
+                type: string
+                enum: ['private, no-store']
+            Pragma:
+              schema:
+                type: string
+                enum: [no-cache]
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    type: object
+                    required: [QUEUE_PROCESS_SECRET, TASK_PULL_SECRET, TASK_EXECUTE_SECRET]
+                    properties:
+                      QUEUE_PROCESS_SECRET:
+                        type: string
+                      TASK_PULL_SECRET:
+                        type: string
+                      TASK_EXECUTE_SECRET:
+                        type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: DEBUG is disabled, so the route is unavailable.
   /_csrf:
     get:
       summary: Issue a single-use CSRF token

@@ -120,9 +120,9 @@ abstract class DatabaseTestCase extends TestCase
         $this->worker = new OutboxWorker($this->db, $this->config, $this->logger, $this->outbox);
     }
 
-    protected function makeConfig(bool $aiEnabled = false, string $aiUrl = '', int $aiAdminId = 0): Config
+    protected function makeConfig(bool $aiEnabled = false, string $aiUrl = '', int $aiAdminId = 0, bool $debug = false): Config
     {
-        return self::configFromEnv($aiEnabled, $aiUrl, $aiAdminId);
+        return self::configFromEnv($aiEnabled, $aiUrl, $aiAdminId, $debug);
     }
 
     protected function truncate(): void
@@ -331,7 +331,7 @@ abstract class DatabaseTestCase extends TestCase
         return $this->reservations->create($this->request('POST', '/reservation/create', $json, [], $headers));
     }
 
-    private static function configFromEnv(bool $aiEnabled = false, string $aiUrl = '', int $aiAdminId = 0): Config
+    private static function configFromEnv(bool $aiEnabled = false, string $aiUrl = '', int $aiAdminId = 0, bool $debug = false): Config
     {
         $values = [];
         foreach (['TEST_DB_HOST', 'TEST_DB_PORT', 'TEST_DB_NAME', 'TEST_DB_USER', 'TEST_DB_PASSWORD'] as $key) {
@@ -367,8 +367,8 @@ abstract class DatabaseTestCase extends TestCase
             '',
             '',
             '',
-            '',
-            false,
+            'test-process',
+            $debug,
             'test-pull',
             'test-execute',
         );

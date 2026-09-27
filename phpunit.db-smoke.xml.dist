@@ -6,6 +6,7 @@
          cacheDirectory=".phpunit.cache">
   <testsuites>
     <testsuite name="remote-db-smoke">
+      <file>tests/DebugRouteTest.php</file>
       <file>tests/AuthServiceTest.php</file>
       <file>tests/CatalogServiceTest.php</file>
       <file>tests/OutboxWorkerTest.php</file>
