@@ -5,6 +5,7 @@
 - Store secret configuration in the repository root `.env` next to `composer.json`, not inside `public/`. PHPUnit database settings live in `tests/.env`.
 - 遵循奥卡姆剃刀原则：如无必要，不新增实体、功能、抽象或依赖；优先复用和扩展已有代码与数据结构，避免重复实现。
 - Persist detailed error logs and audit logs in the MySQL tables `errorlog` and `auditlog`.
+- After every database schema change, add a migration SQL file for existing databases and keep `sql/001_schema.sql` updated as the authoritative root schema. Importing that single file into an empty database must immediately produce the latest usable initial database structure.
 - After every backend change that affects routes, request or response shapes, status codes, or auth, update the OpenAPI document in the same change so it stays in sync with the PHP API.
 - Cover critical business logic, including database behavior, with PHPUnit.
 

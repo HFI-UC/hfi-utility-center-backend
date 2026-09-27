@@ -1,4 +1,6 @@
--- HFI Utility Center MySQL 5.6.51 schema. InnoDB, utf8mb4.
+-- Authoritative HFI Utility Center root schema for MySQL 5.6.51. InnoDB, utf8mb4.
+-- Import this file into an empty database to create the latest usable schema.
+-- Keep it synchronized whenever a database migration changes the schema.
 -- Session time zone is set to +08:00 by the application.
 
 SET NAMES utf8mb4;
