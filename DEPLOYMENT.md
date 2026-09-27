@@ -1,6 +1,6 @@
 # PHP API 与 Cloudflare Queue 上线顺序
 
-当前线上 `https://api.hfiuc.org/healthz` 返回 `hfiuc-rust`。新的 PHP API、数据库迁移和前端必须在同一维护窗口切换；Worker 已按 `main`/`dev` 两套环境部署，但 `DISPATCH_ENABLED=false`，不会提前调用新的 PHP `/tasks` 接口。
+当前线上 `https://api.hfiuc.org/healthz` 返回 `hfiuc-rust`。新的 PHP API、数据库迁移和前端必须在同一维护窗口切换。`dev` Worker 已指向 `https://preview-api.hfiuc.org` 并开启派发；生产 Worker 已部署，但 `DISPATCH_ENABLED=false`，不会提前调用生产环境尚不存在的 PHP `/tasks` 接口。
 
 ## 上线前
 
@@ -9,7 +9,7 @@
 3. 对生产库执行只读 `sql/003_roles_archive_preflight.sql`。若发现孤儿关联，先人工修复，迁移不会替你清空历史 ID。
 4. 在维护窗口停止预约写入，按顺序执行未应用的 `sql/002_drop_campus_is_privileged.sql`、`sql/003_roles_archive.sql`。新库直接使用 `sql/001_schema.sql`。
 5. PHP 根目录 `.env` 配置 `TASK_PULL_SECRET`、`TASK_EXECUTE_SECRET`、Cloudflare Queue 凭据及现有生产依赖；两项新 task secret 分别在对应 Worker 环境中配置为 Cloudflare Secrets。不要写进 `wrangler.jsonc`。
-6. dev Worker 使用独立 `uc-dev` Queue 和独立 dev PHP API。未配置 dev PHP API 前保持 dev 调度关闭。
+6. dev Worker 使用独立 `uc-dev` Queue 和预览 PHP API；生产 PHP API 切换前保持生产 Worker 调度关闭。
 
 ## 切换顺序
 
