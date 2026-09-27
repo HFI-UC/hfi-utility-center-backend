@@ -49,12 +49,6 @@ final class Application
             if (!$config->debug) {
                 throw new HttpException(404, 'Not found.');
             }
-            $admin = $auth->requireAdmin($request);
-            if ($admin['role'] !== 'global') {
-                throw new HttpException(403, 'Global administrator required.');
-            }
-            $logger->audit('debug.secrets.read', 'configuration');
-
             return Responder::data($response, [
                 'QUEUE_PROCESS_SECRET' => $config->queueProcessSecret,
                 'TASK_PULL_SECRET' => $config->taskPullSecret,
