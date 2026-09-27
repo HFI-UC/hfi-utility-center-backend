@@ -8,4 +8,7 @@ interface QueuePublisher
 {
     /** @param array<string, mixed> $body */
     public function publish(array $body): void;
+
+    /** @param list<array<string, mixed>> $bodies */
+    public function publishBatch(array $bodies): void;
 }

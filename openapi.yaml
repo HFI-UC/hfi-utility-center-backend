@@ -99,19 +99,27 @@ paths:
   /campus/list:
     get:
       summary: List campuses
+      description: Public results omit archived campuses. Logged-in administrators may set includeArchived=true to include them with deletedAt and deletedBy.
+      parameters:
+        - $ref: '#/components/parameters/IncludeArchived'
       responses:
         '200':
           description: Cached campus list
   /class/list:
     get:
       summary: List classes
+      description: Public results omit archived classes and classes under archived campuses. Logged-in administrators may set includeArchived=true.
+      parameters:
+        - $ref: '#/components/parameters/IncludeArchived'
       responses:
         '200':
           description: Cached class list
   /room/list:
     get:
       summary: List rooms and policies
-      description: Guests receive a cached list. Administrators receive a fresh list.
+      description: Public results omit archived rooms and rooms under archived campuses. Administrators receive a fresh list and may set includeArchived=true.
+      parameters:
+        - $ref: '#/components/parameters/IncludeArchived'
       responses:
         '200':
           description: Rooms
@@ -147,7 +155,7 @@ paths:
           $ref: '#/components/responses/Error'
   /campus/delete:
     post:
-      summary: Delete a campus
+      summary: Archive a campus
       security:
         - session: []
           csrf: []
@@ -156,6 +164,21 @@ paths:
           $ref: '#/components/responses/Message'
         '409':
           $ref: '#/components/responses/Error'
+  /campus/restore:
+    post:
+      summary: Restore an archived campus
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/IdBody'
+      requestBody:
+        $ref: '#/components/requestBodies/CampusBody'
+      requestBody:
+        $ref: '#/components/requestBodies/IdBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
   /class/create:
     post:
       summary: Create a class
@@ -176,10 +199,27 @@ paths:
           $ref: '#/components/responses/Message'
   /class/delete:
     post:
-      summary: Delete a class
+      summary: Archive a class
       security:
         - session: []
           csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /class/restore:
+    post:
+      summary: Restore an archived class
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/IdBody'
+      requestBody:
+        $ref: '#/components/requestBodies/ClassEditBody'
+      requestBody:
+        $ref: '#/components/requestBodies/ClassBody'
+      requestBody:
+        $ref: '#/components/requestBodies/IdBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
@@ -203,10 +243,27 @@ paths:
           $ref: '#/components/responses/Message'
   /room/delete:
     post:
-      summary: Delete a room
+      summary: Archive a room
       security:
         - session: []
           csrf: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /room/restore:
+    post:
+      summary: Restore an archived room
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/IdBody'
+      requestBody:
+        $ref: '#/components/requestBodies/RoomEditBody'
+      requestBody:
+        $ref: '#/components/requestBodies/RoomBody'
+      requestBody:
+        $ref: '#/components/requestBodies/IdBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
@@ -278,6 +335,7 @@ paths:
   /reservation/availability:
     get:
       summary: Occupied intervals for a room on a date
+      description: Archived rooms and rooms under archived campuses return 404.
       parameters:
         - in: query
           name: roomId
@@ -293,11 +351,45 @@ paths:
       responses:
         '200':
           description: Occupied intervals, excluding rejected and cancelled reservations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [roomId, date, occupied]
+                    properties:
+                      roomId:
+                        type: integer
+                      date:
+                        type: string
+                        format: date
+                      occupied:
+                        type: array
+                        items:
+                          type: object
+                          required: [startTime, endTime, status]
+                          properties:
+                            startTime:
+                              type: string
+                              format: date-time
+                            endTime:
+                              type: string
+                              format: date-time
+                            status:
+                              $ref: '#/components/schemas/ReservationStatus'
         '400':
+          $ref: '#/components/responses/Error'
+        '404':
           $ref: '#/components/responses/Error'
   /reservation/create:
     post:
       summary: Create a reservation
+      description: With preview=true, validates the request without creating a reservation and returns a priority or normal preview. Administrator email addresses (case-insensitive, surrounding whitespace ignored) trigger priority mode. The final priority request requires confirmPriority=true and expectedConflictIds equal to the current overlapping active reservation IDs; a change returns 409 and requires a fresh preview. Priority creation cancels overlapping pending, ai_reviewing and approved reservations. Priority still requires a parseable range with startTime before endTime; ordinary requests retain their duration, date, policy, conflict and daily limits.
       parameters:
         - $ref: '#/components/parameters/Csrf'
       requestBody:
@@ -308,7 +400,19 @@ paths:
               $ref: '#/components/schemas/ReservationCreate'
       responses:
         '200':
-          description: Created reservation id
+          description: Preview result or created reservation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    oneOf:
+                      - $ref: '#/components/schemas/ReservationCreatePreview'
+                      - $ref: '#/components/schemas/ReservationCreateResult'
         '400':
           $ref: '#/components/responses/Error'
         '403':
@@ -317,21 +421,46 @@ paths:
           $ref: '#/components/responses/Error'
         '409':
           $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
   /reservation/get:
     get:
       summary: List reservations
-      description: Guests do not receive email or student ID. Administrators are limited to rooms they can approve, except super admins.
+      description: Public results include the existing name, reason, room, time and status fields, but omit email and student ID. Status is pending, ai_reviewing, approved, rejected or cancelled. Room administrators see only granted rooms; global administrators see all rooms.
       responses:
         '200':
           description: Page of reservations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ReservationPage'
   /reservation/future:
     get:
       summary: Future reservations visible to the administrator
+      description: Includes ai_reviewing reservations; room administrators are limited to granted rooms.
       security:
         - session: []
       responses:
         '200':
           description: Future reservations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Reservation'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /reservation/export:
@@ -378,6 +507,16 @@ paths:
       responses:
         '200':
           description: Reservation preview
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ReservationPreview'
         '404':
           $ref: '#/components/responses/Error'
         '410':
@@ -418,6 +557,8 @@ paths:
           $ref: '#/components/responses/Error'
         '410':
           $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
   /reservation/admin-edit:
     post:
       summary: Edit an approved reservation
@@ -425,12 +566,26 @@ paths:
       security:
         - session: []
           csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/IdBody'
+      requestBody:
+        $ref: '#/components/requestBodies/IdBody'
+      requestBody:
+        $ref: '#/components/requestBodies/PolicyEditBody'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminReservationEdit'
       responses:
         '200':
           $ref: '#/components/responses/Message'
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
+          $ref: '#/components/responses/Error'
+        '422':
           $ref: '#/components/responses/Error'
   /reservation/approval:
     post:
@@ -460,6 +615,36 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /reservation/ai-unlock:
+    post:
+      summary: Global administrator unlocks an AI review
+      description: Moves ai_reviewing back to pending, invalidates older AI task versions and schedules a new AI fallback after 15 minutes.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, reason]
+              properties:
+                id:
+                  type: integer
+                reason:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
           $ref: '#/components/responses/Error'
   /admin/login:
     post:
@@ -504,6 +689,7 @@ paths:
   /admin/check-login:
     get:
       summary: Current administrator identity
+      description: Returns email, name and role (global or room).
       security:
         - session: []
       responses:
@@ -514,6 +700,7 @@ paths:
   /admin/list:
     get:
       summary: List administrators
+      description: Each administrator includes an explicit role (global or room).
       security:
         - session: []
       responses:
@@ -521,12 +708,54 @@ paths:
           description: Administrators
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /admin/permissions:
+    get:
+      summary: List explicit global and room administrator roles and room grants
+      security:
+        - session: []
+      responses:
+        '200':
+          description: List of adminId, role and roomIds
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/permissions/update:
+    post:
+      summary: Global administrator updates a role and its room grants
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [adminId, role, roomIds]
+              properties:
+                adminId:
+                  type: integer
+                role:
+                  type: string
+                  enum: [global, room]
+                roomIds:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Error'
   /admin/create:
     post:
       summary: Create an administrator
       security:
         - session: []
           csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/AdminCreateBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
@@ -538,6 +767,8 @@ paths:
       security:
         - session: []
           csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/AdminEditBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
@@ -547,6 +778,8 @@ paths:
       security:
         - session: []
           csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/AdminPasswordBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
@@ -556,6 +789,8 @@ paths:
       security:
         - session: []
           csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/AdminNotificationBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
@@ -565,6 +800,8 @@ paths:
       security:
         - session: []
           csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/IdBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
@@ -604,7 +841,7 @@ paths:
           description: CSV
   /internal/outbox/process:
     post:
-      summary: Process one outbox job
+      summary: Legacy Queue callback for messages created before the task migration
       security:
         - bearer: []
       requestBody:
@@ -625,6 +862,78 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
         '409':
+          $ref: '#/components/responses/Error'
+  /tasks:
+    get:
+      summary: Claim due tasks for Cloudflare Durable Object recovery dispatch
+      description: Atomically leases at most 50 due pending or expired tasks. Normal immediate tasks are published after the business transaction commits; this endpoint compensates failed publication and dispatches delayed AI tasks.
+      security:
+        - bearer: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 50
+      responses:
+        '200':
+          description: Data envelope containing tasks with taskId, kind and dispatchToken
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [tasks]
+                    properties:
+                      tasks:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/Error'
+  /tasks/{taskId}/execute:
+    post:
+      summary: Execute a leased task from Cloudflare Queue
+      description: Requires a valid dispatch token. Completed and superseded tasks are idempotent no-ops; an active processing lock returns 409.
+      security:
+        - bearer: []
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dispatchToken]
+              properties:
+                dispatchToken:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
           $ref: '#/components/responses/Error'
   /catalog/invalidate:
     post:
@@ -647,12 +956,179 @@ components:
       type: http
       scheme: bearer
   parameters:
+    IncludeArchived:
+      in: query
+      name: includeArchived
+      required: false
+      description: Only available to logged-in administrators.
+      schema:
+        type: boolean
+        default: false
     Csrf:
       in: header
       name: x-csrf-token
       required: true
       schema:
         type: string
+  requestBodies:
+    IdBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [id]
+            properties:
+              id:
+                type: integer
+    CampusBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+    ClassBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [name, campus]
+            properties:
+              name:
+                type: string
+              campus:
+                type: integer
+    ClassEditBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [id, name, campus]
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              campus:
+                type: integer
+    RoomBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [name, campus]
+            properties:
+              name:
+                type: string
+              campus:
+                type: integer
+    RoomEditBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [id, name, campus]
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              campus:
+                type: integer
+              enabled:
+                type: boolean
+    PolicyEditBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [id, days, startTime, endTime]
+            properties:
+              id:
+                type: integer
+              days:
+                type: array
+                items:
+                  type: integer
+              startTime:
+                type: array
+                minItems: 2
+                maxItems: 2
+                items:
+                  type: integer
+              endTime:
+                type: array
+                minItems: 2
+                maxItems: 2
+                items:
+                  type: integer
+    AdminCreateBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [name, email, password]
+            properties:
+              name:
+                type: string
+              email:
+                type: string
+                format: email
+              password:
+                type: string
+                minLength: 6
+    AdminEditBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [id, name, email]
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              email:
+                type: string
+                format: email
+    AdminPasswordBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [admin, newPassword]
+            properties:
+              admin:
+                type: integer
+              newPassword:
+                type: string
+                minLength: 6
+    AdminNotificationBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [id, enabled]
+            properties:
+              id:
+                type: integer
+              enabled:
+                type: boolean
   responses:
     Message:
       description: Success message
@@ -705,12 +1181,167 @@ components:
           example: false
         message:
           type: string
+        validation:
+          type: object
+          description: Safe field and code hints for client-visible validation errors, when available.
+          properties:
+            field:
+              type: string
+            code:
+              type: string
         error:
           type: object
           description: Present on every error response when DEBUG=true. Includes the exception type, file, line, stack frames, any field or Turnstile detail, and the previous exception.
           additionalProperties: true
+    ReservationStatus:
+      type: string
+      enum: [pending, ai_reviewing, approved, rejected, cancelled]
+    PriorityConflict:
+      type: object
+      required: [id, studentName, startTime, endTime, status, roomName]
+      properties:
+        id:
+          type: integer
+        studentName:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/ReservationStatus'
+        roomName:
+          type: string
+    ReservationCreatePreview:
+      type: object
+      required: [mode, conflicts, cancelledCount]
+      properties:
+        mode:
+          type: string
+          enum: [normal, priority]
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriorityConflict'
+        cancelledCount:
+          type: integer
+          minimum: 0
+    ReservationCreateResult:
+      type: object
+      required: [reservationId, mode, cancelledCount]
+      properties:
+        reservationId:
+          type: integer
+        mode:
+          type: string
+          enum: [normal, priority]
+        cancelledCount:
+          type: integer
+          minimum: 0
+    Reservation:
+      type: object
+      required: [id, roomId, startTime, endTime, studentName, studentId, email, reason, status, createdAt, roomName, className, campusName, purposeType, needsMultimedia, editCount]
+      properties:
+        id:
+          type: integer
+        roomId:
+          type: integer
+          nullable: true
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        studentName:
+          type: string
+        studentId:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        reason:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReservationStatus'
+        createdAt:
+          type: string
+          format: date-time
+        roomName:
+          type: string
+          nullable: true
+        className:
+          type: string
+          nullable: true
+        campusName:
+          type: string
+          nullable: true
+        purposeType:
+          type: string
+          nullable: true
+        needsMultimedia:
+          type: boolean
+        editCount:
+          type: integer
+    ReservationPage:
+      type: object
+      required: [reservations, total]
+      properties:
+        reservations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reservation'
+        total:
+          type: integer
+    ReservationPreview:
+      type: object
+      required: [reservationId, roomId, status, roomName, studentName, reason, startTime, endTime, needsMultimedia, editCount, remainingEdits]
+      properties:
+        reservationId:
+          type: integer
+        roomId:
+          type: integer
+          nullable: true
+        status:
+          $ref: '#/components/schemas/ReservationStatus'
+        roomName:
+          type: string
+          nullable: true
+        studentName:
+          type: string
+        reason:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        purposeType:
+          type: string
+          nullable: true
+        needsMultimedia:
+          type: boolean
+        editCount:
+          type: integer
+        remainingEdits:
+          type: integer
+    Task:
+      type: object
+      required: [taskId, kind, dispatchToken]
+      properties:
+        taskId:
+          type: integer
+        kind:
+          type: string
+        dispatchToken:
+          type: string
     ReservationCreate:
       type: object
+      description: For ordinary email addresses, the reason, purpose type, student ID, room policy, room availability, daily count, enabled flag, and date and duration limits apply. Administrator email addresses bypass these business restrictions. The classId remains optional.
       required: [room, startTime, endTime, studentName, email, reason, studentId]
       properties:
         room:
@@ -732,9 +1363,20 @@ components:
           type: string
         purposeType:
           type: string
-          enum: [personal, class, club]
+          description: Ordinary reservations accept personal, class, or club. Administrator email reservations are not subject to this list.
         needsMultimedia:
           type: boolean
+        preview:
+          type: boolean
+          default: false
+        confirmPriority:
+          type: boolean
+          default: false
+        expectedConflictIds:
+          type: array
+          description: Required on final priority creation; must exactly match the IDs returned by the latest preview.
+          items:
+            type: integer
     ReservationEdit:
       type: object
       required: [token, room, startTime, endTime, reason]
@@ -752,5 +1394,26 @@ components:
         purposeType:
           type: string
           enum: [personal, class, club]
+        needsMultimedia:
+          type: boolean
+    AdminReservationEdit:
+      type: object
+      required: [id, room, startTime, endTime, reason]
+      properties:
+        id:
+          type: integer
+        room:
+          type: integer
+        startTime:
+          type: integer
+          description: Unix seconds
+        endTime:
+          type: integer
+        reason:
+          type: string
+        purposeType:
+          type: string
+          enum: [personal, class, club]
+          nullable: true
         needsMultimedia:
           type: boolean

@@ -177,22 +177,22 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$created['reservationId']])['status']);
     }
 
-    public function testQueueFailureRollsBackTheReservation(): void
+    public function testQueueFailureLeavesCommittedReservationAndPendingOutboxTask(): void
     {
         $rooms = $this->rooms();
         [$start, $end] = $this->slot(3, 10);
         $this->queue->fail = true;
-        try {
-            $this->createReservation(
-                $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId']),
-                ['x-csrf-token' => $this->csrf()],
-            );
-            self::fail('Expected the queue failure to abort reservation creation.');
-        } catch (\RuntimeException $error) {
-            self::assertSame('queue down', $error->getMessage());
-        }
-        self::assertSame(0, $this->countRows('reservation'));
-        self::assertSame(0, $this->countRows('outboxjob'));
+        $created = $this->createReservation(
+            $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId']),
+            ['x-csrf-token' => $this->csrf()],
+        );
+        self::assertSame(1, $this->countRows('reservation'));
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$created['reservationId']])['status']);
+        $job = $this->db->fetch("SELECT status, publishedAt, lastError FROM outboxjob WHERE kind = 'reservation_created' ORDER BY id LIMIT 1");
+        self::assertNotNull($job);
+        self::assertSame('pending', $job['status']);
+        self::assertNull($job['publishedAt']);
+        self::assertSame('queue down', $job['lastError']);
     }
 
     public function testConflictsAndDailyLimitIgnoreCancelledButCountRejected(): void
@@ -228,100 +228,72 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertSame(3, $this->countRows('reservation'));
     }
 
-    public function testOfficeTeachersOverridePolicyConflictsAndLimits(): void
+    public function testAdministratorEmailBypassesLimitsAndCancelsOverlaps(): void
     {
         $rooms = $this->rooms();
-        $super = $this->insertAdmin('super@example.com', 'Super', true);
-        $office = $this->insertAdmin('office@example.com', 'Office', true);
-        [$ten, $eleven] = $this->slot(3, 10);
-        [$twelve, $thirteen] = $this->slot(3, 12);
-        [$fourteen, $fifteen] = $this->slot(3, 14);
-        [$sixteen, $seventeen] = $this->slot(3, 16);
-        [$night, $nightEnd] = $this->slot(3, 22);
-        $normal = $this->reservationBody($rooms['roomA'], $ten, $eleven, $rooms['classId'], [
-            'email' => 'office@example.com',
-            'studentId' => 'GJ20240009',
+        $adminId = $this->insertAdmin('admin@example.com', 'Administrator', false);
+        $pastStart = Clock::now()->modify('-1 day')->setTime(10, 0, 0);
+        $pastEnd = $pastStart->modify('+1 hour');
+        $pending = $this->insertReservation($rooms['disabledRoom'], $pastStart, $pastEnd, 'student@example.com', 'pending', $rooms['classId']);
+        $approved = $this->insertReservation($rooms['disabledRoom'], $pastStart, $pastEnd, 'approved@example.com', 'approved', $rooms['classId']);
+        $cancelled = $this->insertReservation($rooms['disabledRoom'], $pastStart, $pastEnd, 'cancelled@example.com', 'cancelled', $rooms['classId']);
+        $rejected = $this->insertReservation($rooms['disabledRoom'], $pastStart, $pastEnd, 'rejected@example.com', 'rejected', $rooms['classId']);
+        $adjacent = $this->insertReservation($rooms['disabledRoom'], $pastStart->modify('+3 hours'), $pastStart->modify('+4 hours'), 'adjacent@example.com', 'pending', $rooms['classId']);
+        $otherRoom = $this->insertReservation($rooms['roomB'], $pastStart, $pastEnd, 'other-room@example.com', 'pending', $rooms['classId']);
+        $body = $this->reservationBody($rooms['disabledRoom'], $pastStart, $pastEnd, $rooms['classId'], [
+            'email' => ' ADMIN@EXAMPLE.COM ',
+            'studentId' => 'not-a-student',
+            'purposeType' => 'unsupported',
+            'reason' => '   ',
+            'endTime' => $pastStart->modify('+3 hours')->getTimestamp(),
         ]);
-        $first = $this->createReservation($normal, ['x-csrf-token' => $this->csrf()]);
-        $secondBody = $normal;
-        $secondBody['startTime'] = $twelve->getTimestamp();
-        $secondBody['endTime'] = $thirteen->getTimestamp();
-        $this->createReservation($secondBody, ['x-csrf-token' => $this->csrf()]);
-        $thirdBody = $normal;
-        $thirdBody['startTime'] = $fourteen->getTimestamp();
-        $thirdBody['endTime'] = $fifteen->getTimestamp();
+        $preview = $this->createReservation($body + ['preview' => true], ['x-csrf-token' => $this->csrf()]);
+        self::assertSame('priority', $preview['mode']);
+        self::assertSame(2, $preview['cancelledCount']);
+        self::assertSame([$pending, $approved], array_column($preview['conflicts'], 'id'));
+        self::assertSame(6, $this->countRows('reservation'));
+        self::assertSame(0, $this->countRows('outboxjob'));
         $this->expectHttp(
-            fn () => $this->createReservation($thirdBody, ['x-csrf-token' => $this->csrf()]),
-            400,
-            'You have reached your limit on reservation requests on this day.',
+            fn () => $this->createReservation($body, ['x-csrf-token' => $this->csrf()]),
+            409,
+            'Priority reservation requires confirmation.',
         );
-
-        $notificationsBefore = array_map(
-            static fn (array $payload): int => (int) $payload['adminId'],
-            $this->jobPayloads('admin_reservation_notification'),
+        $this->expectHttp(
+            fn () => $this->createReservation($body + ['confirmPriority' => true, 'expectedConflictIds' => [$pending]], ['x-csrf-token' => $this->csrf()]),
+            409,
+            'Conflicts changed. Preview the priority reservation again.',
         );
-        sort($notificationsBefore);
-        self::assertSame([$super, $super, $office, $office], $notificationsBefore);
-
-        $priority = $thirdBody;
-        $priority['classId'] = $rooms['officeClassId'];
-        $priority['studentId'] = 'not-a-student';
-        $priorityId = $this->createReservation($priority, ['x-csrf-token' => $this->csrf()])['reservationId'];
-        $priorityRow = $this->db->fetch('SELECT status, studentId, latestExecutorId FROM reservation WHERE id = ?', [$priorityId]);
-        self::assertNotNull($priorityRow);
-        self::assertSame('approved', $priorityRow['status']);
-        self::assertSame('-', $priorityRow['studentId']);
-        self::assertSame($office, (int) $priorityRow['latestExecutorId']);
-        self::assertCount(4, $this->jobPayloads('admin_reservation_notification'));
+        $created = $this->createReservation($body + ['confirmPriority' => true, 'expectedConflictIds' => [$pending, $approved]], ['x-csrf-token' => $this->csrf()]);
+        self::assertSame(2, $created['cancelledCount']);
+        $row = $this->db->fetch('SELECT status, studentId, latestExecutorId, roomId, email FROM reservation WHERE id = ?', [$created['reservationId']]);
+        self::assertNotNull($row);
+        self::assertSame('approved', $row['status']);
+        self::assertSame('not-a-student', $row['studentId']);
+        self::assertSame($adminId, (int) $row['latestExecutorId']);
+        self::assertSame($rooms['disabledRoom'], (int) $row['roomId']);
+        self::assertSame(' ADMIN@EXAMPLE.COM ', $row['email']);
         self::assertSame('approved', $this->jobPayloads('reservation_status_changed')[0]['status']);
+        self::assertSame([], $this->jobPayloads('admin_reservation_notification'));
+        self::assertSame([], $this->jobPayloads('ai_approval'));
 
-        $override = $normal;
-        $override['classId'] = $rooms['officeClassId'];
-        $override['studentId'] = 'GJ20240009';
-        $this->createReservation($override, ['x-csrf-token' => $this->csrf()]);
-        $displaced = $this->db->fetch('SELECT status, latestExecutorId FROM reservation WHERE id = ?', [$first['reservationId']]);
-        self::assertNotNull($displaced);
-        self::assertSame('cancelled', $displaced['status']);
-        self::assertSame($office, (int) $displaced['latestExecutorId']);
-        $priorityLog = $this->db->fetch(
-            'SELECT operation, reason FROM reservationoperationlog WHERE reservationId = ? AND operation = \'cancelled_by_priority\'',
-            [$first['reservationId']],
-        );
-        self::assertNotNull($priorityLog);
-        self::assertSame('Cancelled because an Office Teachers priority reservation occupies this time', $priorityLog['reason']);
-        self::assertSame('higher_priority', $this->jobPayloads('reservation_cancelled')[0]['reason']);
-        self::assertCount(4, $this->jobPayloads('admin_reservation_notification'));
+        self::assertSame('cancelled', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$pending])['status']);
+        self::assertSame('cancelled', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$approved])['status']);
+        self::assertSame('cancelled', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$cancelled])['status']);
+        self::assertSame('rejected', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$rejected])['status']);
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$adjacent])['status']);
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$otherRoom])['status']);
+        self::assertSame($adminId, (int) $this->db->fetch('SELECT latestExecutorId FROM reservation WHERE id = ?', [$pending])['latestExecutorId']);
+        $priorityLog = $this->db->fetch('SELECT reason FROM reservationoperationlog WHERE reservationId = ? AND operation = \'cancelled_by_priority\'', [$pending]);
+        self::assertSame('Cancelled because an administrator priority reservation occupies this time', $priorityLog['reason']);
+        self::assertCount(2, $this->jobPayloads('reservation_cancelled'));
 
-        $studentNight = $this->reservationBody($rooms['roomA'], $night, $nightEnd, $rooms['classId'], [
-            'email' => 'student@example.com',
-        ]);
+        $normalStart = Clock::now()->modify('+3 days')->setTime(22, 0, 0);
+        $normalEnd = $normalStart->modify('+1 hour');
+        $normal = $this->reservationBody($rooms['roomA'], $normalStart, $normalEnd, $rooms['classId'], ['email' => 'student@example.com']);
         $this->expectHttp(
-            fn () => $this->createReservation($studentNight, ['x-csrf-token' => $this->csrf()]),
+            fn () => $this->createReservation($normal, ['x-csrf-token' => $this->csrf()]),
             400,
             'Requested time is outside the room\'s bookable hours.',
-        );
-        $officeNight = $studentNight;
-        $officeNight['email'] = 'office@example.com';
-        $officeNight['classId'] = $rooms['officeClassId'];
-        $nightId = $this->createReservation($officeNight, ['x-csrf-token' => $this->csrf()])['reservationId'];
-        self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$nightId])['status']);
-
-        $stranger = $this->reservationBody($rooms['roomA'], $sixteen, $seventeen, $rooms['officeClassId'], [
-            'email' => 'stranger@example.com',
-        ]);
-        $this->expectHttp(
-            fn () => $this->createReservation($stranger, ['x-csrf-token' => $this->csrf()]),
-            403,
-            'Office Teachers reservations require an administrator email address.',
-        );
-        $disabled = $priority;
-        $disabled['room'] = $rooms['disabledRoom'];
-        $disabled['startTime'] = $sixteen->getTimestamp();
-        $disabled['endTime'] = $seventeen->getTimestamp();
-        $this->expectHttp(
-            fn () => $this->createReservation($disabled, ['x-csrf-token' => $this->csrf()]),
-            400,
-            'Room not found or disabled.',
         );
     }
 
@@ -339,8 +311,67 @@ final class ReservationServiceTest extends DatabaseTestCase
         ));
         $kinds = array_column($this->queue->messages, 'kind');
         self::assertContains('reservation_created', $kinds);
-        self::assertContains('ai_approval', $kinds);
+        self::assertNotContains('ai_approval', $kinds);
         self::assertSame($created['reservationId'], $this->jobPayloads('ai_approval')[0]['reservationId']);
+        $aiJob = $this->db->fetch("SELECT status, availableAt, publishedAt FROM outboxjob WHERE kind = 'ai_approval' ORDER BY id LIMIT 1");
+        self::assertNotNull($aiJob);
+        self::assertSame('pending', $aiJob['status']);
+        self::assertNull($aiJob['publishedAt']);
+        self::assertGreaterThanOrEqual(14 * 60, Clock::parseSql((string) $aiJob['availableAt'])->getTimestamp() - Clock::now()->getTimestamp());
+
+        $token = (string) $this->jobPayloads('reservation_created')[0]['cancelToken'];
+        [$movedStart, $movedEnd] = $this->slot(3, 12);
+        $service->modify($this->request('POST', '/reservation/modify', $this->modifyBody($token, $rooms['roomA'], $movedStart, $movedEnd, 'Updated request')));
+        $aiPayloads = $this->jobPayloads('ai_approval');
+        self::assertCount(2, $aiPayloads);
+        self::assertSame(0, $aiPayloads[0]['reviewVersion']);
+        self::assertSame(1, $aiPayloads[1]['reviewVersion']);
+        self::assertSame(1, (int) $this->db->fetch('SELECT reviewVersion FROM reservation WHERE id = ?', [$created['reservationId']])['reviewVersion']);
+        $latestAiJob = $this->db->fetch("SELECT availableAt FROM outboxjob WHERE kind = 'ai_approval' ORDER BY id DESC LIMIT 1");
+        self::assertGreaterThanOrEqual(14 * 60, Clock::parseSql((string) $latestAiJob['availableAt'])->getTimestamp() - Clock::now()->getTimestamp());
+        self::assertNotContains('ai_approval', array_column($this->queue->messages, 'kind'));
+    }
+
+    public function testAiReviewLocksHumanDecisionsAndGlobalAdminCanUnlock(): void
+    {
+        $rooms = $this->rooms();
+        $this->insertAdmin('super@example.com', 'Super');
+        $roomAdmin = $this->insertAdmin('room@example.com', 'Room Admin');
+        $this->assignRoom($rooms['roomA'], $roomAdmin);
+        [$start, $end] = $this->slot(3, 10);
+        $created = $this->createReservation(
+            $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId']),
+            ['x-csrf-token' => $this->csrf()],
+        );
+        $id = $created['reservationId'];
+        $token = (string) $this->jobPayloads('reservation_created')[0]['cancelToken'];
+        $this->db->execute("UPDATE reservation SET status = 'ai_reviewing' WHERE id = ?", [$id]);
+
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('room@example.com', ['id' => $id, 'approved' => true])),
+            409,
+            'Reservation has already been processed or is no longer editable.',
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $id, 'approved' => false, 'reason' => 'No'])),
+            409,
+            'Reservation has already been processed or is no longer editable.',
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->modify($this->request('POST', '/reservation/modify', $this->modifyBody($token, $rooms['roomA'], $start, $end, 'Changed'))),
+            409,
+            'This reservation cannot be modified.',
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->unlockAiReview($this->asAdmin('room@example.com', ['id' => $id, 'reason' => 'Retry'])),
+            403,
+            'Global administrator required.',
+        );
+        $this->reservations->unlockAiReview($this->asAdmin('super@example.com', ['id' => $id, 'reason' => ' AI timeout ']));
+        $row = $this->db->fetch('SELECT status, reviewVersion FROM reservation WHERE id = ?', [$id]);
+        self::assertSame('pending', $row['status']);
+        self::assertSame(1, (int) $row['reviewVersion']);
+        self::assertSame('AI timeout', $this->db->fetch("SELECT reason FROM reservationoperationlog WHERE reservationId = ? AND operation = 'ai_unlocked'", [$id])['reason']);
     }
 
     public function testEveryManagerStillSeesAnApprovedReservation(): void
@@ -662,6 +693,16 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertCount(1, $availability['occupied']);
         self::assertSame('pending', $availability['occupied'][0]['status']);
         self::assertSame(Clock::api($start), $availability['occupied'][0]['startTime']);
+        $this->db->execute('UPDATE room SET deletedAt = NOW() WHERE id = ?', [$rooms['roomA']]);
+        $this->expectHttp(
+            fn () => $this->reservations->availability($this->request('GET', '/reservation/availability', [], [
+                'roomId' => (string) $rooms['roomA'],
+                'date' => $start->format('Y-m-d'),
+            ])),
+            404,
+            'Room not found.',
+        );
+        $this->db->execute('UPDATE room SET deletedAt = NULL WHERE id = ?', [$rooms['roomA']]);
         $this->expectHttp(
             fn () => $this->reservations->availability($this->request('GET', '/reservation/availability', [], [
                 'roomId' => (string) $rooms['roomA'],
@@ -733,13 +774,11 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertStringContainsString('Han Meimei', $superSheet);
     }
 
-    /** @return array{campusId: int, officeCampusId: int, classId: int, officeClassId: int, roomA: int, roomB: int, disabledRoom: int, openRoom: int} */
+    /** @return array{campusId: int, classId: int, roomA: int, roomB: int, disabledRoom: int, openRoom: int} */
     private function rooms(): array
     {
         $campusId = $this->insertCampus('Knowledge City');
-        $officeCampusId = $this->insertCampus('Office Teachers', true);
         $classId = $this->insertClass('A1', $campusId);
-        $officeClassId = $this->insertClass('Office', $officeCampusId);
         $roomA = $this->insertRoom('505', $campusId, 1);
         $roomB = $this->insertRoom('506', $campusId, 1);
         $disabledRoom = $this->insertRoom('507', $campusId, 0);
@@ -748,7 +787,7 @@ final class ReservationServiceTest extends DatabaseTestCase
             $this->insertPolicy($roomId);
         }
 
-        return compact('campusId', 'officeCampusId', 'classId', 'officeClassId', 'roomA', 'roomB', 'disabledRoom', 'openRoom');
+        return compact('campusId', 'classId', 'roomA', 'roomB', 'disabledRoom', 'openRoom');
     }
 
     /** @return array{super: int, quietSuper: int, approverA: int, quietA: int, approverB: int, both: int, office: int} */

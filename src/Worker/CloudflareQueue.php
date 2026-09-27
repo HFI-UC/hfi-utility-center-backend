@@ -18,15 +18,37 @@ final class CloudflareQueue implements QueuePublisher
     /** @param array<string, mixed> $body */
     public function publish(array $body): void
     {
+        $this->request('/messages', ['body' => $body], [$body]);
+    }
+
+    /** @param list<array<string, mixed>> $bodies */
+    public function publishBatch(array $bodies): void
+    {
+        if ($bodies === []) {
+            return;
+        }
+        $messages = array_map(
+            static fn (array $body): array => ['body' => $body, 'content_type' => 'json'],
+            $bodies,
+        );
+        $this->request('/messages/batch', ['messages' => $messages], $bodies);
+    }
+
+    /** @param array<string, mixed> $requestBody
+     * @param list<array<string, mixed>> $bodies
+     */
+    private function request(string $path, array $requestBody, array $bodies): void
+    {
         if ($this->config->cfAccountId === '' || $this->config->cfQueueId === '' || $this->config->cfQueueToken === '') {
             throw new \RuntimeException('Cloudflare Queue is not configured');
         }
         $url = sprintf(
-            'https://api.cloudflare.com/client/v4/accounts/%s/queues/%s/messages',
+            'https://api.cloudflare.com/client/v4/accounts/%s/queues/%s%s',
             rawurlencode($this->config->cfAccountId),
             rawurlencode($this->config->cfQueueId),
+            $path,
         );
-        $payload = json_encode(['body' => $body], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $payload = json_encode($requestBody, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($payload === false) {
             throw new \RuntimeException('Unable to encode queue message');
         }
@@ -54,8 +76,7 @@ final class CloudflareQueue implements QueuePublisher
         }
         $this->logger->error('Cloudflare Queue publish failed', [
             'status' => $status,
-            'jobId' => $body['jobId'] ?? null,
-            'kind' => $body['kind'] ?? null,
+            'taskIds' => array_map(static fn (array $body): int => (int) ($body['taskId'] ?? $body['jobId'] ?? 0), $bodies),
         ]);
         throw new \RuntimeException('Cloudflare Queue publish failed');
     }

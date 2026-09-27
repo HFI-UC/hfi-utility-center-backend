@@ -23,6 +23,10 @@ final class ReservationService
 
     private const FROM_ROW = ' FROM reservation r LEFT JOIN room rm ON rm.id = r.roomId LEFT JOIN class c ON c.id = r.classId LEFT JOIN campus cp ON cp.id = rm.campusId ';
 
+    private readonly ReservationAuthorization $authorization;
+
+    private readonly ReservationPolicy $policy;
+
     public function __construct(
         private readonly Database $db,
         private readonly AuthService $auth,
@@ -30,6 +34,8 @@ final class ReservationService
         private readonly Logger $logger,
         private readonly Outbox $outbox,
     ) {
+        $this->authorization = new ReservationAuthorization($db);
+        $this->policy = new ReservationPolicy($db);
     }
 
     /** @return array{roomId: int, date: string, occupied: list<array<string, mixed>>} */
@@ -38,6 +44,10 @@ final class ReservationService
         $query = new QueryInput($request->getQueryParams());
         $roomId = $query->requireInt('roomId');
         $date = $query->requireString('date');
+        $room = $this->db->fetch('SELECT rm.id FROM room rm LEFT JOIN campus cp ON cp.id = rm.campusId WHERE rm.id = ? AND rm.deletedAt IS NULL AND (rm.campusId IS NULL OR cp.deletedAt IS NULL)', [$roomId]);
+        if ($room === null) {
+            throw new HttpException(404, 'Room not found.', ['field' => 'roomId']);
+        }
         $day = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, Clock::zone());
         $errors = \DateTimeImmutable::getLastErrors();
         if ($day === false || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
@@ -58,7 +68,7 @@ final class ReservationService
         return ['roomId' => $roomId, 'date' => $date, 'occupied' => $occupied];
     }
 
-    /** @return array{reservationId: int} */
+    /** @return array<string, mixed> */
     public function create(ServerRequestInterface $request): array
     {
         $this->auth->consumeCsrf($request);
@@ -73,93 +83,64 @@ final class ReservationService
         $studentId = (string) $input->string('studentId');
         $purpose = $input->string('purposeType', false);
         $needsMultimedia = $input->bool('needsMultimedia', false);
+        $preview = $input->bool('preview', false);
+        $confirmPriority = $input->bool('confirmPriority', false);
         if (!str_contains($email, '@')) {
-            throw new HttpException(400, 'Invalid email format.');
-        }
-        if (trim($reason) === '') {
-            throw new HttpException(400, 'Reservation reason is required.');
+            throw new HttpException(400, 'Invalid email format.', ['field' => 'email']);
         }
         $start = Clock::fromUnix($startEpoch);
         $end = Clock::fromUnix($endEpoch);
         if ($start === null) {
-            throw new HttpException(400, 'Invalid start time.');
+            throw new HttpException(400, 'Invalid start time.', ['field' => 'startTime']);
         }
         if ($end === null) {
-            throw new HttpException(400, 'Invalid end time.');
+            throw new HttpException(400, 'Invalid end time.', ['field' => 'endTime']);
         }
-        $now = Clock::now();
-        if ($start >= $end) {
-            throw new HttpException(400, 'Start time must be before end time.');
-        }
-        if ($end->getTimestamp() - $start->getTimestamp() > 7200) {
-            throw new HttpException(400, 'Reservation duration must not exceed 2 hours.');
-        }
-        if ($start <= $now) {
-            throw new HttpException(400, 'Start time must be in the future.');
-        }
-        if ($start > $now->modify('+30 days')) {
-            throw new HttpException(400, 'Start time must be within 30 days.');
-        }
-        if (!Rules::validPurpose($purpose)) {
-            throw new HttpException(400, 'Invalid purpose type.');
+        $this->policy->assertCreateRange($start, $end);
+        $administratorId = $this->authorization->administratorIdForEmail($email);
+        if ($administratorId === null) {
+            if (trim($reason) === '') {
+                throw new HttpException(400, 'Reservation reason is required.', ['field' => 'reason']);
+            }
+            $this->policy->assertOrdinaryCreateTimeAndPurpose($start, $end, $purpose);
         }
 
-        $reservationId = $this->db->transaction(function () use ($roomId, $start, $end, $studentName, $email, $reason, $classId, $studentId, $purpose, $needsMultimedia): int {
+        $result = $this->db->transaction(function () use ($roomId, $start, $end, $studentName, $email, $reason, $classId, $studentId, $purpose, $needsMultimedia, $administratorId, $preview, $confirmPriority, $input): array {
                 $this->lockRooms([$roomId]);
-                $room = $this->db->fetch('SELECT id, name, enabled FROM room WHERE id = ?', [$roomId]);
-                if ($room === null) {
-                    throw new HttpException(404, 'Room not found.');
+                $room = $this->db->fetch('SELECT rm.id, rm.name, rm.enabled, rm.deletedAt, cp.deletedAt AS campusDeletedAt FROM room rm LEFT JOIN campus cp ON cp.id = rm.campusId WHERE rm.id = ?', [$roomId]);
+                if ($room === null || $room['deletedAt'] !== null || $room['campusDeletedAt'] !== null) {
+                    throw new HttpException(404, 'Room not found.', ['field' => 'room']);
                 }
-                if ($room['enabled'] !== null && !self::flag($room['enabled'])) {
-                    throw new HttpException(400, 'Room not found or disabled.');
+                if ($administratorId === null && $room['enabled'] !== null && !self::flag($room['enabled'])) {
+                    throw new HttpException(400, 'Room not found or disabled.', ['field' => 'room']);
                 }
-                $privileged = false;
                 if ($classId !== null) {
-                    $class = $this->db->fetch(
-                        'SELECT c.id, COALESCE(cp.isPrivileged, 0) AS privileged FROM class c LEFT JOIN campus cp ON cp.id = c.campusId WHERE c.id = ?',
-                        [$classId],
-                    );
-                    if ($class === null) {
-                        throw new HttpException(400, 'Class not found.');
-                    }
-                    $privileged = self::flag($class['privileged']);
-                }
-                $priorityAdminId = null;
-                if ($privileged) {
-                    $admin = $this->db->fetch(
-                        'SELECT id FROM admin WHERE LOWER(email) = LOWER(?) LIMIT 1',
-                        [trim($email)],
-                    );
-                    if ($admin === null) {
-                        throw new HttpException(403, 'Office Teachers reservations require an administrator email address.');
-                    }
-                    $priorityAdminId = (int) $admin['id'];
-                }
-                if ($priorityAdminId === null && !Rules::validStudentId($studentId)) {
-                    throw new HttpException(400, 'Invalid student ID format.');
-                }
-                if ($priorityAdminId === null && !$this->insidePolicy($roomId, $start, $end)) {
-                    throw new HttpException(400, 'Requested time is outside the room\'s bookable hours.');
-                }
-                if ($priorityAdminId === null) {
-                    $conflict = $this->count(
-                        'SELECT COUNT(*) AS total FROM reservation WHERE roomId = ? AND status NOT IN (\'rejected\', \'cancelled\') AND startTime < ? AND endTime > ?',
-                        [$roomId, Clock::sql($end), Clock::sql($start)],
-                    );
-                    if ($conflict > 0) {
-                        throw new HttpException(409, 'Start or end time conflicts with existing reservation.');
-                    }
-                    $dayStart = $start->setTime(0, 0, 0);
-                    $dayEnd = $dayStart->modify('+1 day');
-                    $daily = $this->count(
-                        'SELECT COUNT(*) AS total FROM reservation WHERE LOWER(email) = LOWER(?) AND startTime >= ? AND endTime <= ? AND status <> \'cancelled\'',
-                        [$email, Clock::sql($dayStart), Clock::sql($dayEnd)],
-                    );
-                    if ($daily >= 2) {
-                        throw new HttpException(400, 'You have reached your limit on reservation requests on this day.');
+                    $class = $this->db->fetch('SELECT c.id, c.deletedAt, cp.deletedAt AS campusDeletedAt FROM class c LEFT JOIN campus cp ON cp.id = c.campusId WHERE c.id = ?', [$classId]);
+                    if ($class === null || $class['deletedAt'] !== null || $class['campusDeletedAt'] !== null) {
+                        throw new HttpException(400, 'Class not found.', ['field' => 'classId']);
                     }
                 }
-                $status = $priorityAdminId === null ? 'pending' : 'approved';
+                $conflicts = [];
+                if ($administratorId !== null) {
+                    $conflicts = $this->policy->priorityConflicts($roomId, $start, $end, (string) $room['name']);
+                    if ($preview) {
+                        return ['mode' => 'priority', 'conflicts' => $conflicts, 'cancelledCount' => count($conflicts)];
+                    }
+                    if (!$confirmPriority) {
+                        throw new HttpException(409, 'Priority reservation requires confirmation.');
+                    }
+                    $this->policy->assertPriorityConfirmation($input->intList('expectedConflictIds'), $conflicts);
+                }
+                if ($administratorId === null && !Rules::validStudentId($studentId)) {
+                    throw new HttpException(400, 'Invalid student ID format.', ['field' => 'studentId']);
+                }
+                if ($administratorId === null) {
+                    $this->policy->assertOrdinaryCreateAvailability($roomId, $start, $end, $email);
+                    if ($preview) {
+                        return ['mode' => 'normal', 'conflicts' => [], 'cancelledCount' => 0];
+                    }
+                }
+                $status = $administratorId === null ? 'pending' : 'approved';
                 $this->db->execute(
                     'INSERT INTO reservation (roomId, startTime, endTime, studentName, email, reason, classId, studentId, status, purposeType, needsMultimedia, latestExecutorId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [
@@ -170,11 +151,11 @@ final class ReservationService
                         $email,
                         trim($reason),
                         $classId,
-                        $priorityAdminId === null ? $studentId : '-',
+                        $studentId,
                         $status,
                         $purpose,
                         $needsMultimedia ? 1 : 0,
-                        $priorityAdminId,
+                        $administratorId,
                     ],
                 );
                 $reservationId = $this->db->lastInsertId();
@@ -183,7 +164,7 @@ final class ReservationService
                     'INSERT INTO reservationcanceltoken (reservationId, tokenHash, expiresAt) VALUES (?, ?, ?)',
                     [$reservationId, Token::hash($rawCancel), Clock::sql($start)],
                 );
-                $this->enqueue($priorityAdminId === null ? 'reservation_created' : 'reservation_status_changed', [
+                $this->enqueue($administratorId === null ? 'reservation_created' : 'reservation_status_changed', [
                     'reservationId' => $reservationId,
                     'email' => $email,
                     'studentName' => $studentName,
@@ -194,12 +175,12 @@ final class ReservationService
                     'reason' => trim($reason),
                     'status' => $status,
                 ]);
-                if ($priorityAdminId !== null) {
-                    $this->cancelOverlaps($reservationId, $roomId, $start, $end, $priorityAdminId);
+                if ($administratorId !== null) {
+                    $this->cancelOverlaps($reservationId, $roomId, $start, $end, $administratorId);
                 } else {
                     $this->notifyRoomManagers($reservationId, $roomId);
                     if ($this->config->aiEnabled && $this->config->aiUrl !== '') {
-                        $this->enqueue('ai_approval', ['reservationId' => $reservationId]);
+                        $this->enqueue('ai_approval', ['reservationId' => $reservationId, 'reviewVersion' => 0], Clock::now()->modify('+15 minutes'));
                     }
                 }
                 $this->db->execute(
@@ -207,11 +188,14 @@ final class ReservationService
                     [$reservationId, 'created', $status],
                 );
 
-                return $reservationId;
+                return ['reservationId' => $reservationId, 'mode' => $administratorId === null ? 'normal' : 'priority', 'cancelledCount' => count($conflicts)];
         });
-        $this->logger->audit('reservation.create', 'reservation', $reservationId, ['roomId' => $roomId]);
+        if ($preview) {
+            return $result;
+        }
+        $this->logger->audit('reservation.create', 'reservation', $result['reservationId'], ['roomId' => $roomId]);
 
-        return ['reservationId' => $reservationId];
+        return $result;
     }
 
     /** @return array{reservations: list<array<string, mixed>>, total: int} */
@@ -240,7 +224,7 @@ final class ReservationService
     public function future(ServerRequestInterface $request): array
     {
         $admin = $this->auth->requireAdmin($request);
-        [$scope, $params] = $this->scope($admin['id']);
+        [$scope, $params] = $this->authorization->scope($admin['id']);
         $rows = $this->db->fetchAll(
             'SELECT ' . self::SELECT_ROW . self::FROM_ROW . 'WHERE r.endTime > NOW()' . $scope . ' ORDER BY r.startTime',
             $params,
@@ -261,7 +245,7 @@ final class ReservationService
         if ($startLocal !== null && $endLocal !== null && $startLocal >= $endLocal) {
             throw new HttpException(400, 'Invalid time range.');
         }
-        [$scope, $params] = $this->scope($admin['id']);
+        [$scope, $params] = $this->authorization->scope($admin['id']);
         $sql = 'SELECT r.id, r.startTime, r.endTime, r.studentName, r.studentId, r.email, r.reason, r.status, rm.name AS room, c.name AS class, cp.name AS campus, r.purposeType, r.needsMultimedia'
             . self::FROM_ROW . 'WHERE 1=1' . $scope;
         if ($startLocal !== null) {
@@ -362,7 +346,7 @@ final class ReservationService
             }
             $reservationId = (int) $row['reservationId'];
             $this->db->execute(
-                'UPDATE reservation SET status = \'cancelled\', cancelledAt = NOW() WHERE id = ? AND status IN (\'pending\', \'approved\')',
+                'UPDATE reservation SET status = \'cancelled\', cancelledAt = NOW() WHERE id = ? AND status IN (\'pending\', \'approved\', \'ai_reviewing\')',
                 [$reservationId],
             );
             $this->db->execute('UPDATE reservationcanceltoken SET usedAt = NOW() WHERE id = ?', [(int) $row['id']]);
@@ -388,13 +372,16 @@ final class ReservationService
         $reason = trim((string) $input->string('reason'));
         $purpose = $input->string('purposeType', false);
         $needsMultimedia = $input->bool('needsMultimedia', false);
-        if ($reason === '' || !Rules::validPurpose($purpose)) {
-            throw new HttpException(400, 'Reason and purpose are required.');
+        if ($reason === '') {
+            throw new HttpException(400, 'Reason and purpose are required.', ['field' => 'reason']);
         }
-        [$start, $end] = $this->editTimes($input->int('startTime'), $input->int('endTime'));
+        if (!Rules::validPurpose($purpose)) {
+            throw new HttpException(400, 'Reason and purpose are required.', ['field' => 'purposeType']);
+        }
+        [$start, $end] = $this->policy->editTimes($input->int('startTime'), $input->int('endTime'));
         $result = $this->db->transaction(function () use ($token, $roomId, $reason, $purpose, $needsMultimedia, $start, $end): array {
                 $row = $this->db->fetch(
-                    'SELECT t.id AS token_id, t.reservationId, t.expiresAt, t.usedAt, r.status, r.startTime, r.editCount FROM reservationcanceltoken t JOIN reservation r ON r.id = t.reservationId WHERE t.tokenHash = ? FOR UPDATE',
+                    'SELECT t.id AS token_id, t.reservationId, t.expiresAt, t.usedAt, r.status, r.startTime, r.editCount, r.reviewVersion FROM reservationcanceltoken t JOIN reservation r ON r.id = t.reservationId WHERE t.tokenHash = ? FOR UPDATE',
                     [Token::hash($token)],
                 );
                 if ($row === null) {
@@ -414,11 +401,12 @@ final class ReservationService
                 }
                 $reservationId = (int) $row['reservationId'];
                 $this->lockRooms([$roomId]);
-                $this->validateEditedRoom($reservationId, $roomId, $start, $end);
+                $this->policy->assertEditedRoom($reservationId, $roomId, $start, $end);
                 $next = $editCount + 1;
+                $nextReviewVersion = (int) $row['reviewVersion'] + 1;
                 $this->db->execute(
-                    'UPDATE reservation SET roomId = ?, startTime = ?, endTime = ?, reason = ?, purposeType = ?, needsMultimedia = ?, editCount = ?, status = \'pending\', latestExecutorId = NULL WHERE id = ?',
-                    [$roomId, Clock::sql($start), Clock::sql($end), $reason, $purpose, $needsMultimedia ? 1 : 0, $next, $reservationId],
+                    'UPDATE reservation SET roomId = ?, startTime = ?, endTime = ?, reason = ?, purposeType = ?, needsMultimedia = ?, editCount = ?, reviewVersion = ?, status = \'pending\', latestExecutorId = NULL WHERE id = ?',
+                    [$roomId, Clock::sql($start), Clock::sql($end), $reason, $purpose, $needsMultimedia ? 1 : 0, $next, $nextReviewVersion, $reservationId],
                 );
                 $this->db->execute('UPDATE reservationcanceltoken SET expiresAt = ? WHERE id = ?', [Clock::sql($start), (int) $row['token_id']]);
                 $this->db->execute(
@@ -427,7 +415,7 @@ final class ReservationService
                 );
                 $this->enqueue('reservation_modified', ['reservationId' => $reservationId]);
                 if ($this->config->aiEnabled && $this->config->aiUrl !== '') {
-                    $this->enqueue('ai_approval', ['reservationId' => $reservationId]);
+                    $this->enqueue('ai_approval', ['reservationId' => $reservationId, 'reviewVersion' => $nextReviewVersion], Clock::now()->modify('+15 minutes'));
                 }
 
                 return ['reservationId' => $reservationId, 'editCount' => $next, 'remainingEdits' => 2 - $next];
@@ -446,17 +434,20 @@ final class ReservationService
         $reason = trim((string) $input->string('reason'));
         $purpose = $input->string('purposeType', false);
         $needsMultimedia = $input->bool('needsMultimedia', false);
-        if ($reason === '' || !Rules::validPurpose($purpose)) {
-            throw new HttpException(400, 'Reason and purpose are required.');
+        if ($reason === '') {
+            throw new HttpException(400, 'Reason and purpose are required.', ['field' => 'reason']);
         }
-        [$start, $end] = $this->editTimes($input->int('startTime'), $input->int('endTime'));
+        if (!Rules::validPurpose($purpose)) {
+            throw new HttpException(400, 'Reason and purpose are required.', ['field' => 'purposeType']);
+        }
+        [$start, $end] = $this->policy->editTimes($input->int('startTime'), $input->int('endTime'));
         $this->db->transaction(function () use ($admin, $id, $roomId, $reason, $purpose, $needsMultimedia, $start, $end): void {
                 $row = $this->db->fetch('SELECT status, endTime, roomId FROM reservation WHERE id = ? FOR UPDATE', [$id]);
                 if ($row === null) {
                     throw new HttpException(404, 'Reservation not found.');
                 }
                 $currentRoom = $row['roomId'] === null ? null : (int) $row['roomId'];
-                if (!$this->canManage($admin['id'], $currentRoom) || !$this->canManage($admin['id'], $roomId)) {
+                if (!$this->authorization->canManage($admin['id'], $currentRoom) || !$this->authorization->canManage($admin['id'], $roomId)) {
                     throw new HttpException(403, 'You do not manage this room.');
                 }
                 $now = Clock::now();
@@ -464,7 +455,7 @@ final class ReservationService
                     throw new HttpException(409, 'Only approved, unexpired reservations can be edited by an admin.');
                 }
                 $this->lockRooms([$currentRoom, $roomId]);
-                $this->validateEditedRoom($id, $roomId, $start, $end);
+                $this->policy->assertEditedRoom($id, $roomId, $start, $end);
                 $changed = $this->db->execute(
                     'UPDATE reservation SET roomId = ?, startTime = ?, endTime = ?, reason = ?, purposeType = ?, needsMultimedia = ?, latestExecutorId = ? WHERE id = ? AND status = \'approved\'',
                     [$roomId, Clock::sql($start), Clock::sql($end), $reason, $purpose, $needsMultimedia ? 1 : 0, $admin['id'], $id],
@@ -502,7 +493,7 @@ final class ReservationService
                 throw new HttpException(404, 'Reservation not found.');
             }
             $roomId = $row['roomId'] === null ? null : (int) $row['roomId'];
-            if (!$this->canManage($admin['id'], $roomId)) {
+            if (!$this->authorization->canManage($admin['id'], $roomId)) {
                 throw new HttpException(403, 'You do not manage this room.');
             }
             if ((string) $row['status'] !== 'pending' || Clock::parseSql((string) $row['startTime']) <= Clock::now()) {
@@ -533,74 +524,46 @@ final class ReservationService
         $this->logger->audit('reservation.approval', 'reservation', $id, ['status' => $status]);
     }
 
-    /** @return array{0: \DateTimeImmutable, 1: \DateTimeImmutable} */
-    private function editTimes(int $startEpoch, int $endEpoch): array
+    public function unlockAiReview(ServerRequestInterface $request): void
     {
-        $start = Clock::fromUnix($startEpoch);
-        $end = Clock::fromUnix($endEpoch);
-        if ($start === null) {
-            throw new HttpException(400, 'Invalid start time.');
+        $admin = $this->auth->requireAdminWrite($request);
+        if (!$this->authorization->isGlobal($admin['id'])) {
+            throw new HttpException(403, 'Global administrator required.');
         }
-        if ($end === null) {
-            throw new HttpException(400, 'Invalid end time.');
+        $input = new Input($this->json($request));
+        $id = $input->int('id');
+        $reason = trim((string) $input->string('reason'));
+        if ($reason === '') {
+            throw new HttpException(400, 'Unlock reason is required.');
         }
-        $now = Clock::now();
-        if ($start <= $now || $start >= $end) {
-            throw new HttpException(400, 'The edited reservation must start in the future and end after it starts.');
-        }
-        if ($end->getTimestamp() - $start->getTimestamp() > 7200) {
-            throw new HttpException(400, 'Reservation duration must not exceed 2 hours.');
-        }
-        if ($start > $now->modify('+30 days')) {
-            throw new HttpException(400, 'Start time must be within 30 days.');
-        }
-
-        return [$start, $end];
-    }
-
-    private function validateEditedRoom(int $reservationId, int $roomId, \DateTimeImmutable $start, \DateTimeImmutable $end): void
-    {
-        $room = $this->db->fetch('SELECT enabled FROM room WHERE id = ?', [$roomId]);
-        if ($room === null || ($room['enabled'] !== null && !self::flag($room['enabled']))) {
-            throw new HttpException(400, 'Room not found or disabled.');
-        }
-        if (!$this->insidePolicy($roomId, $start, $end)) {
-            throw new HttpException(400, 'Requested time is outside the room\'s bookable hours.');
-        }
-        $conflict = $this->count(
-            'SELECT COUNT(*) AS total FROM reservation WHERE id <> ? AND roomId = ? AND status NOT IN (\'rejected\', \'cancelled\') AND startTime < ? AND endTime > ?',
-            [$reservationId, $roomId, Clock::sql($end), Clock::sql($start)],
-        );
-        if ($conflict > 0) {
-            throw new HttpException(409, 'The edited time conflicts with another reservation.');
-        }
-    }
-
-    private function insidePolicy(int $roomId, \DateTimeImmutable $start, \DateTimeImmutable $end): bool
-    {
-        if ($start->format('Y-m-d') !== $end->format('Y-m-d')) {
-            return false;
-        }
-        $rows = $this->db->fetchAll(
-            'SELECT days, startTime, endTime FROM roompolicy WHERE roomId = ? AND enabled = 1',
-            [$roomId],
-        );
-        $weekday = (int) $start->format('w');
-        $requestedStart = ((int) $start->format('H')) * 60 + (int) $start->format('i');
-        $requestedEnd = ((int) $end->format('H')) * 60 + (int) $end->format('i');
-        foreach ($rows as $row) {
-            if (Rules::policyAllows(self::intList($row['days']), self::intList($row['startTime']), self::intList($row['endTime']), $weekday, $requestedStart, $requestedEnd)) {
-                return true;
+        $this->db->transaction(function () use ($id, $admin, $reason): void {
+            $row = $this->db->fetch('SELECT status, reviewVersion FROM reservation WHERE id = ? FOR UPDATE', [$id]);
+            if ($row === null) {
+                throw new HttpException(404, 'Reservation not found.');
             }
-        }
-
-        return false;
+            if ((string) $row['status'] !== 'ai_reviewing') {
+                throw new HttpException(409, 'Reservation is not being reviewed by AI.');
+            }
+            $version = (int) $row['reviewVersion'] + 1;
+            $this->db->execute(
+                'UPDATE reservation SET status = \'pending\', reviewVersion = ?, latestExecutorId = NULL WHERE id = ?',
+                [$version, $id],
+            );
+            $this->db->execute(
+                'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'ai_unlocked\', ?)',
+                [$admin['id'], $id, $reason],
+            );
+            if ($this->config->aiEnabled && $this->config->aiUrl !== '') {
+                $this->enqueue('ai_approval', ['reservationId' => $id, 'reviewVersion' => $version], Clock::now()->modify('+15 minutes'));
+            }
+        });
+        $this->logger->audit('reservation.ai_unlock', 'reservation', $id, ['reason' => $reason]);
     }
 
     private function cancelOverlaps(int $reservationId, int $roomId, \DateTimeImmutable $start, \DateTimeImmutable $end, int $adminId): void
     {
         $rows = $this->db->fetchAll(
-            'SELECT id FROM reservation WHERE id <> ? AND roomId = ? AND status IN (\'pending\', \'approved\') AND startTime < ? AND endTime > ? FOR UPDATE',
+            'SELECT id FROM reservation WHERE id <> ? AND roomId = ? AND status IN (\'pending\', \'approved\', \'ai_reviewing\') AND startTime < ? AND endTime > ? FOR UPDATE',
             [$reservationId, $roomId, Clock::sql($end), Clock::sql($start)],
         );
         foreach ($rows as $row) {
@@ -610,7 +573,7 @@ final class ReservationService
                 [$adminId, $displaced],
             );
             $this->db->execute(
-                'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'cancelled_by_priority\', \'Cancelled because an Office Teachers priority reservation occupies this time\')',
+                'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'cancelled_by_priority\', \'Cancelled because an administrator priority reservation occupies this time\')',
                 [$adminId, $displaced],
             );
             $this->enqueue('reservation_cancelled', ['reservationId' => $displaced, 'reason' => 'higher_priority']);
@@ -619,52 +582,18 @@ final class ReservationService
 
     private function notifyRoomManagers(int $reservationId, int $roomId): void
     {
-        $admins = $this->db->fetchAll(
-            'SELECT id FROM admin a WHERE a.receiveReservationNotifications = 1 AND (NOT EXISTS (SELECT 1 FROM roomapprover ra WHERE ra.adminId = a.id) OR EXISTS (SELECT 1 FROM roomapprover ra2 WHERE ra2.adminId = a.id AND ra2.roomId = ?))',
-            [$roomId],
-        );
-        foreach ($admins as $admin) {
+        foreach ($this->authorization->notificationAdminIds($roomId) as $adminId) {
             $this->enqueue('admin_reservation_notification', [
                 'reservationId' => $reservationId,
-                'adminId' => (int) $admin['id'],
+                'adminId' => $adminId,
             ]);
         }
     }
 
     /** @param array<string, mixed> $payload */
-    private function enqueue(string $kind, array $payload): void
+    private function enqueue(string $kind, array $payload, ?\DateTimeImmutable $availableAt = null): void
     {
-        $this->outbox->enqueue($kind, $payload);
-    }
-
-    private function canManage(int $adminId, ?int $roomId): bool
-    {
-        if ($this->isSuper($adminId)) {
-            return true;
-        }
-        if ($roomId === null) {
-            return false;
-        }
-        $row = $this->db->fetch('SELECT roomId FROM roomapprover WHERE adminId = ? AND roomId = ?', [$adminId, $roomId]);
-
-        return $row !== null;
-    }
-
-    private function isSuper(int $adminId): bool
-    {
-        return $this->count('SELECT COUNT(*) AS total FROM roomapprover WHERE adminId = ?', [$adminId]) === 0;
-    }
-
-    /** @param array{id: int, email: string, name: string, password: string} $admin
-     * @return array{0: string, 1: list<mixed>}
-     */
-    private function scope(int $adminId): array
-    {
-        if ($this->isSuper($adminId)) {
-            return ['', []];
-        }
-
-        return [' AND r.roomId IN (SELECT roomId FROM roomapprover WHERE adminId = ?)', [$adminId]];
+        $this->outbox->enqueue($kind, $payload, $availableAt);
     }
 
     /** @param array{id: int, email: string, name: string, password: string}|null $admin
@@ -675,7 +604,7 @@ final class ReservationService
         $sql = '';
         $params = [];
         if ($admin !== null) {
-            [$scope, $scopeParams] = $this->scope($admin['id']);
+            [$scope, $scopeParams] = $this->authorization->scope($admin['id']);
             $sql .= $scope;
             $params = array_merge($params, $scopeParams);
         }
@@ -780,23 +709,6 @@ final class ReservationService
         $row = $this->db->fetch($sql, $params);
 
         return (int) ($row['total'] ?? 0);
-    }
-
-    /** @return list<int> */
-    private static function intList(mixed $value): array
-    {
-        $decoded = json_decode((string) $value, true);
-        if (!is_array($decoded)) {
-            return [];
-        }
-        $numbers = [];
-        foreach ($decoded as $item) {
-            if (is_int($item) || (is_string($item) && preg_match('/^-?\d+$/', $item) === 1)) {
-                $numbers[] = (int) $item;
-            }
-        }
-
-        return $numbers;
     }
 
     private static function flag(mixed $value): bool

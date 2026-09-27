@@ -31,6 +31,8 @@ final class Config
         public readonly string $cfQueueToken,
         public readonly string $queueProcessSecret,
         public readonly bool $debug,
+        public readonly string $taskPullSecret = '',
+        public readonly string $taskExecuteSecret = '',
     ) {
     }
 
@@ -82,6 +84,8 @@ final class Config
             self::string('CF_QUEUE_TOKEN', ''),
             self::string('QUEUE_PROCESS_SECRET', ''),
             self::bool('DEBUG', false),
+            self::string('TASK_PULL_SECRET', ''),
+            self::string('TASK_EXECUTE_SECRET', ''),
         );
     }
 

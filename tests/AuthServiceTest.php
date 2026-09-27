@@ -52,7 +52,7 @@ final class AuthServiceTest extends DatabaseTestCase
         self::assertNull($this->db->fetch('SELECT id FROM tempadminlogin WHERE token = ?', ['login-token']));
         self::assertNotNull($this->db->fetch('SELECT id FROM adminlogin WHERE cookie = ? AND email = ?', [$session, 'ada@example.com']));
         self::assertSame(
-            ['email' => 'ada@example.com', 'name' => 'Ada'],
+            ['email' => 'ada@example.com', 'name' => 'Ada', 'role' => 'global'],
             $this->auth->check($this->request('GET', '/admin/check', [], [], ['Cookie' => 'uc=' . $session])),
         );
         self::assertStringContainsString('uc=' . $session, $this->auth->setCookies[1]);

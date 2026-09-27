@@ -31,7 +31,7 @@ final class Application
         $auth = new AuthService($db, $config, $logger);
         $catalog = new CatalogService($db, $auth, $logger);
         $queue = new CloudflareQueue($config, $logger);
-        $outbox = new Outbox($db, $queue);
+        $outbox = new Outbox($db, $queue, $logger);
         $reservations = new ReservationService($db, $auth, $config, $logger, $outbox);
         $jobs = new OutboxWorker($db, $config, $logger, $outbox);
         $announcements = new AnnouncementService($db, $auth, $logger);
@@ -61,8 +61,8 @@ final class Application
 
             return Responder::message($response, 'Announcement updated successfully.');
         });
-        $app->get('/campus/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->campuses()));
-        $app->get('/class/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->classes()));
+        $app->get('/campus/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->campuses($request)));
+        $app->get('/class/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->classes($request)));
         $app->get('/room/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->rooms($request)));
         $app->post('/campus/create', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
             $catalog->createCampus($request);
@@ -79,6 +79,11 @@ final class Application
 
             return Responder::message($response, 'Campus deleted successfully.');
         });
+        $app->post('/campus/restore', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
+            $catalog->restoreCampus($request);
+
+            return Responder::message($response, 'Campus restored successfully.');
+        });
         $app->post('/class/create', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
             $catalog->createClass($request);
 
@@ -94,6 +99,11 @@ final class Application
 
             return Responder::message($response, 'Class deleted successfully.');
         });
+        $app->post('/class/restore', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
+            $catalog->restoreClass($request);
+
+            return Responder::message($response, 'Class restored successfully.');
+        });
         $app->post('/room/create', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
             $catalog->createRoom($request);
 
@@ -108,6 +118,11 @@ final class Application
             $catalog->deleteRoom($request);
 
             return Responder::message($response, 'Room deleted successfully.');
+        });
+        $app->post('/room/restore', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
+            $catalog->restoreRoom($request);
+
+            return Responder::message($response, 'Room restored successfully.');
         });
         $app->post('/policy/create', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
             $catalog->createPolicy($request);
@@ -155,6 +170,11 @@ final class Application
 
             return Responder::message($response, 'Reservation updated successfully.');
         });
+        $app->post('/reservation/ai-unlock', function (ServerRequestInterface $request, ResponseInterface $response) use ($reservations): ResponseInterface {
+            $reservations->unlockAiReview($request);
+
+            return Responder::message($response, 'AI review unlocked.');
+        });
         $app->post('/admin/login', function (ServerRequestInterface $request, ResponseInterface $response) use ($auth): ResponseInterface {
             $auth->login($request);
 
@@ -167,6 +187,12 @@ final class Application
         });
         $app->get('/admin/check-login', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $auth->check($request)));
         $app->get('/admin/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->admins($request)));
+        $app->get('/admin/permissions', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->permissions($request)));
+        $app->post('/admin/permissions/update', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
+            $catalog->updatePermissions($request);
+
+            return Responder::message($response, 'Administrator permissions updated.');
+        });
         $app->post('/admin/create', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
             $catalog->createAdmin($request);
 
@@ -216,6 +242,32 @@ final class Application
 
             return Responder::message($response, 'Job processed.');
         });
+        $app->get('/tasks', function (ServerRequestInterface $request, ResponseInterface $response) use ($config, $outbox): ResponseInterface {
+            $provided = $request->getHeaderLine('Authorization');
+            $expected = 'Bearer ' . $config->taskPullSecret;
+            if ($config->taskPullSecret === '' || !hash_equals($expected, $provided)) {
+                throw new HttpException(401, 'Unauthorized.');
+            }
+            $limit = (new QueryInput($request->getQueryParams()))->optionalInt('limit') ?? 50;
+
+            return Responder::data($response, ['tasks' => $outbox->claimDue($limit)]);
+        });
+        $app->post('/tasks/{taskId}/execute', function (ServerRequestInterface $request, ResponseInterface $response, array $args) use ($config, $jobs): ResponseInterface {
+            $provided = $request->getHeaderLine('Authorization');
+            $expected = 'Bearer ' . $config->taskExecuteSecret;
+            if ($config->taskExecuteSecret === '' || !hash_equals($expected, $provided)) {
+                throw new HttpException(401, 'Unauthorized.');
+            }
+            $taskId = filter_var($args['taskId'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($taskId === false) {
+                throw new HttpException(400, 'Invalid task ID.');
+            }
+            $body = $request->getAttribute('json');
+            $dispatchToken = (new Input(is_array($body) ? $body : []))->string('dispatchToken');
+            $jobs->processQueuedJob((int) $taskId, $dispatchToken);
+
+            return Responder::message($response, 'Task processed.');
+        });
         $app->post('/catalog/invalidate', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
             $catalog->invalidateAndAudit();
 
@@ -245,8 +297,11 @@ final class Application
                 if ($exception->status >= 500) {
                     $logger->error($exception->getMessage(), ['status' => $exception->status]);
                 }
+                $validation = $exception->status < 500
+                    ? array_intersect_key($exception->detail, array_flip(['field', 'code']))
+                    : [];
 
-                return $cors->decorate($request, Responder::error($response, $exception->status, $exception->getMessage(), $detail));
+                return $cors->decorate($request, Responder::error($response, $exception->status, $exception->getMessage(), $detail, $validation));
             }
             if ($exception instanceof HttpNotFoundException) {
                 return $cors->decorate($request, Responder::error($response, 404, 'Not found.', $detail));

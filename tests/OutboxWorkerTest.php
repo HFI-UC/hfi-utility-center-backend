@@ -23,7 +23,7 @@ final class OutboxWorkerTest extends DatabaseTestCase
         parent::tearDown();
     }
 
-    public function testEmailJobsCompleteWithoutSmtpAndLocksAreHonored(): void
+    public function testEmailJobsAreIdempotentAndLocksAreHonored(): void
     {
         $reservationId = $this->reservation();
         $completed = $this->insertJob('reservation_created', ['reservationId' => $reservationId]);
@@ -31,8 +31,12 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertSame('completed', $this->jobStatus($completed));
 
         $ignored = $this->insertJob('ignored', ['reservationId' => $reservationId]);
-        $this->worker->processQueuedJob($ignored);
-        self::assertSame('completed', $this->jobStatus($ignored));
+        $this->expectHttp(
+            fn () => $this->worker->processQueuedJob($ignored),
+            500,
+            'Outbox job failed.',
+        );
+        self::assertSame('pending', $this->jobStatus($ignored));
 
         $done = $this->insertJob('reservation_created', ['reservationId' => $reservationId], 'completed', 2);
         $this->worker->processQueuedJob($done);
@@ -87,9 +91,13 @@ final class OutboxWorkerTest extends DatabaseTestCase
 
         $pendingId = $this->reservation();
         $pendingJob = $this->insertJob('ai_approval', ['reservationId' => $pendingId]);
-        $this->workerFor($base . '?want=pending', $adminId)->processQueuedJob($pendingJob);
-        self::assertSame('completed', $this->jobStatus($pendingJob));
-        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$pendingId])['status']);
+        $this->expectHttp(
+            fn () => $this->workerFor($base . '?want=pending', $adminId)->processQueuedJob($pendingJob),
+            500,
+            'Outbox job failed.',
+        );
+        self::assertSame('pending', $this->jobStatus($pendingJob));
+        self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$pendingId])['status']);
         self::assertSame(0, $this->countTokens($pendingId));
 
         $rejectedId = $this->reservation();
@@ -114,11 +122,16 @@ final class OutboxWorkerTest extends DatabaseTestCase
             'Outbox job failed.',
         );
         self::assertSame('pending', $this->jobStatus($failedJob));
+        self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$failedId])['status']);
         self::assertNotSame('', (string) $this->db->fetch('SELECT lastError FROM outboxjob WHERE id = ?', [$failedJob])['lastError']);
         self::assertNotNull($this->db->fetch('SELECT id FROM errorlog WHERE message = ?', ['Outbox job failed']));
-        $this->db->execute('UPDATE outboxjob SET attempts = 7, status = \'pending\' WHERE id = ?', [$failedJob]);
-        $failing->processQueuedJob($failedJob);
-        self::assertSame('failed', $this->jobStatus($failedJob));
+        $this->db->execute('UPDATE outboxjob SET attempts = 7, status = \'pending\', availableAt = NOW() WHERE id = ?', [$failedJob]);
+        $this->expectHttp(
+            fn () => $failing->processQueuedJob($failedJob),
+            500,
+            'Outbox job failed.',
+        );
+        self::assertSame('pending', $this->jobStatus($failedJob));
         self::assertSame(8, (int) $this->db->fetch('SELECT attempts FROM outboxjob WHERE id = ?', [$failedJob])['attempts']);
 
         $unsupportedId = $this->reservation();
@@ -128,7 +141,37 @@ final class OutboxWorkerTest extends DatabaseTestCase
             500,
             'Outbox job failed.',
         );
-        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$unsupportedId])['status']);
+        self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$unsupportedId])['status']);
+    }
+
+    public function testDispatchTokenRejectsStaleQueueDeliveryAndDuplicateCompletion(): void
+    {
+        $reservationId = $this->reservation();
+        $jobId = $this->insertJob('reservation_created', ['reservationId' => $reservationId]);
+        $claimed = $this->outbox->claimDue(1, $jobId);
+        self::assertCount(1, $claimed);
+        self::assertSame($jobId, $claimed[0]['taskId']);
+        $this->worker->processQueuedJob($jobId, 'stale-token');
+        self::assertSame('leased', $this->jobStatus($jobId));
+        self::assertSame(0, (int) $this->db->fetch('SELECT attempts FROM outboxjob WHERE id = ?', [$jobId])['attempts']);
+
+        $this->worker->processQueuedJob($jobId, $claimed[0]['dispatchToken']);
+        self::assertSame('completed', $this->jobStatus($jobId));
+        $this->worker->processQueuedJob($jobId, $claimed[0]['dispatchToken']);
+        self::assertSame(1, (int) $this->db->fetch('SELECT attempts FROM outboxjob WHERE id = ?', [$jobId])['attempts']);
+    }
+
+    public function testDelayedAiJobCannotBeClaimedOrExecutedEarly(): void
+    {
+        $reservationId = $this->reservation();
+        $jobId = $this->insertJob('ai_approval', ['reservationId' => $reservationId, 'reviewVersion' => 0]);
+        $this->db->execute('UPDATE outboxjob SET availableAt = DATE_ADD(NOW(), INTERVAL 15 MINUTE) WHERE id = ?', [$jobId]);
+
+        self::assertSame([], $this->outbox->claimDue(1, $jobId));
+        $this->worker->processQueuedJob($jobId);
+        self::assertSame('pending', $this->jobStatus($jobId));
+        self::assertSame(0, (int) $this->db->fetch('SELECT attempts FROM outboxjob WHERE id = ?', [$jobId])['attempts']);
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$reservationId])['status']);
     }
 
     private function workerFor(string $url, int $adminId): OutboxWorker
@@ -172,6 +215,17 @@ final class OutboxWorkerTest extends DatabaseTestCase
         file_put_contents($router, <<<'PHP'
 <?php
 header('Content-Type: application/json');
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || ($_SERVER['HTTP_AUTHORIZATION'] ?? '') !== 'Bearer test-secret') {
+    http_response_code(405);
+    echo '{"error":"POST with Bearer token required"}';
+    return;
+}
+$input = json_decode((string) file_get_contents('php://input'), true);
+if (!is_array($input) || !isset($input['reason']) || !is_string($input['reason'])) {
+    http_response_code(400);
+    echo '{"error":"reason required"}';
+    return;
+}
 echo json_encode([
     'status' => $_GET['want'] ?? 'approved',
     'message' => 'ok',
@@ -192,7 +246,8 @@ PHP);
             for ($wait = 0; $wait < 30; $wait++) {
                 $socket = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
                 if (is_resource($socket)) {
-                    fwrite($socket, "GET /?want=approved HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+                    $body = '{"reason":"probe"}';
+                    fwrite($socket, "POST /?want=approved HTTP/1.0\r\nHost: 127.0.0.1\r\nAuthorization: Bearer test-secret\r\nContent-Type: application/json\r\nContent-Length: " . strlen($body) . "\r\nConnection: close\r\n\r\n" . $body);
                     $response = stream_get_contents($socket);
                     fclose($socket);
                     if (is_string($response) && str_contains($response, '"status":"approved"')) {

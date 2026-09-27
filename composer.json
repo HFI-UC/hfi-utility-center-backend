@@ -24,6 +24,9 @@
     }
   },
   "scripts": {
-    "test": "phpunit"
+    "test": "phpunit",
+    "test:unit": "phpunit -c phpunit.unit.xml.dist",
+    "test:db:smoke": "phpunit -c phpunit.db-smoke.xml.dist",
+    "test:fast": "composer test:unit"
   }
 }

@@ -210,9 +210,9 @@ abstract class DatabaseTestCase extends TestCase
         return [$start, $start->modify('+' . $durationMinutes . ' minutes')];
     }
 
-    protected function insertCampus(string $name, bool $privileged = false): int
+    protected function insertCampus(string $name): int
     {
-        $this->db->execute('INSERT INTO campus (name, isPrivileged) VALUES (?, ?)', [$name, $privileged ? 1 : 0]);
+        $this->db->execute('INSERT INTO campus (name) VALUES (?)', [$name]);
 
         return $this->db->lastInsertId();
     }
@@ -250,7 +250,7 @@ abstract class DatabaseTestCase extends TestCase
         $hash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 4]);
         self::assertNotFalse($hash);
         $this->db->execute(
-            'INSERT INTO admin (name, email, password, receiveReservationNotifications) VALUES (?, ?, ?, ?)',
+            "INSERT INTO admin (name, email, password, receiveReservationNotifications, role) VALUES (?, ?, ?, ?, 'global')",
             [$name, $email, $hash, $notify ? 1 : 0],
         );
 
@@ -259,6 +259,7 @@ abstract class DatabaseTestCase extends TestCase
 
     protected function assignRoom(int $roomId, int $adminId): void
     {
+        $this->db->execute("UPDATE admin SET role = 'room' WHERE id = ?", [$adminId]);
         $this->db->execute('INSERT INTO roomapprover (roomId, adminId) VALUES (?, ?)', [$roomId, $adminId]);
     }
 
@@ -368,19 +369,49 @@ abstract class DatabaseTestCase extends TestCase
             '',
             '',
             false,
+            'test-pull',
+            'test-execute',
         );
     }
 
     private static function applySchema(\PDO $pdo): void
     {
-        $sql = (string) file_get_contents(dirname(__DIR__, 2) . '/sql/001_schema.sql');
-        $stripped = preg_replace('/^--.*$/m', '', $sql);
-        foreach (explode(';', $stripped ?? $sql) as $statement) {
-            $statement = trim($statement);
-            if ($statement === '') {
-                continue;
+        $hasReservation = $pdo->query("SHOW TABLES LIKE 'reservation'")->fetchColumn() !== false;
+        if (!$hasReservation) {
+            $sql = (string) file_get_contents(dirname(__DIR__, 2) . '/sql/001_schema.sql');
+            $stripped = preg_replace('/^--.*$/m', '', $sql);
+            foreach (explode(';', $stripped ?? $sql) as $statement) {
+                $statement = trim($statement);
+                if ($statement === '') {
+                    continue;
+                }
+                $pdo->exec($statement);
             }
-            $pdo->exec($statement);
+        }
+        if ($pdo->query("SHOW COLUMNS FROM campus LIKE 'isPrivileged'")->fetchColumn() !== false) {
+            $migration = (string) file_get_contents(dirname(__DIR__, 2) . '/sql/002_drop_campus_is_privileged.sql');
+            $pdo->exec($migration);
+        }
+        if ($pdo->query("SHOW COLUMNS FROM admin LIKE 'role'")->fetchColumn() === false) {
+            $migration = (string) file_get_contents(dirname(__DIR__, 2) . '/sql/003_roles_archive.sql');
+            $stripped = preg_replace('/^--.*$/m', '', $migration);
+            foreach (explode(';', $stripped ?? $migration) as $statement) {
+                $statement = trim($statement);
+                if ($statement !== '') {
+                    $pdo->exec($statement);
+                }
+            }
+        }
+        $deleteRule = $pdo->query("SELECT DELETE_RULE FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'reservation_latest_executor_fk'")->fetchColumn();
+        if ($deleteRule === 'SET NULL') {
+            $pdo->exec('ALTER TABLE reservation DROP FOREIGN KEY reservation_latest_executor_fk');
+        }
+        if ($deleteRule === false || $deleteRule === 'SET NULL') {
+            $pdo->exec('ALTER TABLE reservation ADD CONSTRAINT reservation_latest_executor_fk FOREIGN KEY (latestExecutorId) REFERENCES admin (id)');
+        }
+        $payload = $pdo->query("SHOW COLUMNS FROM outboxjob LIKE 'payload'")->fetch();
+        if ($payload !== false && strtolower((string) $payload['Type']) !== 'mediumtext') {
+            $pdo->exec('ALTER TABLE outboxjob MODIFY COLUMN payload MEDIUMTEXT NOT NULL');
         }
     }
 }

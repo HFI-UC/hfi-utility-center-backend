@@ -69,6 +69,9 @@ final class RulesTest extends TestCase
         self::assertSame(['success' => false, 'message' => 'You do not manage this room.'], $error);
         $detailed = json_decode((string) Responder::error(new Response(), 422, 'Invalid request body.', ['field' => 'room', 'expected' => 'integer'])->getBody(), true);
         self::assertSame('room', $detailed['error']['field']);
+        $validation = json_decode((string) Responder::error(new Response(), 422, 'Invalid request body.', [], ['field' => 'room', 'code' => 'invalid'])->getBody(), true);
+        self::assertSame(['field' => 'room', 'code' => 'invalid'], $validation['validation']);
+        self::assertArrayNotHasKey('error', $validation);
     }
 
     public function testMailEscapesAndKeepsManageLink(): void

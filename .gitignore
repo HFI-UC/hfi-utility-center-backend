@@ -5,6 +5,7 @@
 /tests/.env
 /.phpunit.cache/
 /vendor/
+/cloudflare/outbox-consumer/.wrangler/
 /php/vendor/
 /.cursor/
 /php/.phpunit.cache/

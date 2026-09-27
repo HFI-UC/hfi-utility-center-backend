@@ -43,11 +43,6 @@ final class CatalogServiceTest extends DatabaseTestCase
             400,
             'Invalid campus.',
         );
-        $this->expectHttp(
-            fn () => $this->catalog->deleteCampus($this->asAdmin('super@example.com', ['id' => $campusId])),
-            409,
-            'Campus is still in use.',
-        );
 
         $this->catalog->createRoom($this->asAdmin('super@example.com', ['name' => '505', 'campus' => $campusId]));
         $roomId = (int) $this->db->fetch('SELECT id FROM room WHERE name = ?', ['505'])['id'];
@@ -88,7 +83,8 @@ final class CatalogServiceTest extends DatabaseTestCase
 
         $cachedCampuses = $this->catalog->campuses();
         self::assertSame('Knowledge City Campus', $cachedCampuses[0]['name']);
-        self::assertFalse($cachedCampuses[0]['isPrivileged']);
+        self::assertSame(['id', 'name', 'createdAt'], array_keys($cachedCampuses[0]));
+        self::assertFalse($this->db->pdo()->query("SHOW COLUMNS FROM campus LIKE 'isPrivileged'")->fetchColumn());
         $this->db->execute('UPDATE campus SET name = ? WHERE id = ?', ['Stale name', $campusId]);
         self::assertSame('Knowledge City Campus', $this->catalog->campuses()[0]['name']);
         $this->catalog->invalidate();
@@ -120,6 +116,14 @@ final class CatalogServiceTest extends DatabaseTestCase
         ]));
         self::assertSame(0, (int) $this->db->fetch('SELECT enabled FROM room WHERE id = ?', [$roomId])['enabled']);
         $this->catalog->deleteRoom($this->asAdmin('super@example.com', ['id' => $roomId]));
+        self::assertSame([], $this->catalog->rooms($this->request('GET', '/room/list')));
+        $archivedRooms = $this->catalog->rooms($this->asAdminRead('super@example.com', ['includeArchived' => 'true']));
+        self::assertCount(1, $archivedRooms);
+        self::assertNotNull($archivedRooms[0]['deletedAt']);
+        self::assertNotNull($archivedRooms[0]['deletedBy']);
+        $this->catalog->restoreRoom($this->asAdmin('super@example.com', ['id' => $roomId]));
+        self::assertCount(1, $this->catalog->rooms($this->request('GET', '/room/list')));
+        $this->catalog->deleteRoom($this->asAdmin('super@example.com', ['id' => $roomId]));
         $this->expectHttp(
             fn () => $this->catalog->deleteRoom($this->asAdmin('super@example.com', ['id' => $roomId])),
             404,
@@ -127,8 +131,20 @@ final class CatalogServiceTest extends DatabaseTestCase
         );
         $this->catalog->deleteClass($this->asAdmin('super@example.com', ['id' => $classId]));
         $this->catalog->deleteCampus($this->asAdmin('super@example.com', ['id' => $campusId]));
-        self::assertSame(0, (int) $this->db->fetch('SELECT COUNT(*) AS total FROM campus')['total']);
-        self::assertNotNull($this->db->fetch('SELECT id FROM auditlog WHERE action = ?', ['campus.delete']));
+        self::assertSame(1, (int) $this->db->fetch('SELECT COUNT(*) AS total FROM campus')['total']);
+        self::assertSame([], $this->catalog->campuses());
+        self::assertSame([], $this->catalog->classes());
+        $this->expectHttp(
+            fn () => $this->catalog->campuses($this->request('GET', '/campus/list', [], ['includeArchived' => 'true'])),
+            401,
+            'User is not logged in.',
+        );
+        self::assertNotNull($this->catalog->campuses($this->asAdminRead('super@example.com', ['includeArchived' => 'true']))[0]['deletedAt']);
+        self::assertNotNull($this->db->fetch('SELECT id FROM auditlog WHERE action = ?', ['campus.archive']));
+        $this->catalog->restoreCampus($this->asAdmin('super@example.com', ['id' => $campusId]));
+        $this->catalog->restoreClass($this->asAdmin('super@example.com', ['id' => $classId]));
+        self::assertCount(1, $this->catalog->campuses());
+        self::assertCount(1, $this->catalog->classes());
     }
 
     public function testAdminAccountsAndNotificationSettings(): void
@@ -213,5 +229,87 @@ final class CatalogServiceTest extends DatabaseTestCase
             404,
             'Admin not found.',
         );
+    }
+
+    public function testExplicitRolesAndRoomPermissions(): void
+    {
+        $globalId = $this->insertAdmin('global@example.com', 'Global');
+        $roomAdminId = $this->insertAdmin('room@example.com', 'Room');
+        $campusId = $this->insertCampus('Campus');
+        $roomId = $this->insertRoom('101', $campusId);
+
+        $this->catalog->updatePermissions($this->asAdmin('global@example.com', [
+            'adminId' => $roomAdminId,
+            'role' => 'room',
+            'roomIds' => [$roomId, $roomId],
+        ]));
+        self::assertSame([
+            ['adminId' => $globalId, 'role' => 'global', 'roomIds' => []],
+            ['adminId' => $roomAdminId, 'role' => 'room', 'roomIds' => [$roomId]],
+        ], $this->catalog->permissions($this->asAdminRead('global@example.com')));
+        self::assertSame('room', $this->auth->check($this->asAdminRead('room@example.com'))['role']);
+        $this->expectHttp(
+            fn () => $this->catalog->permissions($this->asAdminRead('room@example.com')),
+            403,
+            'Global administrator required.',
+        );
+        $this->expectHttp(
+            fn () => $this->catalog->updatePermissions($this->asAdmin('room@example.com', [
+                'adminId' => $globalId, 'role' => 'room', 'roomIds' => [$roomId],
+            ])),
+            403,
+            'Global administrator required.',
+        );
+        $this->expectHttp(
+            fn () => $this->catalog->updatePermissions($this->asAdmin('global@example.com', [
+                'adminId' => $globalId, 'role' => 'room', 'roomIds' => [],
+            ])),
+            409,
+            'At least one global administrator is required.',
+        );
+        $this->catalog->updatePermissions($this->asAdmin('global@example.com', [
+            'adminId' => $roomAdminId, 'role' => 'room', 'roomIds' => [],
+        ]));
+        self::assertSame([], $this->catalog->permissions($this->asAdminRead('global@example.com'))[1]['roomIds']);
+        self::assertSame('room', $this->db->fetch('SELECT role FROM admin WHERE id = ?', [$roomAdminId])['role']);
+        $this->expectHttp(
+            fn () => $this->catalog->deleteAdmin($this->asAdmin('room@example.com', ['id' => $globalId])),
+            409,
+            'At least one global administrator is required.',
+        );
+    }
+
+    public function testArchivingPreservesReservationRelations(): void
+    {
+        $adminId = $this->insertAdmin('admin@example.com', 'Admin');
+        $campusId = $this->insertCampus('Campus');
+        $classId = $this->insertClass('A1', $campusId);
+        $roomId = $this->insertRoom('101', $campusId);
+        [$start, $end] = $this->slot(2, 15);
+        $reservationId = $this->insertReservation($roomId, $start, $end, 'student@example.com', 'approved', $classId, executorId: $adminId);
+
+        $this->catalog->deleteRoom($this->asAdmin('admin@example.com', ['id' => $roomId]));
+        $this->catalog->deleteClass($this->asAdmin('admin@example.com', ['id' => $classId]));
+        $this->catalog->deleteCampus($this->asAdmin('admin@example.com', ['id' => $campusId]));
+
+        self::assertSame([], $this->catalog->campuses());
+        self::assertSame([], $this->catalog->classes());
+        self::assertSame([], $this->catalog->rooms($this->request('GET', '/room/list')));
+        $history = $this->db->fetch('SELECT roomId, classId, latestExecutorId FROM reservation WHERE id = ?', [$reservationId]);
+        self::assertSame($roomId, (int) $history['roomId']);
+        self::assertSame($classId, (int) $history['classId']);
+        self::assertSame($adminId, (int) $history['latestExecutorId']);
+        $this->insertAdmin('other@example.com', 'Other');
+        $this->expectHttp(
+            fn () => $this->catalog->deleteAdmin($this->asAdmin('other@example.com', ['id' => $adminId])),
+            409,
+            'Admin is still in use.',
+        );
+        self::assertNotNull($this->db->fetch('SELECT id FROM admin WHERE id = ?', [$adminId]));
+
+        $this->catalog->restoreCampus($this->asAdmin('admin@example.com', ['id' => $campusId]));
+        $this->catalog->restoreClass($this->asAdmin('admin@example.com', ['id' => $classId]));
+        $this->catalog->restoreRoom($this->asAdmin('admin@example.com', ['id' => $roomId]));
+        self::assertCount(1, $this->catalog->rooms($this->request('GET', '/room/list')));
     }
 }

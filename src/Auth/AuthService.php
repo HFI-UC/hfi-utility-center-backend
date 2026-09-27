@@ -56,12 +56,12 @@ final class AuthService
         }
     }
 
-    /** @return array{id: int, email: string, name: string, password: string}|null */
+    /** @return array{id: int, email: string, name: string, password: string, role: string}|null */
     public function currentAdmin(ServerRequestInterface $request): ?array
     {
         foreach ($this->cookieValues($request, 'uc') as $session) {
             $row = $this->db->fetch(
-                'SELECT a.id, a.email, a.name, a.password FROM adminlogin l JOIN admin a ON a.email = l.email WHERE l.cookie = ? AND l.expiry > NOW()',
+                'SELECT a.id, a.email, a.name, a.password, a.role FROM adminlogin l JOIN admin a ON a.email = l.email WHERE l.cookie = ? AND l.expiry > NOW()',
                 [$session],
             );
             if ($row !== null) {
@@ -70,6 +70,7 @@ final class AuthService
                     'email' => (string) $row['email'],
                     'name' => (string) $row['name'],
                     'password' => (string) $row['password'],
+                    'role' => (string) $row['role'],
                 ];
                 $this->logger->setAdminId($admin['id']);
 
@@ -80,7 +81,7 @@ final class AuthService
         return null;
     }
 
-    /** @return array{id: int, email: string, name: string, password: string} */
+    /** @return array{id: int, email: string, name: string, password: string, role: string} */
     public function requireAdmin(ServerRequestInterface $request): array
     {
         $admin = $this->currentAdmin($request);
@@ -91,7 +92,7 @@ final class AuthService
         return $admin;
     }
 
-    /** @return array{id: int, email: string, name: string, password: string} */
+    /** @return array{id: int, email: string, name: string, password: string, role: string} */
     public function requireAdminWrite(ServerRequestInterface $request): array
     {
         $admin = $this->requireAdmin($request);
@@ -156,7 +157,7 @@ final class AuthService
         $this->logger->audit('admin.logout', 'admin', null);
     }
 
-    /** @return array{email: string, name: string} */
+    /** @return array{email: string, name: string, role: string} */
     public function check(ServerRequestInterface $request): array
     {
         $admin = $this->currentAdmin($request);
@@ -164,7 +165,7 @@ final class AuthService
             throw new HttpException(400, 'User is not logged in.');
         }
 
-        return ['email' => $admin['email'], 'name' => $admin['name']];
+        return ['email' => $admin['email'], 'name' => $admin['name'], 'role' => $admin['role']];
     }
 
     /** @return list<string> */

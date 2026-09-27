@@ -6,8 +6,9 @@ SET NAMES utf8mb4;
 CREATE TABLE IF NOT EXISTS campus (
   id INT NOT NULL AUTO_INCREMENT,
   name VARCHAR(191) NOT NULL,
-  isPrivileged TINYINT(1) NOT NULL DEFAULT 0,
   createdAt DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  deletedAt DATETIME NULL,
+  deletedBy INT NULL,
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -16,6 +17,8 @@ CREATE TABLE IF NOT EXISTS class (
   name VARCHAR(191) NOT NULL,
   campusId INT NULL,
   createdAt DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  deletedAt DATETIME NULL,
+  deletedBy INT NULL,
   PRIMARY KEY (id),
   KEY class_campus (campusId),
   CONSTRAINT class_campus_fk FOREIGN KEY (campusId) REFERENCES campus (id)
@@ -27,6 +30,8 @@ CREATE TABLE IF NOT EXISTS room (
   campusId INT NULL,
   enabled TINYINT(1) NULL,
   createdAt DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  deletedAt DATETIME NULL,
+  deletedBy INT NULL,
   PRIMARY KEY (id),
   KEY room_campus (campusId),
   CONSTRAINT room_campus_fk FOREIGN KEY (campusId) REFERENCES campus (id)
@@ -49,6 +54,7 @@ CREATE TABLE IF NOT EXISTS admin (
   name VARCHAR(191) NOT NULL,
   email VARCHAR(191) NOT NULL,
   password VARCHAR(255) NOT NULL,
+  role ENUM('global', 'room') NOT NULL DEFAULT 'room',
   receiveReservationNotifications TINYINT(1) NOT NULL DEFAULT 0,
   createdAt DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -97,13 +103,19 @@ CREATE TABLE IF NOT EXISTS reservation (
   purposeType VARCHAR(16) NULL,
   needsMultimedia TINYINT(1) NOT NULL DEFAULT 0,
   editCount INT NOT NULL DEFAULT 0,
+  reviewVersion INT NOT NULL DEFAULT 0,
   latestExecutorId INT NULL,
   cancelledAt DATETIME NULL,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY reservation_room_status_time (roomId, status, startTime, endTime),
   KEY reservation_email_created (email, createdAt),
-  KEY reservation_status_id (status, id)
+  KEY reservation_status_id (status, id),
+  KEY reservation_class (classId),
+  KEY reservation_latest_executor (latestExecutorId),
+  CONSTRAINT reservation_room_fk FOREIGN KEY (roomId) REFERENCES room (id),
+  CONSTRAINT reservation_class_fk FOREIGN KEY (classId) REFERENCES class (id),
+  CONSTRAINT reservation_latest_executor_fk FOREIGN KEY (latestExecutorId) REFERENCES admin (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS reservationcanceltoken (
@@ -133,17 +145,21 @@ CREATE TABLE IF NOT EXISTS reservationoperationlog (
 CREATE TABLE IF NOT EXISTS outboxjob (
   id BIGINT NOT NULL AUTO_INCREMENT,
   kind VARCHAR(64) NOT NULL,
-  payload TEXT NOT NULL,
+  payload MEDIUMTEXT NOT NULL,
   status VARCHAR(16) NOT NULL DEFAULT 'pending',
   attempts INT NOT NULL DEFAULT 0,
   availableAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   lockedAt DATETIME NULL,
   lockToken CHAR(36) NULL,
+  dispatchToken CHAR(64) NULL,
+  leaseUntil DATETIME NULL,
+  publishedAt DATETIME NULL,
   lastError TEXT NULL,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completedAt DATETIME NULL,
   PRIMARY KEY (id),
-  KEY outboxjob_claim (status, availableAt)
+  KEY outboxjob_claim (status, availableAt),
+  KEY outboxjob_lease (status, leaseUntil)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS announcement (

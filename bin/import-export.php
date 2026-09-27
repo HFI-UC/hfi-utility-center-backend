@@ -24,18 +24,18 @@ if ($directory === null || !is_dir($directory)) {
 }
 
 $tables = [
-    'campus' => ['columns' => ['id', 'name', 'isPrivileged', 'createdAt'], 'bool' => ['isPrivileged'], 'time' => ['createdAt'], 'nullable' => ['createdAt']],
-    'class' => ['columns' => ['id', 'name', 'campusId', 'createdAt'], 'bool' => [], 'time' => ['createdAt'], 'nullable' => ['campusId', 'createdAt']],
-    'room' => ['columns' => ['id', 'name', 'campusId', 'enabled', 'createdAt'], 'bool' => ['enabled'], 'time' => ['createdAt'], 'nullable' => ['campusId', 'enabled', 'createdAt']],
+    'campus' => ['columns' => ['id', 'name', 'createdAt', 'deletedAt', 'deletedBy'], 'bool' => [], 'time' => ['createdAt', 'deletedAt'], 'nullable' => ['createdAt', 'deletedAt', 'deletedBy']],
+    'class' => ['columns' => ['id', 'name', 'campusId', 'createdAt', 'deletedAt', 'deletedBy'], 'bool' => [], 'time' => ['createdAt', 'deletedAt'], 'nullable' => ['campusId', 'createdAt', 'deletedAt', 'deletedBy']],
+    'room' => ['columns' => ['id', 'name', 'campusId', 'enabled', 'createdAt', 'deletedAt', 'deletedBy'], 'bool' => ['enabled'], 'time' => ['createdAt', 'deletedAt'], 'nullable' => ['campusId', 'enabled', 'createdAt', 'deletedAt', 'deletedBy']],
     'roompolicy' => ['columns' => ['id', 'roomId', 'days', 'startTime', 'endTime', 'enabled'], 'bool' => ['enabled'], 'time' => [], 'json' => ['days', 'startTime', 'endTime'], 'nullable' => []],
-    'admin' => ['columns' => ['id', 'name', 'email', 'password', 'receiveReservationNotifications', 'createdAt'], 'bool' => ['receiveReservationNotifications'], 'time' => ['createdAt'], 'nullable' => ['createdAt']],
+    'admin' => ['columns' => ['id', 'name', 'email', 'password', 'role', 'receiveReservationNotifications', 'createdAt'], 'bool' => ['receiveReservationNotifications'], 'time' => ['createdAt'], 'nullable' => ['createdAt']],
     'roomapprover' => ['columns' => ['roomId', 'adminId'], 'bool' => [], 'time' => [], 'nullable' => []],
     'adminlogin' => ['columns' => ['id', 'email', 'cookie', 'expiry'], 'bool' => [], 'time' => ['expiry'], 'nullable' => []],
     'tempadminlogin' => ['columns' => ['id', 'token', 'email', 'createdAt'], 'bool' => [], 'time' => ['createdAt'], 'nullable' => []],
-    'reservation' => ['columns' => ['id', 'roomId', 'classId', 'startTime', 'endTime', 'studentName', 'studentId', 'email', 'reason', 'status', 'purposeType', 'needsMultimedia', 'editCount', 'latestExecutorId', 'cancelledAt', 'createdAt'], 'bool' => ['needsMultimedia'], 'time' => ['startTime', 'endTime', 'cancelledAt', 'createdAt'], 'nullable' => ['roomId', 'classId', 'studentId', 'purposeType', 'latestExecutorId', 'cancelledAt']],
+    'reservation' => ['columns' => ['id', 'roomId', 'classId', 'startTime', 'endTime', 'studentName', 'studentId', 'email', 'reason', 'status', 'purposeType', 'needsMultimedia', 'editCount', 'reviewVersion', 'latestExecutorId', 'cancelledAt', 'createdAt'], 'bool' => ['needsMultimedia'], 'time' => ['startTime', 'endTime', 'cancelledAt', 'createdAt'], 'nullable' => ['roomId', 'classId', 'studentId', 'purposeType', 'latestExecutorId', 'cancelledAt']],
     'reservationcanceltoken' => ['columns' => ['id', 'reservationId', 'tokenHash', 'expiresAt', 'usedAt', 'createdAt'], 'bool' => [], 'time' => ['expiresAt', 'usedAt', 'createdAt'], 'nullable' => ['usedAt']],
     'reservationoperationlog' => ['columns' => ['id', 'adminId', 'reservationId', 'operation', 'reason', 'createdAt'], 'bool' => [], 'time' => ['createdAt'], 'nullable' => ['adminId', 'reason']],
-    'outboxjob' => ['columns' => ['id', 'kind', 'payload', 'status', 'attempts', 'availableAt', 'lockedAt', 'lockToken', 'lastError', 'createdAt', 'completedAt'], 'bool' => [], 'time' => ['availableAt', 'lockedAt', 'createdAt', 'completedAt'], 'json' => ['payload'], 'nullable' => ['lockedAt', 'lockToken', 'lastError', 'completedAt']],
+    'outboxjob' => ['columns' => ['id', 'kind', 'payload', 'status', 'attempts', 'availableAt', 'lockedAt', 'lockToken', 'dispatchToken', 'leaseUntil', 'publishedAt', 'lastError', 'createdAt', 'completedAt'], 'bool' => [], 'time' => ['availableAt', 'lockedAt', 'leaseUntil', 'publishedAt', 'createdAt', 'completedAt'], 'json' => ['payload'], 'nullable' => ['lockedAt', 'lockToken', 'dispatchToken', 'leaseUntil', 'publishedAt', 'lastError', 'completedAt']],
     'announcement' => ['columns' => ['id', 'title', 'content', 'enabled', 'updatedAt', 'updatedBy'], 'bool' => ['enabled'], 'time' => ['updatedAt'], 'nullable' => ['updatedBy']],
     'analytic' => ['columns' => ['id', 'date', 'reservations', 'reservationCreations', 'requests', 'approvals', 'rejections'], 'bool' => [], 'time' => ['date'], 'nullable' => []],
 ];
@@ -54,6 +54,7 @@ foreach (array_reverse(array_keys($tables)) as $table) {
 }
 
 $summary = [];
+$adminRoleColumnSeen = false;
 foreach ($tables as $table => $meta) {
     $path = rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . $table . '.csv';
     if (!is_file($path)) {
@@ -73,6 +74,9 @@ foreach ($tables as $table => $meta) {
     }
     $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $header[0]);
     $columns = array_map(static fn (string|null $name): string => trim((string) $name, " \t\n\r\0\x0B\""), $header);
+    if ($table === 'admin' && in_array('role', $columns, true)) {
+        $adminRoleColumnSeen = true;
+    }
     $seen = [];
     $count = 0;
     $skipped = 0;
@@ -123,6 +127,9 @@ foreach ($tables as $table => $meta) {
         $next = (int) ($max['nextId'] ?? 1);
         $pdo->exec('ALTER TABLE `' . $table . '` AUTO_INCREMENT = ' . max(1, $next));
     }
+}
+if (!$adminRoleColumnSeen && ($summary['admin'] ?? 'missing') !== 'missing') {
+    $pdo->exec("UPDATE admin a SET a.role = 'global' WHERE NOT EXISTS (SELECT 1 FROM roomapprover ra WHERE ra.adminId = a.id)");
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 

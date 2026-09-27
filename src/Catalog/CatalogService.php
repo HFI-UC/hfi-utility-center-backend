@@ -24,25 +24,49 @@ final class CatalogService
     }
 
     /** @return list<array<string, mixed>> */
-    public function campuses(): array
+    public function campuses(?ServerRequestInterface $request = null): array
     {
-        return $this->cached('campuses', function (): array {
-            $rows = $this->db->fetchAll('SELECT id, name, isPrivileged, createdAt FROM campus ORDER BY id');
+        if ($request !== null && $this->includeArchived($request)) {
+            $rows = $this->db->fetchAll('SELECT id, name, createdAt, deletedAt, deletedBy FROM campus ORDER BY id');
 
             return array_map(fn (array $row): array => [
                 'id' => (int) $row['id'],
                 'name' => (string) $row['name'],
-                'isPrivileged' => self::flag($row['isPrivileged']),
+                'createdAt' => Clock::fromSql($row['createdAt'] === null ? null : (string) $row['createdAt']),
+                'deletedAt' => Clock::fromSql($row['deletedAt'] === null ? null : (string) $row['deletedAt']),
+                'deletedBy' => $row['deletedBy'] === null ? null : (int) $row['deletedBy'],
+            ], $rows);
+        }
+
+        return $this->cached('campuses', function (): array {
+            $rows = $this->db->fetchAll('SELECT id, name, createdAt FROM campus WHERE deletedAt IS NULL ORDER BY id');
+
+            return array_map(fn (array $row): array => [
+                'id' => (int) $row['id'],
+                'name' => (string) $row['name'],
                 'createdAt' => Clock::fromSql($row['createdAt'] === null ? null : (string) $row['createdAt']),
             ], $rows);
         });
     }
 
     /** @return list<array<string, mixed>> */
-    public function classes(): array
+    public function classes(?ServerRequestInterface $request = null): array
     {
+        if ($request !== null && $this->includeArchived($request)) {
+            $rows = $this->db->fetchAll('SELECT cl.id, cl.name, cl.campusId, cl.createdAt, cl.deletedAt, cl.deletedBy FROM class cl ORDER BY cl.id');
+
+            return array_map(fn (array $row): array => [
+                'id' => (int) $row['id'],
+                'name' => (string) $row['name'],
+                'campus' => $row['campusId'] === null ? null : (int) $row['campusId'],
+                'createdAt' => Clock::fromSql($row['createdAt'] === null ? null : (string) $row['createdAt']),
+                'deletedAt' => Clock::fromSql($row['deletedAt'] === null ? null : (string) $row['deletedAt']),
+                'deletedBy' => $row['deletedBy'] === null ? null : (int) $row['deletedBy'],
+            ], $rows);
+        }
+
         return $this->cached('classes', function (): array {
-            $rows = $this->db->fetchAll('SELECT id, name, campusId, createdAt FROM class ORDER BY id');
+            $rows = $this->db->fetchAll('SELECT cl.id, cl.name, cl.campusId, cl.createdAt FROM class cl LEFT JOIN campus ca ON ca.id = cl.campusId WHERE cl.deletedAt IS NULL AND (cl.campusId IS NULL OR ca.deletedAt IS NULL) ORDER BY cl.id');
 
             return array_map(fn (array $row): array => [
                 'id' => (int) $row['id'],
@@ -56,6 +80,9 @@ final class CatalogService
     /** @return list<array<string, mixed>> */
     public function rooms(ServerRequestInterface $request): array
     {
+        if ($this->includeArchived($request)) {
+            return $this->loadRooms(true);
+        }
         $isAdmin = $this->auth->currentAdmin($request) !== null;
         if (!$isAdmin) {
             return $this->cached('rooms', fn (): array => $this->loadRooms());
@@ -68,15 +95,79 @@ final class CatalogService
     public function admins(ServerRequestInterface $request): array
     {
         $this->auth->requireAdmin($request);
-        $rows = $this->db->fetchAll('SELECT id, name, email, createdAt, receiveReservationNotifications FROM admin ORDER BY id');
+        $rows = $this->db->fetchAll('SELECT id, name, email, role, createdAt, receiveReservationNotifications FROM admin ORDER BY id');
 
         return array_map(fn (array $row): array => [
             'id' => (int) $row['id'],
             'name' => (string) $row['name'],
             'email' => (string) $row['email'],
+            'role' => (string) $row['role'],
             'createdAt' => Clock::fromSql($row['createdAt'] === null ? null : (string) $row['createdAt']),
             'receiveReservationNotifications' => self::flag($row['receiveReservationNotifications']),
         ], $rows);
+    }
+
+    /** @return list<array{adminId: int, role: string, roomIds: list<int>}> */
+    public function permissions(ServerRequestInterface $request): array
+    {
+        $this->requireGlobal($request);
+        $admins = $this->db->fetchAll('SELECT id, role FROM admin ORDER BY id');
+        $rooms = $this->db->fetchAll('SELECT adminId, roomId FROM roomapprover ORDER BY adminId, roomId');
+        $byAdmin = [];
+        foreach ($rooms as $room) {
+            $byAdmin[(int) $room['adminId']][] = (int) $room['roomId'];
+        }
+
+        return array_map(static fn (array $admin): array => [
+            'adminId' => (int) $admin['id'],
+            'role' => (string) $admin['role'],
+            'roomIds' => $byAdmin[(int) $admin['id']] ?? [],
+        ], $admins);
+    }
+
+    public function updatePermissions(ServerRequestInterface $request): void
+    {
+        $actor = $this->auth->requireAdminWrite($request);
+        if ($actor['role'] !== 'global') {
+            throw new HttpException(403, 'Global administrator required.');
+        }
+        $input = new Input($this->json($request));
+        $adminId = $input->int('adminId');
+        $role = $input->string('role');
+        $roomIds = array_values(array_unique($input->intList('roomIds')));
+        if (!in_array($role, ['global', 'room'], true) || ($role === 'global' && $roomIds !== []) || array_filter($roomIds, static fn (int $id): bool => $id <= 0) !== []) {
+            throw new HttpException(422, 'Invalid permissions.');
+        }
+
+        $this->db->transaction(function () use ($adminId, $role, $roomIds): void {
+            $globalAdmins = $this->db->fetchAll("SELECT id FROM admin WHERE role = 'global' FOR UPDATE");
+            $target = $this->db->fetch('SELECT id, role FROM admin WHERE id = ? FOR UPDATE', [$adminId]);
+            if ($target === null) {
+                throw new HttpException(404, 'Admin not found.');
+            }
+            if ($target['role'] === 'global' && $role === 'room') {
+                if (count($globalAdmins) <= 1) {
+                    throw new HttpException(409, 'At least one global administrator is required.');
+                }
+            }
+            if ($roomIds !== []) {
+                $placeholders = implode(', ', array_fill(0, count($roomIds), '?'));
+                $active = $this->db->fetchAll('SELECT ro.id FROM room ro LEFT JOIN campus ca ON ca.id = ro.campusId WHERE ro.id IN (' . $placeholders . ') AND ro.deletedAt IS NULL AND (ro.campusId IS NULL OR ca.deletedAt IS NULL) FOR UPDATE', $roomIds);
+                if (count($active) !== count($roomIds)) {
+                    throw new HttpException(422, 'Invalid roomIds.');
+                }
+            }
+
+            $this->db->execute('UPDATE admin SET role = ? WHERE id = ?', [$role, $adminId]);
+            $this->db->execute('DELETE FROM roomapprover WHERE adminId = ?', [$adminId]);
+            if ($role === 'room') {
+                foreach ($roomIds as $roomId) {
+                    $this->db->execute('INSERT INTO roomapprover (roomId, adminId) VALUES (?, ?)', [$roomId, $adminId]);
+                }
+            }
+        });
+        $this->logger->setAdminId($actor['id']);
+        $this->logger->audit('admin.permissions', 'admin', $adminId, ['role' => $role, 'roomIds' => $roomIds]);
     }
 
     public function createCampus(ServerRequestInterface $request): void
@@ -101,7 +192,7 @@ final class CatalogService
         if ($name === '') {
             throw new HttpException(400, 'Campus name is required.');
         }
-        if ($this->db->execute('UPDATE campus SET name = ? WHERE id = ?', [$name, $id]) === 0) {
+        if ($this->db->execute('UPDATE campus SET name = ? WHERE id = ? AND deletedAt IS NULL', [$name, $id]) === 0) {
             throw new HttpException(404, 'Campus not found.');
         }
         $this->invalidate();
@@ -110,11 +201,24 @@ final class CatalogService
 
     public function deleteCampus(ServerRequestInterface $request): void
     {
+        $actor = $this->auth->requireAdminWrite($request);
+        $id = (new Input($this->json($request)))->int('id');
+        if ($this->db->execute('UPDATE campus SET deletedAt = NOW(), deletedBy = ? WHERE id = ? AND deletedAt IS NULL', [$actor['id'], $id]) === 0) {
+            throw new HttpException(404, 'Campus not found.');
+        }
+        $this->invalidate();
+        $this->logger->audit('campus.archive', 'campus', $id);
+    }
+
+    public function restoreCampus(ServerRequestInterface $request): void
+    {
         $this->auth->requireAdminWrite($request);
         $id = (new Input($this->json($request)))->int('id');
-        $this->deleteRow('DELETE FROM campus WHERE id = ?', [$id], 'Campus not found.', 'Campus is still in use.');
+        if ($this->db->execute('UPDATE campus SET deletedAt = NULL, deletedBy = NULL WHERE id = ? AND deletedAt IS NOT NULL', [$id]) === 0) {
+            throw new HttpException(404, 'Archived campus not found.');
+        }
         $this->invalidate();
-        $this->logger->audit('campus.delete', 'campus', $id);
+        $this->logger->audit('campus.restore', 'campus', $id);
     }
 
     public function createClass(ServerRequestInterface $request): void
@@ -123,6 +227,7 @@ final class CatalogService
         $input = new Input($this->json($request));
         $name = trim((string) $input->string('name'));
         $campus = $input->int('campus');
+        $this->assertActiveCampus($campus);
         try {
             $this->db->execute('INSERT INTO class (name, campusId) VALUES (?, ?)', [$name, $campus]);
         } catch (PDOException $error) {
@@ -144,8 +249,9 @@ final class CatalogService
         $id = $input->int('id');
         $name = trim((string) $input->string('name'));
         $campus = $input->int('campus');
+        $this->assertActiveCampus($campus);
         try {
-            $changed = $this->db->execute('UPDATE class SET name = ?, campusId = ? WHERE id = ?', [$name, $campus, $id]);
+            $changed = $this->db->execute('UPDATE class SET name = ?, campusId = ? WHERE id = ? AND deletedAt IS NULL', [$name, $campus, $id]);
         } catch (PDOException $error) {
             if ($error->getCode() === '23000') {
                 throw new HttpException(400, 'Invalid campus.', [], $error);
@@ -161,11 +267,24 @@ final class CatalogService
 
     public function deleteClass(ServerRequestInterface $request): void
     {
+        $actor = $this->auth->requireAdminWrite($request);
+        $id = (new Input($this->json($request)))->int('id');
+        if ($this->db->execute('UPDATE class SET deletedAt = NOW(), deletedBy = ? WHERE id = ? AND deletedAt IS NULL', [$actor['id'], $id]) === 0) {
+            throw new HttpException(404, 'Class not found.');
+        }
+        $this->invalidate();
+        $this->logger->audit('class.archive', 'class', $id);
+    }
+
+    public function restoreClass(ServerRequestInterface $request): void
+    {
         $this->auth->requireAdminWrite($request);
         $id = (new Input($this->json($request)))->int('id');
-        $this->deleteRow('DELETE FROM class WHERE id = ?', [$id], 'Class not found.', 'Class is still in use.');
+        if ($this->db->execute('UPDATE class SET deletedAt = NULL, deletedBy = NULL WHERE id = ? AND deletedAt IS NOT NULL', [$id]) === 0) {
+            throw new HttpException(404, 'Archived class not found.');
+        }
         $this->invalidate();
-        $this->logger->audit('class.delete', 'class', $id);
+        $this->logger->audit('class.restore', 'class', $id);
     }
 
     public function createRoom(ServerRequestInterface $request): void
@@ -174,6 +293,7 @@ final class CatalogService
         $input = new Input($this->json($request));
         $name = trim((string) $input->string('name'));
         $campus = $input->int('campus');
+        $this->assertActiveCampus($campus);
         try {
             $this->db->execute('INSERT INTO room (name, campusId, enabled) VALUES (?, ?, 1)', [$name, $campus]);
         } catch (PDOException $error) {
@@ -194,15 +314,16 @@ final class CatalogService
         $id = $input->int('id');
         $name = trim((string) $input->string('name'));
         $campus = $input->int('campus');
+        $this->assertActiveCampus($campus);
         if ($input->has('enabled')) {
             $enabled = $input->bool('enabled') ? 1 : 0;
             $changed = $this->guardCampus(fn (): int => $this->db->execute(
-                'UPDATE room SET name = ?, campusId = ?, enabled = ? WHERE id = ?',
+                'UPDATE room SET name = ?, campusId = ?, enabled = ? WHERE id = ? AND deletedAt IS NULL',
                 [$name, $campus, $enabled, $id],
             ));
         } else {
             $changed = $this->guardCampus(fn (): int => $this->db->execute(
-                'UPDATE room SET name = ?, campusId = ? WHERE id = ?',
+                'UPDATE room SET name = ?, campusId = ? WHERE id = ? AND deletedAt IS NULL',
                 [$name, $campus, $id],
             ));
         }
@@ -215,11 +336,24 @@ final class CatalogService
 
     public function deleteRoom(ServerRequestInterface $request): void
     {
+        $actor = $this->auth->requireAdminWrite($request);
+        $id = (new Input($this->json($request)))->int('id');
+        if ($this->db->execute('UPDATE room SET deletedAt = NOW(), deletedBy = ? WHERE id = ? AND deletedAt IS NULL', [$actor['id'], $id]) === 0) {
+            throw new HttpException(404, 'Room not found.');
+        }
+        $this->invalidate();
+        $this->logger->audit('room.archive', 'room', $id);
+    }
+
+    public function restoreRoom(ServerRequestInterface $request): void
+    {
         $this->auth->requireAdminWrite($request);
         $id = (new Input($this->json($request)))->int('id');
-        $this->deleteRow('DELETE FROM room WHERE id = ?', [$id], 'Room not found.', 'Room is still in use.');
+        if ($this->db->execute('UPDATE room SET deletedAt = NULL, deletedBy = NULL WHERE id = ? AND deletedAt IS NOT NULL', [$id]) === 0) {
+            throw new HttpException(404, 'Archived room not found.');
+        }
         $this->invalidate();
-        $this->logger->audit('room.delete', 'room', $id);
+        $this->logger->audit('room.restore', 'room', $id);
     }
 
     public function createPolicy(ServerRequestInterface $request): void
@@ -228,6 +362,7 @@ final class CatalogService
         $input = new Input($this->json($request));
         [$days, $start, $end] = $this->policyFields($input);
         $room = $input->int('room');
+        $this->assertActiveRoom($room);
         try {
             $this->db->execute(
                 'INSERT INTO roompolicy (roomId, days, startTime, endTime, enabled) VALUES (?, ?, ?, ?, 1)',
@@ -250,6 +385,11 @@ final class CatalogService
         $input = new Input($this->json($request));
         [$days, $start, $end] = $this->policyFields($input);
         $id = $input->int('id');
+        $existing = $this->db->fetch('SELECT roomId FROM roompolicy WHERE id = ?', [$id]);
+        if ($existing === null) {
+            throw new HttpException(404, 'Policy not found.');
+        }
+        $this->assertActiveRoom((int) $existing['roomId']);
         if ($this->db->execute(
             'UPDATE roompolicy SET days = ?, startTime = ?, endTime = ? WHERE id = ?',
             [self::encodeList($days), self::encodeList($start), self::encodeList($end), $id],
@@ -264,6 +404,11 @@ final class CatalogService
     {
         $this->auth->requireAdminWrite($request);
         $id = (new Input($this->json($request)))->int('id');
+        $existing = $this->db->fetch('SELECT roomId FROM roompolicy WHERE id = ?', [$id]);
+        if ($existing === null) {
+            throw new HttpException(404, 'Policy not found.');
+        }
+        $this->assertActiveRoom((int) $existing['roomId']);
         if ($this->db->execute('UPDATE roompolicy SET enabled = IF(enabled = 1, 0, 1) WHERE id = ?', [$id]) === 0) {
             throw new HttpException(404, 'Policy not found.');
         }
@@ -275,11 +420,24 @@ final class CatalogService
     {
         $this->auth->requireAdminWrite($request);
         $id = (new Input($this->json($request)))->int('id');
+        $existing = $this->db->fetch('SELECT roomId FROM roompolicy WHERE id = ?', [$id]);
+        if ($existing === null) {
+            throw new HttpException(404, 'Policy not found.');
+        }
+        $this->assertActiveRoom((int) $existing['roomId']);
         if ($this->db->execute('DELETE FROM roompolicy WHERE id = ?', [$id]) === 0) {
             throw new HttpException(404, 'Policy not found.');
         }
         $this->invalidate();
         $this->logger->audit('policy.delete', 'roompolicy', $id);
+    }
+
+    private function assertActiveRoom(int $roomId): void
+    {
+        $room = $this->db->fetch('SELECT ro.id FROM room ro LEFT JOIN campus ca ON ca.id = ro.campusId WHERE ro.id = ? AND ro.deletedAt IS NULL AND (ro.campusId IS NULL OR ca.deletedAt IS NULL)', [$roomId]);
+        if ($room === null) {
+            throw new HttpException(404, 'Room not found.');
+        }
     }
 
     public function createAdmin(ServerRequestInterface $request): void
@@ -374,9 +532,24 @@ final class CatalogService
         if ($actor['id'] === $id) {
             throw new HttpException(409, 'You cannot delete your active account.');
         }
-        if ($this->db->execute('DELETE FROM admin WHERE id = ?', [$id]) === 0) {
-            throw new HttpException(404, 'Admin not found.');
-        }
+        $this->db->transaction(function () use ($id): void {
+            $globalAdmins = $this->db->fetchAll("SELECT id FROM admin WHERE role = 'global' FOR UPDATE");
+            $target = $this->db->fetch('SELECT id, role FROM admin WHERE id = ? FOR UPDATE', [$id]);
+            if ($target === null) {
+                throw new HttpException(404, 'Admin not found.');
+            }
+            if ($target['role'] === 'global' && count($globalAdmins) <= 1) {
+                throw new HttpException(409, 'At least one global administrator is required.');
+            }
+            try {
+                $this->db->execute('DELETE FROM admin WHERE id = ?', [$id]);
+            } catch (PDOException $error) {
+                if ($error->getCode() === '23000') {
+                    throw new HttpException(409, 'Admin is still in use.', [], $error);
+                }
+                throw $error;
+            }
+        });
         $this->logger->audit('admin.delete', 'admin', $id);
     }
 
@@ -392,9 +565,11 @@ final class CatalogService
     }
 
     /** @return list<array<string, mixed>> */
-    private function loadRooms(): array
+    private function loadRooms(bool $includeArchived = false): array
     {
-        $rooms = $this->db->fetchAll('SELECT id, name, campusId, enabled, createdAt FROM room ORDER BY id');
+        $rooms = $this->db->fetchAll($includeArchived
+            ? 'SELECT ro.id, ro.name, ro.campusId, ro.enabled, ro.createdAt, ro.deletedAt, ro.deletedBy FROM room ro ORDER BY ro.id'
+            : 'SELECT ro.id, ro.name, ro.campusId, ro.enabled, ro.createdAt FROM room ro LEFT JOIN campus ca ON ca.id = ro.campusId WHERE ro.deletedAt IS NULL AND (ro.campusId IS NULL OR ca.deletedAt IS NULL) ORDER BY ro.id');
         $policies = $rooms === []
             ? []
             : $this->db->fetchAll('SELECT id, roomId, days, startTime, endTime, enabled FROM roompolicy ORDER BY id');
@@ -411,14 +586,22 @@ final class CatalogService
             ];
         }
 
-        return array_map(fn (array $row): array => [
-            'id' => (int) $row['id'],
-            'name' => (string) $row['name'],
-            'campus' => $row['campusId'] === null ? null : (int) $row['campusId'],
-            'enabled' => $row['enabled'] === null ? true : self::flag($row['enabled']),
-            'createdAt' => Clock::fromSql($row['createdAt'] === null ? null : (string) $row['createdAt']),
-            'policies' => $byRoom[(int) $row['id']] ?? [],
-        ], $rooms);
+        return array_map(static function (array $row) use ($byRoom, $includeArchived): array {
+            $result = [
+                'id' => (int) $row['id'],
+                'name' => (string) $row['name'],
+                'campus' => $row['campusId'] === null ? null : (int) $row['campusId'],
+                'enabled' => $row['enabled'] === null ? true : self::flag($row['enabled']),
+                'createdAt' => Clock::fromSql($row['createdAt'] === null ? null : (string) $row['createdAt']),
+                'policies' => $byRoom[(int) $row['id']] ?? [],
+            ];
+            if ($includeArchived) {
+                $result['deletedAt'] = Clock::fromSql($row['deletedAt'] === null ? null : (string) $row['deletedAt']);
+                $result['deletedBy'] = $row['deletedBy'] === null ? null : (int) $row['deletedBy'];
+            }
+
+            return $result;
+        }, $rooms);
     }
 
     /** @param callable(): array<mixed> $loader
@@ -442,20 +625,32 @@ final class CatalogService
         return $value;
     }
 
-    /** @param list<mixed> $params */
-    private function deleteRow(string $sql, array $params, string $missing, string $inUse): void
+    private function includeArchived(ServerRequestInterface $request): bool
     {
-        try {
-            $changed = $this->db->execute($sql, $params);
-        } catch (PDOException $error) {
-            if ($error->getCode() === '23000') {
-                throw new HttpException(409, $inUse, [], $error);
-            }
-            $this->logger->error('Delete failed', ['error' => $error->getMessage()]);
-            throw new HttpException(500, 'Unable to delete record.', [], $error);
+        if (($request->getQueryParams()['includeArchived'] ?? null) !== 'true') {
+            return false;
         }
-        if ($changed === 0) {
-            throw new HttpException(404, $missing);
+
+        $this->auth->requireAdmin($request);
+
+        return true;
+    }
+
+    /** @return array{id: int, email: string, name: string, password: string, role: string} */
+    private function requireGlobal(ServerRequestInterface $request): array
+    {
+        $actor = $this->auth->requireAdmin($request);
+        if ($actor['role'] !== 'global') {
+            throw new HttpException(403, 'Global administrator required.');
+        }
+
+        return $actor;
+    }
+
+    private function assertActiveCampus(int $id): void
+    {
+        if ($this->db->fetch('SELECT id FROM campus WHERE id = ? AND deletedAt IS NULL', [$id]) === null) {
+            throw new HttpException(400, 'Invalid campus.');
         }
     }
 
