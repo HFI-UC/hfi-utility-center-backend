@@ -40,8 +40,8 @@
       "name": "hfiuc-outbox-consumer-dev",
       "vars": {
         "DISPATCH_ENABLED": "false",
-        "PHP_API_BASE_URL": "",
-        "PHP_PROCESS_URL": ""
+        "PHP_API_BASE_URL": "https://preview-api.hfiuc.org",
+        "PHP_PROCESS_URL": "https://preview-api.hfiuc.org/internal/outbox/process"
       },
       "durable_objects": {
         "bindings": [
