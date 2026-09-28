@@ -67,7 +67,7 @@ final class Config
             self::bool('TURNSTILE_VERIFY_SSL', true),
             self::bool('AI_APPROVAL_ENABLED', false),
             self::string('GEMINI_API_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/models'),
-            self::string('GEMINI_MODEL', 'gemini-3.7-flash'),
+            self::string('GEMINI_MODEL', 'gemini-3.8-flash'),
             self::string('GEMINI_API_KEY', ''),
             self::int('AI_APPROVAL_ADMIN_ID', 0),
             self::bool('COOKIE_SECURE', true),
