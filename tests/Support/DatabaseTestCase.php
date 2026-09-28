@@ -121,9 +121,9 @@ abstract class DatabaseTestCase extends TestCase
         $this->worker = new OutboxWorker($this->db, $this->config, $this->logger, $this->outbox);
     }
 
-    protected function makeConfig(bool $aiEnabled = false, string $aiApiBaseUrl = '', int $aiAdminId = 0, bool $debug = false): Config
+    protected function makeConfig(bool $aiEnabled = false, string $aiApiBaseUrl = '', int $aiAdminId = 0, bool $debug = false, string $aiApiKey = 'test-secret'): Config
     {
-        return self::configFromEnv($aiEnabled, $aiApiBaseUrl, $aiAdminId, $debug);
+        return self::configFromEnv($aiEnabled, $aiApiBaseUrl, $aiAdminId, $debug, $aiApiKey);
     }
 
     protected function truncate(): void
@@ -330,7 +330,7 @@ abstract class DatabaseTestCase extends TestCase
         return $this->reservations->create($this->request('POST', '/reservation/create', $json, [], $headers));
     }
 
-    private static function configFromEnv(bool $aiEnabled = false, string $aiApiBaseUrl = '', int $aiAdminId = 0, bool $debug = false): Config
+    private static function configFromEnv(bool $aiEnabled = false, string $aiApiBaseUrl = '', int $aiAdminId = 0, bool $debug = false, string $aiApiKey = 'test-secret'): Config
     {
         $values = [];
         foreach (['TEST_DB_HOST', 'TEST_DB_PORT', 'TEST_DB_NAME', 'TEST_DB_USER', 'TEST_DB_PASSWORD'] as $key) {
@@ -360,7 +360,7 @@ abstract class DatabaseTestCase extends TestCase
             $aiEnabled,
             $aiApiBaseUrl,
             'gemini-3.7-flash',
-            'test-secret',
+            $aiApiKey,
             $aiAdminId,
             false,
             ['https://www.hfiuc.org'],

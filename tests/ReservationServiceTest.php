@@ -361,7 +361,7 @@ final class ReservationServiceTest extends DatabaseTestCase
     {
         $rooms = $this->rooms();
         [$start, $end] = $this->slot(3, 10);
-        $service = new ReservationService($this->db, $this->auth, $this->makeConfig(true), $this->logger, $this->outbox);
+        $service = new ReservationService($this->db, $this->auth, $this->makeConfig(true, 'https://generativelanguage.googleapis.com/v1beta/models'), $this->logger, $this->outbox);
         $created = $service->create($this->request(
             'POST',
             '/reservation/create',
@@ -390,6 +390,38 @@ final class ReservationServiceTest extends DatabaseTestCase
         $latestAiJob = $this->db->fetch("SELECT availableAt FROM outboxjob WHERE kind = 'ai_approval' ORDER BY id DESC LIMIT 1");
         self::assertGreaterThanOrEqual(14 * 60, Clock::parseSql((string) $latestAiJob['availableAt'])->getTimestamp() - Clock::now()->getTimestamp());
         self::assertNotContains('ai_approval', array_column($this->queue->messages, 'kind'));
+    }
+
+    public function testMissingGeminiKeyLeavesNewReservationPendingWithoutAiJob(): void
+    {
+        $rooms = $this->rooms();
+        [$start, $end] = $this->slot(3, 10);
+        $service = new ReservationService(
+            $this->db,
+            $this->auth,
+            $this->makeConfig(true, 'https://generativelanguage.googleapis.com/v1beta/models', 0, false, ''),
+            $this->logger,
+            $this->outbox,
+        );
+
+        $created = $service->create($this->request(
+            'POST',
+            '/reservation/create',
+            $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId']),
+            [],
+            ['x-csrf-token' => $this->csrf()],
+        ));
+
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$created['reservationId']])['status']);
+        self::assertCount(1, $this->jobPayloads('reservation_created'));
+        self::assertSame([], $this->jobPayloads('ai_approval'));
+        self::assertNotContains('ai_approval', array_column($this->queue->messages, 'kind'));
+        $diagnostic = $this->db->fetch('SELECT context FROM errorlog WHERE message = ?', ['AI approval skipped: configuration unavailable']);
+        self::assertNotNull($diagnostic);
+        self::assertSame(
+            ['reservationId' => $created['reservationId'], 'reviewVersion' => 0],
+            json_decode((string) $diagnostic['context'], true),
+        );
     }
 
     public function testAiReviewLocksHumanDecisionsAndGlobalAdminCanUnlock(): void

@@ -82,6 +82,26 @@ final class Config
         );
     }
 
+    public function aiApprovalReady(): bool
+    {
+        if (!$this->aiEnabled || preg_match('/^[\x21-\x7E]+$/D', $this->aiApiKey) !== 1
+            || preg_match('/^[A-Za-z0-9._-]+$/D', $this->aiModel) !== 1) {
+            return false;
+        }
+
+        if (filter_var($this->aiApiBaseUrl, FILTER_VALIDATE_URL) === false) {
+            return false;
+        }
+        $parts = parse_url($this->aiApiBaseUrl);
+        if ($parts === false || !isset($parts['scheme'], $parts['host'])
+            || isset($parts['user']) || isset($parts['pass']) || isset($parts['fragment'])) {
+            return false;
+        }
+
+        return $parts['scheme'] === 'https'
+            || ($parts['scheme'] === 'http' && in_array($parts['host'], ['127.0.0.1', 'localhost'], true));
+    }
+
     private static function string(string $key, string $default): string
     {
         $value = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
