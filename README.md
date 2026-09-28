@@ -55,7 +55,7 @@ Cloudflare Worker secrets. The production Worker consumes queue `uc`; its `dev`
 environment uses an isolated `uc-dev` queue and requires a separate dev PHP API.
 When `AI_APPROVAL_ENABLED=true`, set `GEMINI_API_KEY` in the PHP root `.env`.
 PHP calls Gemini directly using `GEMINI_API_BASE_URL` and `GEMINI_MODEL`;
-the default model is `gemini-3.8-flash`. The supplied Python service used
+the default model is `gemini-3.6-flash`. The supplied Python service used
 `gemini-3.7-flash`; keep `GEMINI_MODEL` configurable for each environment.
 The key is sent in an HTTP header, never in a URL.
 Keep PHP-FPM's CA bundle current so TLS verification remains enabled.

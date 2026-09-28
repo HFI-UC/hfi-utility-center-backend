@@ -110,6 +110,14 @@ final class ConfigTest extends TestCase
         self::assertSame('test-gemini-key', $config->aiApiKey);
     }
 
+    public function testGeminiModelDefaultsToValidatedFlashVersion(): void
+    {
+        $this->setRequiredDatabaseEnv();
+        $this->clear('GEMINI_MODEL');
+
+        self::assertSame('gemini-3.6-flash', Config::fromEnv()->aiModel);
+    }
+
     private function setRequiredDatabaseEnv(): void
     {
         $this->set('DB_HOST', '127.0.0.1');
