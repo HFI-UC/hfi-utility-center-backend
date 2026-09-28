@@ -14,6 +14,42 @@ use PHPMailer\PHPMailer\PHPMailer;
 
 final class OutboxWorker
 {
+    private const AI_APPROVAL_PROMPT = <<<'PROMPT'
+You are a strict, automated classroom reservation approval agent. Your sole task is to decide whether to approve a reservation based on a "reason" string.
+
+Follow these rules in order. Apply the first rule that matches. All matching is case-insensitive.
+
+1.  **Prohibited Content**: If the reason mentions threats, violence, illegal acts, or hate speech, reject with the message: "Request involves prohibited content."
+2.  **Gaming**: If the reason is for game-related activities (e.g., "video games", "board games", "game night"), reject with the message: "Game-related activities are not permitted."
+3.  **Social Events**: If the reason is for a private social event (e.g., "birthday party", "private gathering"), reject with the message: "Social-only events are not permitted."
+4.  **Club Specificity**:
+    - A specific club name is usually a proper noun, an acronym, or a phrase ending in "Club", "Society", "Team", or "Association" (e.g., "Chess Club", "ACGN Club", "Robotics Team").
+    - If the reason contains a specific club name, proceed to rule 5.
+    - If it mentions a generic club (e.g., "club meeting", "student club"), reject with the message: "Please provide the specific club name."
+5.  **Allowed Purposes**: If the reason clearly describes an academic, instructional, cultural, or civic event, or a valid club activity (from rule 4), approve. The message must be null.
+
+**Output Constraints:**
+- If `status` is `approved`, `message` MUST be `null`.
+- If `status` is `rejected`, `message` MUST be one of the exact strings provided in the rules.
+- Do not add any commentary or explanations outside the JSON structure.
+
+**Examples:**
+- "Chess Club meeting - weekly practice" -> {"status": "approved", "message": null}
+- "ACGN club activity" -> {"status": "approved", "message": null}
+- "Board game night" -> {"status": "rejected", "message": "Game-related activities are not permitted."}
+- "Club meeting" -> {"status": "rejected", "message": "Please provide the specific club name."}
+- "Guest lecture on climate policy" -> {"status": "approved", "message": null}
+- "Birthday party for student" -> {"status": "rejected", "message": "Social-only events are not permitted."}
+- "Study session" -> {"status": "approved", "message": null}
+PROMPT;
+
+    private const AI_REJECTION_MESSAGES = [
+        'Request involves prohibited content.',
+        'Game-related activities are not permitted.',
+        'Social-only events are not permitted.',
+        'Please provide the specific club name.',
+    ];
+
     public function __construct(
         private readonly Database $db,
         private readonly Config $config,
@@ -223,7 +259,7 @@ final class OutboxWorker
     /** @param array<string, mixed> $payload */
     private function aiApproval(array $payload): void
     {
-        if (!$this->config->aiEnabled || $this->config->aiUrl === '') {
+        if (!$this->config->aiEnabled) {
             return;
         }
         $id = (int) ($payload['reservationId'] ?? 0);
@@ -290,34 +326,98 @@ final class OutboxWorker
     /** @return array<string, mixed> */
     private function requestAi(string $reason): array
     {
-        $url = $this->config->aiUrl;
-        $parts = parse_url($url);
+        $baseUrl = $this->config->aiApiBaseUrl;
+        $model = $this->config->aiModel;
+        if ($this->config->aiApiKey === '') {
+            throw new \RuntimeException('Gemini API key is not configured');
+        }
+        if ($model === '' || preg_match('/^[A-Za-z0-9._-]+$/D', $model) !== 1) {
+            throw new \RuntimeException('Gemini model is invalid');
+        }
+        $parts = parse_url($baseUrl);
         if ($parts === false || !isset($parts['scheme'], $parts['host']) || !in_array($parts['scheme'], ['http', 'https'], true)) {
-            throw new \RuntimeException('AI approval service request failed');
+            throw new \RuntimeException('Gemini API URL is invalid');
+        }
+        if ($parts['scheme'] !== 'https' && !in_array($parts['host'], ['127.0.0.1', 'localhost'], true)) {
+            throw new \RuntimeException('Gemini API URL must use HTTPS');
+        }
+        $query = isset($parts['query']) ? '?' . $parts['query'] : '';
+        $basePath = $query === '' ? $baseUrl : substr($baseUrl, 0, -strlen($query));
+        $url = rtrim($basePath, '/') . '/' . rawurlencode($model) . ':generateContent' . $query;
+        $request = json_encode([
+            'systemInstruction' => ['parts' => [['text' => self::AI_APPROVAL_PROMPT]]],
+            'contents' => [['role' => 'user', 'parts' => [['text' => $reason]]]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'thinkingConfig' => ['thinkingLevel' => 'low'],
+                'responseSchema' => [
+                    'type' => 'OBJECT',
+                    'properties' => [
+                        'status' => ['type' => 'STRING', 'enum' => ['approved', 'rejected', 'pending']],
+                        'message' => ['type' => 'STRING', 'nullable' => true],
+                    ],
+                    'required' => ['status', 'message'],
+                ],
+            ],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($request === false) {
+            throw new \RuntimeException('Unable to encode Gemini request');
         }
         $handle = curl_init($url);
         if ($handle === false) {
-            throw new \RuntimeException('AI approval service request failed');
+            throw new \RuntimeException('Unable to open Gemini request');
         }
         curl_setopt_array($handle, [
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode(['reason' => $reason], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $this->config->aiSecret],
+            CURLOPT_POSTFIELDS => $request,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-goog-api-key: ' . $this->config->aiApiKey],
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 10,
         ]);
         $raw = curl_exec($handle);
         $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        $curlError = curl_errno($handle);
         curl_close($handle);
+        if ($curlError !== 0) {
+            throw new \RuntimeException('Gemini cURL ' . $curlError . ': ' . curl_strerror($curlError));
+        }
         if (!is_string($raw) || $status < 200 || $status >= 300) {
-            throw new \RuntimeException('AI approval service returned HTTP ' . $status);
+            throw new \RuntimeException('Gemini API returned HTTP ' . $status);
         }
         $decoded = json_decode($raw, true);
         if (!is_array($decoded)) {
-            throw new \RuntimeException('AI approval service returned invalid JSON');
+            throw new \RuntimeException('Gemini API returned invalid JSON');
         }
-
-        return $decoded;
+        $finishReason = $decoded['candidates'][0]['finishReason'] ?? null;
+        if ($finishReason !== 'STOP') {
+            throw new \RuntimeException('Gemini API did not finish normally: ' . (is_string($finishReason) ? $finishReason : 'missing'));
+        }
+        $parts = $decoded['candidates'][0]['content']['parts'] ?? null;
+        if (!is_array($parts)) {
+            throw new \RuntimeException('Gemini API returned no candidate text');
+        }
+        $text = '';
+        foreach ($parts as $part) {
+            if (is_array($part) && isset($part['text']) && is_string($part['text'])) {
+                $text .= $part['text'];
+            }
+        }
+        $decision = json_decode($text, true);
+        if (!is_array($decision) || !array_key_exists('status', $decision) || !array_key_exists('message', $decision)) {
+            throw new \RuntimeException('Gemini API returned invalid decision');
+        }
+        $decisionStatus = $decision['status'];
+        $message = $decision['message'];
+        if ($decisionStatus === 'approved' && $message === null) {
+            return ['status' => 'approved', 'message' => null];
+        }
+        if ($decisionStatus === 'pending' && ($message === null || is_string($message))) {
+            return ['status' => 'pending', 'message' => $message];
+        }
+        if ($decisionStatus === 'rejected' && is_string($message) && in_array($message, self::AI_REJECTION_MESSAGES, true)) {
+            return ['status' => 'rejected', 'message' => $message];
+        }
+        throw new \RuntimeException('Gemini API returned invalid decision');
     }
 
     private function send(string $to, string $subject, string $html): void

@@ -361,7 +361,7 @@ final class ReservationServiceTest extends DatabaseTestCase
     {
         $rooms = $this->rooms();
         [$start, $end] = $this->slot(3, 10);
-        $service = new ReservationService($this->db, $this->auth, $this->makeConfig(true, 'https://ai.example.test'), $this->logger, $this->outbox);
+        $service = new ReservationService($this->db, $this->auth, $this->makeConfig(true), $this->logger, $this->outbox);
         $created = $service->create($this->request(
             'POST',
             '/reservation/create',

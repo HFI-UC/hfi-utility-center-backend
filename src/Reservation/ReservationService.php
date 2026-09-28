@@ -213,7 +213,7 @@ final class ReservationService
                     $this->cancelOverlaps($reservationId, $roomId, $start, $end, $administratorId);
                 } else {
                     $this->notifyRoomManagers($reservationId, $roomId);
-                    if ($this->config->aiEnabled && $this->config->aiUrl !== '') {
+                    if ($this->config->aiEnabled) {
                         $this->enqueue('ai_approval', ['reservationId' => $reservationId, 'reviewVersion' => 0], Clock::now()->modify('+15 minutes'));
                     }
                 }
@@ -447,7 +447,7 @@ final class ReservationService
                     [$reservationId, 'Requester modification ' . $next . '/2'],
                 );
                 $this->enqueue('reservation_modified', ['reservationId' => $reservationId]);
-                if ($this->config->aiEnabled && $this->config->aiUrl !== '') {
+                if ($this->config->aiEnabled) {
                     $this->enqueue('ai_approval', ['reservationId' => $reservationId, 'reviewVersion' => $nextReviewVersion], Clock::now()->modify('+15 minutes'));
                 }
 
@@ -586,7 +586,7 @@ final class ReservationService
                 'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'ai_unlocked\', ?)',
                 [$admin['id'], $id, $reason],
             );
-            if ($this->config->aiEnabled && $this->config->aiUrl !== '') {
+            if ($this->config->aiEnabled) {
                 $this->enqueue('ai_approval', ['reservationId' => $id, 'reviewVersion' => $version], Clock::now()->modify('+15 minutes'));
             }
         });
