@@ -50,7 +50,7 @@ final class Config
             $frontend,
             'https://hfiuc.org',
             'https://www.hfiuc.org',
-            'https://preview.hfiuc.org',
+            'https://dev.hfiuc.org',
             'https://neo.hfiuc.org',
             'http://localhost:3000',
             'http://127.0.0.1:3000',
