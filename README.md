@@ -25,6 +25,10 @@ notification rules while storing data in MySQL.
 - `tests/`: PHPUnit suite. Database tests use the separate `uc_test` database configured in `tests/.env`.
 
 Secrets belong in the repository root `.env`. See `.env.example`.
+`CORS_ALLOWED_ORIGINS` is a comma-separated list of exact browser origins
+(scheme, host, and optional port). Set it in the root `.env` for each
+environment; an absent or empty value allows no cross-origin requests.
+`FRONTEND_URL` controls generated frontend links and does not grant CORS access.
 
 Existing databases created before the removal of `campus.isPrivileged` must run
 `sql/002_drop_campus_is_privileged.sql` once before deploying this version. New

@@ -46,19 +46,10 @@ final class Config
         }
 
         $frontend = self::string('FRONTEND_URL', 'https://www.hfiuc.org');
-        $origins = array_values(array_unique(array_filter([
-            $frontend,
-            'https://hfiuc.org',
-            'https://www.hfiuc.org',
-            'https://dev.hfiuc.org',
-            'https://neo.hfiuc.org',
-            'http://localhost:3000',
-            'http://127.0.0.1:3000',
-            'http://localhost:5173',
-            'http://127.0.0.1:5173',
-            'http://localhost:5174',
-            'http://127.0.0.1:5174',
-        ])));
+        $origins = array_values(array_unique(array_filter(
+            array_map('trim', explode(',', self::string('CORS_ALLOWED_ORIGINS', ''))),
+            static fn (string $origin): bool => $origin !== '',
+        )));
 
         return new self(
             self::string('DB_HOST', '127.0.0.1'),

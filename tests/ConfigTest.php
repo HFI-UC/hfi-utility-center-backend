@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Hfiuc\Tests;
 
 use Hfiuc\Config;
+use Hfiuc\Http\CorsMiddleware;
 use PHPUnit\Framework\TestCase;
+use Slim\Psr7\Factory\ServerRequestFactory;
+use Slim\Psr7\Response;
 
 final class ConfigTest extends TestCase
 {
@@ -47,6 +50,48 @@ final class ConfigTest extends TestCase
         $this->set('TURNSTILE_VERIFY_SSL', 'false');
 
         self::assertFalse(Config::fromEnv()->turnstileVerifySsl);
+    }
+
+    public function testCorsOriginsComeOnlyFromEnvironment(): void
+    {
+        $this->setRequiredDatabaseEnv();
+        $this->set('FRONTEND_URL', 'https://frontend.example');
+        $this->set('CORS_ALLOWED_ORIGINS', ' https://one.example, ,https://two.example,https://one.example ');
+
+        self::assertSame(
+            ['https://one.example', 'https://two.example'],
+            Config::fromEnv()->allowedOrigins,
+        );
+    }
+
+    public function testCorsOriginsDefaultToEmpty(): void
+    {
+        $this->setRequiredDatabaseEnv();
+        $this->set('FRONTEND_URL', 'https://frontend.example');
+        $this->clear('CORS_ALLOWED_ORIGINS');
+
+        self::assertSame([], Config::fromEnv()->allowedOrigins);
+    }
+
+    public function testCorsMiddlewareUsesConfiguredOrigins(): void
+    {
+        $this->setRequiredDatabaseEnv();
+        $this->set('CORS_ALLOWED_ORIGINS', 'https://allowed.example');
+        $cors = new CorsMiddleware(Config::fromEnv());
+        $requestFactory = new ServerRequestFactory();
+
+        $allowed = $cors->decorate(
+            $requestFactory->createServerRequest('GET', '/health')->withHeader('Origin', 'https://allowed.example'),
+            new Response(),
+        );
+        $blocked = $cors->decorate(
+            $requestFactory->createServerRequest('GET', '/health')->withHeader('Origin', 'https://blocked.example'),
+            new Response(),
+        );
+
+        self::assertSame('https://allowed.example', $allowed->getHeaderLine('Access-Control-Allow-Origin'));
+        self::assertSame('true', $allowed->getHeaderLine('Access-Control-Allow-Credentials'));
+        self::assertSame('', $blocked->getHeaderLine('Access-Control-Allow-Origin'));
     }
 
     private function setRequiredDatabaseEnv(): void
