@@ -259,11 +259,15 @@ PROMPT;
     /** @param array<string, mixed> $payload */
     private function aiApproval(array $payload): void
     {
-        if (!$this->config->aiEnabled) {
-            return;
-        }
         $id = (int) ($payload['reservationId'] ?? 0);
         $version = (int) ($payload['reviewVersion'] ?? 0);
+        if (!$this->config->aiApprovalReady()) {
+            if ($id > 0) {
+                $this->releaseAiToHumanReview($id, $version, 'AI configuration unavailable; returned to pending', 'ai.unconfigured');
+            }
+
+            return;
+        }
         if ($id <= 0) {
             throw new \RuntimeException('AI approval job has no reservation ID');
         }
@@ -283,7 +287,18 @@ PROMPT;
         if ($row === null) {
             return;
         }
-        $body = $this->requestAi((string) $row['reason']);
+        try {
+            $body = $this->requestAi((string) $row['reason']);
+        } catch (\RuntimeException $error) {
+            $status = $error->getCode();
+            if ($status >= 400 && $status < 500 && !in_array($status, [408, 429], true)) {
+                $this->logger->error('Gemini rejected AI approval configuration', ['reservationId' => $id, 'httpStatus' => $status]);
+                $this->releaseAiToHumanReview($id, $version, 'AI provider rejected configuration; returned to pending', 'ai.provider_unavailable');
+
+                return;
+            }
+            throw $error;
+        }
         $status = (string) ($body['status'] ?? '');
         if ($status === 'pending') {
             throw new \RuntimeException('AI approval is still pending');
@@ -321,6 +336,27 @@ PROMPT;
                 [$this->config->aiAdminId > 0 ? $this->config->aiAdminId : null, $id, $status, $body['message'] ?? null],
             );
         });
+    }
+
+    private function releaseAiToHumanReview(int $id, int $version, string $reason, string $auditAction): void
+    {
+        $released = $this->db->transaction(function () use ($id, $version, $reason): bool {
+            $changed = $this->db->execute(
+                "UPDATE reservation SET status = 'pending' WHERE id = ? AND status = 'ai_reviewing' AND reviewVersion = ?",
+                [$id, $version],
+            );
+            if ($changed === 1) {
+                $this->db->execute(
+                    "INSERT INTO reservationoperationlog (reservationId, operation, reason) VALUES (?, 'ai_unavailable', ?)",
+                    [$id, $reason],
+                );
+            }
+
+            return $changed === 1;
+        });
+        if ($released) {
+            $this->logger->audit($auditAction, 'reservation', $id, ['reviewVersion' => $version]);
+        }
     }
 
     /** @return array<string, mixed> */
@@ -382,7 +418,7 @@ PROMPT;
             throw new \RuntimeException('Gemini cURL ' . $curlError . ': ' . curl_strerror($curlError));
         }
         if (!is_string($raw) || $status < 200 || $status >= 300) {
-            throw new \RuntimeException('Gemini API returned HTTP ' . $status);
+            throw new \RuntimeException('Gemini API returned HTTP ' . $status, $status);
         }
         $decoded = json_decode($raw, true);
         if (!is_array($decoded)) {

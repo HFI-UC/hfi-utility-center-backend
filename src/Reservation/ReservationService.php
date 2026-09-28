@@ -213,9 +213,7 @@ final class ReservationService
                     $this->cancelOverlaps($reservationId, $roomId, $start, $end, $administratorId);
                 } else {
                     $this->notifyRoomManagers($reservationId, $roomId);
-                    if ($this->config->aiEnabled) {
-                        $this->enqueue('ai_approval', ['reservationId' => $reservationId, 'reviewVersion' => 0], Clock::now()->modify('+15 minutes'));
-                    }
+                    $this->scheduleAiApproval($reservationId, 0);
                 }
                 $this->db->execute(
                     'INSERT INTO reservationoperationlog (reservationId, operation, reason) VALUES (?, ?, ?)',
@@ -447,9 +445,7 @@ final class ReservationService
                     [$reservationId, 'Requester modification ' . $next . '/2'],
                 );
                 $this->enqueue('reservation_modified', ['reservationId' => $reservationId]);
-                if ($this->config->aiEnabled) {
-                    $this->enqueue('ai_approval', ['reservationId' => $reservationId, 'reviewVersion' => $nextReviewVersion], Clock::now()->modify('+15 minutes'));
-                }
+                $this->scheduleAiApproval($reservationId, $nextReviewVersion);
 
                 return ['reservationId' => $reservationId, 'editCount' => $next, 'remainingEdits' => 2 - $next];
         });
@@ -586,9 +582,7 @@ final class ReservationService
                 'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'ai_unlocked\', ?)',
                 [$admin['id'], $id, $reason],
             );
-            if ($this->config->aiEnabled) {
-                $this->enqueue('ai_approval', ['reservationId' => $id, 'reviewVersion' => $version], Clock::now()->modify('+15 minutes'));
-            }
+            $this->scheduleAiApproval($id, $version);
         });
         $this->logger->audit('reservation.ai_unlock', 'reservation', $id, ['reason' => $reason]);
     }
@@ -621,6 +615,25 @@ final class ReservationService
                 'adminId' => $adminId,
             ]);
         }
+    }
+
+    private function scheduleAiApproval(int $reservationId, int $reviewVersion): void
+    {
+        if (!$this->config->aiEnabled) {
+            return;
+        }
+        if (!$this->config->aiApprovalReady()) {
+            $this->logger->error('AI approval skipped: configuration unavailable', [
+                'reservationId' => $reservationId,
+                'reviewVersion' => $reviewVersion,
+            ]);
+
+            return;
+        }
+        $this->enqueue('ai_approval', [
+            'reservationId' => $reservationId,
+            'reviewVersion' => $reviewVersion,
+        ], Clock::now()->modify('+15 minutes'));
     }
 
     /** @param array<string, mixed> $payload */

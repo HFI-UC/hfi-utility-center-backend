@@ -118,6 +118,32 @@ final class ConfigTest extends TestCase
         self::assertSame('gemini-3.6-flash', Config::fromEnv()->aiModel);
     }
 
+    public function testAiApprovalIsReadyOnlyWithEnabledAndValidGeminiConfiguration(): void
+    {
+        $this->setRequiredDatabaseEnv();
+        $this->set('AI_APPROVAL_ENABLED', 'true');
+        $this->set('GEMINI_API_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/models');
+        $this->set('GEMINI_MODEL', 'gemini-3.7-flash');
+        $this->set('GEMINI_API_KEY', 'test-gemini-key');
+
+        self::assertTrue(Config::fromEnv()->aiApprovalReady());
+
+        $this->clear('GEMINI_API_KEY');
+        self::assertFalse(Config::fromEnv()->aiApprovalReady());
+
+        $this->set('GEMINI_API_KEY', 'test-gemini-key');
+        $this->set('GEMINI_API_BASE_URL', 'not-a-url');
+        self::assertFalse(Config::fromEnv()->aiApprovalReady());
+
+        $this->set('GEMINI_API_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/models');
+        $this->set('GEMINI_MODEL', 'gemini/invalid');
+        self::assertFalse(Config::fromEnv()->aiApprovalReady());
+
+        $this->set('GEMINI_MODEL', 'gemini-3.7-flash');
+        $this->set('AI_APPROVAL_ENABLED', 'false');
+        self::assertFalse(Config::fromEnv()->aiApprovalReady());
+    }
+
     private function setRequiredDatabaseEnv(): void
     {
         $this->set('DB_HOST', '127.0.0.1');

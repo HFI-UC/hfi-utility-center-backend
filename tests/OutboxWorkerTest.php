@@ -146,7 +146,7 @@ final class OutboxWorkerTest extends DatabaseTestCase
 
         $failedId = $this->reservation();
         $failedJob = $this->insertJob('ai_approval', ['reservationId' => $failedId]);
-        $failing = $this->workerFor('not-a-url', $adminId);
+        $failing = $this->workerFor($base . '?want=unavailable', $adminId);
         $this->expectHttp(
             fn () => $failing->processQueuedJob($failedJob),
             500,
@@ -212,6 +212,95 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertMatchesRegularExpression('/^Gemini cURL [1-9][0-9]*: /', $error);
         self::assertStringNotContainsString('test-secret', $error);
         self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$reservationId])['status']);
+    }
+
+    public function testMissingGeminiKeyCompletesAiJobsWithoutCallingGeminiOrChangingOtherReservations(): void
+    {
+        $base = $this->aiServer();
+        self::assertNotNull($this->aiRequestFile);
+        // aiServer probes the mock once; only a new file would represent a worker request.
+        unlink($this->aiRequestFile);
+        $worker = new OutboxWorker(
+            $this->db,
+            $this->makeConfig(true, $base, 0, false, ''),
+            $this->logger,
+            $this->outbox,
+        );
+
+        $reviewingId = $this->reservation('ai_reviewing');
+        $reviewingJob = $this->insertJob('ai_approval', ['reservationId' => $reviewingId, 'reviewVersion' => 0]);
+        $worker->processQueuedJob($reviewingJob);
+        self::assertSame('completed', $this->jobStatus($reviewingJob));
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$reviewingId])['status']);
+        self::assertNotNull($this->db->fetch(
+            "SELECT id FROM reservationoperationlog WHERE reservationId = ? AND operation = 'ai_unavailable'",
+            [$reviewingId],
+        ));
+        self::assertNotNull($this->db->fetch(
+            "SELECT id FROM auditlog WHERE action = 'ai.unconfigured' AND entityId = ?",
+            [$reviewingId],
+        ));
+
+        $pendingId = $this->reservation();
+        $pendingJob = $this->insertJob('ai_approval', ['reservationId' => $pendingId, 'reviewVersion' => 0]);
+        $worker->processQueuedJob($pendingJob);
+        self::assertSame('completed', $this->jobStatus($pendingJob));
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$pendingId])['status']);
+
+        $staleId = $this->reservation('ai_reviewing');
+        $this->db->execute('UPDATE reservation SET reviewVersion = 1 WHERE id = ?', [$staleId]);
+        $staleJob = $this->insertJob('ai_approval', ['reservationId' => $staleId, 'reviewVersion' => 0]);
+        $worker->processQueuedJob($staleJob);
+        self::assertSame('completed', $this->jobStatus($staleJob));
+        self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$staleId])['status']);
+
+        $approvedId = $this->reservation('approved');
+        $approvedJob = $this->insertJob('ai_approval', ['reservationId' => $approvedId, 'reviewVersion' => 0]);
+        $worker->processQueuedJob($approvedJob);
+        self::assertSame('completed', $this->jobStatus($approvedJob));
+        self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$approvedId])['status']);
+
+        self::assertFileDoesNotExist($this->aiRequestFile);
+        self::assertSame([], $this->jobPayloads('reservation_status_changed'));
+        self::assertSame(0, $this->countTokens($reviewingId));
+        self::assertSame(0, $this->countTokens($pendingId));
+        self::assertSame(0, $this->countTokens($staleId));
+        self::assertSame(0, $this->countTokens($approvedId));
+    }
+
+    public function testWrongGeminiKeyReturnsReviewingReservationToHumanQueueWithoutRetry(): void
+    {
+        $base = $this->aiServer();
+        $worker = new OutboxWorker(
+            $this->db,
+            $this->makeConfig(true, $base, 0, false, 'wrong-secret'),
+            $this->logger,
+            $this->outbox,
+        );
+        $reservationId = $this->reservation('ai_reviewing');
+        $jobId = $this->insertJob('ai_approval', ['reservationId' => $reservationId, 'reviewVersion' => 0]);
+
+        $worker->processQueuedJob($jobId);
+
+        self::assertSame('completed', $this->jobStatus($jobId));
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$reservationId])['status']);
+        $operation = $this->db->fetch(
+            "SELECT reason FROM reservationoperationlog WHERE reservationId = ? AND operation = 'ai_unavailable'",
+            [$reservationId],
+        );
+        self::assertNotNull($operation);
+        self::assertStringNotContainsString('wrong-secret', (string) $operation['reason']);
+        $audit = $this->db->fetch(
+            "SELECT detail FROM auditlog WHERE action = 'ai.provider_unavailable' AND entityId = ?",
+            [$reservationId],
+        );
+        self::assertNotNull($audit);
+        self::assertStringNotContainsString('wrong-secret', (string) $audit['detail']);
+        self::assertSame([], $this->jobPayloads('reservation_status_changed'));
+        self::assertSame(0, $this->countTokens($reservationId));
+
+        $worker->processQueuedJob($jobId);
+        self::assertSame(1, (int) $this->db->fetch('SELECT attempts FROM outboxjob WHERE id = ?', [$jobId])['attempts']);
     }
 
     public function testDispatchTokenRejectsStaleQueueDeliveryAndDuplicateCompletion(): void
@@ -308,6 +397,11 @@ if (!is_array($input)
 }
 file_put_contents(__REQUEST_FILE__, json_encode(['path' => $path, 'body' => $input]));
 $want = $_GET['want'] ?? 'approved';
+if ($want === 'unavailable') {
+    http_response_code(503);
+    echo '{"error":"unavailable"}';
+    return;
+}
 $decision = [
     'status' => $want === 'bad-message' ? 'rejected' : ($want === 'not-stop' ? 'approved' : $want),
     'message' => $want === 'rejected' ? 'Game-related activities are not permitted.' : ($want === 'bad-message' ? 'Invented rejection.' : null),
