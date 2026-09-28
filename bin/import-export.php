@@ -26,13 +26,14 @@ if ($directory === null || !is_dir($directory)) {
 $tables = [
     'campus' => ['columns' => ['id', 'name', 'createdAt', 'deletedAt', 'deletedBy'], 'bool' => [], 'time' => ['createdAt', 'deletedAt'], 'nullable' => ['createdAt', 'deletedAt', 'deletedBy']],
     'class' => ['columns' => ['id', 'name', 'campusId', 'createdAt', 'deletedAt', 'deletedBy'], 'bool' => [], 'time' => ['createdAt', 'deletedAt'], 'nullable' => ['campusId', 'createdAt', 'deletedAt', 'deletedBy']],
+    'student' => ['columns' => ['email', 'name', 'classId'], 'bool' => [], 'time' => [], 'nullable' => ['classId']],
     'room' => ['columns' => ['id', 'name', 'campusId', 'enabled', 'createdAt', 'deletedAt', 'deletedBy'], 'bool' => ['enabled'], 'time' => ['createdAt', 'deletedAt'], 'nullable' => ['campusId', 'enabled', 'createdAt', 'deletedAt', 'deletedBy']],
     'roompolicy' => ['columns' => ['id', 'roomId', 'days', 'startTime', 'endTime', 'enabled'], 'bool' => ['enabled'], 'time' => [], 'json' => ['days', 'startTime', 'endTime'], 'nullable' => []],
     'admin' => ['columns' => ['id', 'name', 'email', 'password', 'role', 'receiveReservationNotifications', 'createdAt'], 'bool' => ['receiveReservationNotifications'], 'time' => ['createdAt'], 'nullable' => ['createdAt']],
     'roomapprover' => ['columns' => ['roomId', 'adminId'], 'bool' => [], 'time' => [], 'nullable' => []],
     'adminlogin' => ['columns' => ['id', 'email', 'cookie', 'expiry'], 'bool' => [], 'time' => ['expiry'], 'nullable' => []],
     'tempadminlogin' => ['columns' => ['id', 'token', 'email', 'createdAt'], 'bool' => [], 'time' => ['createdAt'], 'nullable' => []],
-    'reservation' => ['columns' => ['id', 'roomId', 'classId', 'startTime', 'endTime', 'studentName', 'studentId', 'email', 'reason', 'status', 'purposeType', 'needsMultimedia', 'editCount', 'reviewVersion', 'latestExecutorId', 'cancelledAt', 'createdAt'], 'bool' => ['needsMultimedia'], 'time' => ['startTime', 'endTime', 'cancelledAt', 'createdAt'], 'nullable' => ['roomId', 'classId', 'studentId', 'purposeType', 'latestExecutorId', 'cancelledAt']],
+    'reservation' => ['columns' => ['id', 'roomId', 'classId', 'startTime', 'endTime', 'studentName', 'email', 'reason', 'status', 'purposeType', 'needsMultimedia', 'editCount', 'reviewVersion', 'latestExecutorId', 'cancelledAt', 'createdAt'], 'bool' => ['needsMultimedia'], 'time' => ['startTime', 'endTime', 'cancelledAt', 'createdAt'], 'nullable' => ['roomId', 'classId', 'purposeType', 'latestExecutorId', 'cancelledAt']],
     'reservationcanceltoken' => ['columns' => ['id', 'reservationId', 'tokenHash', 'expiresAt', 'usedAt', 'createdAt'], 'bool' => [], 'time' => ['expiresAt', 'usedAt', 'createdAt'], 'nullable' => ['usedAt']],
     'reservationoperationlog' => ['columns' => ['id', 'adminId', 'reservationId', 'operation', 'reason', 'createdAt'], 'bool' => [], 'time' => ['createdAt'], 'nullable' => ['adminId', 'reason']],
     'outboxjob' => ['columns' => ['id', 'kind', 'payload', 'status', 'attempts', 'availableAt', 'lockedAt', 'lockToken', 'dispatchToken', 'leaseUntil', 'publishedAt', 'lastError', 'createdAt', 'completedAt'], 'bool' => [], 'time' => ['availableAt', 'lockedAt', 'leaseUntil', 'publishedAt', 'createdAt', 'completedAt'], 'json' => ['payload'], 'nullable' => ['lockedAt', 'lockToken', 'dispatchToken', 'leaseUntil', 'publishedAt', 'lastError', 'completedAt']],
@@ -132,6 +133,11 @@ if (!$adminRoleColumnSeen && ($summary['admin'] ?? 'missing') !== 'missing') {
     $pdo->exec("UPDATE admin a SET a.role = 'global' WHERE NOT EXISTS (SELECT 1 FROM roomapprover ra WHERE ra.adminId = a.id)");
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+$pdo->exec("INSERT IGNORE INTO student (email, name, classId)
+    SELECT LOWER(TRIM(email)), MIN(TRIM(studentName)), MIN(classId)
+    FROM reservation WHERE TRIM(email) <> '' GROUP BY LOWER(TRIM(email))
+    HAVING SUM(TRIM(studentName) = '') = 0
+       AND COUNT(DISTINCT BINARY CONCAT(TRIM(studentName), '#', COALESCE(classId, -1))) = 1");
 
 foreach ($summary as $table => $result) {
     fwrite(STDOUT, $table . ': ' . $result . "\n");

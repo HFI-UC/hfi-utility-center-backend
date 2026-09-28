@@ -34,7 +34,17 @@ Existing databases must also run the read-only `sql/003_roles_archive_preflight.
 repair any orphan reservation references it reports, then run
 `sql/003_roles_archive.sql` during the maintenance window. The migration adds
 explicit administrator roles, catalog archival, AI review versions, foreign keys,
-and outbox dispatch leases. Back up the database before applying it.
+  and outbox dispatch leases. Back up the database before applying it.
+
+  Before deploying email-only reservations to an existing database, run the
+  read-only `sql/004_student_email_mapping_preflight.sql` and resolve any
+  reported emails with conflicting or incomplete historical name/class data.
+  Then run `sql/004_student_email_mapping.sql`, which adds the student email
+  mapping, imports only unambiguous historical profiles, and removes the
+  reservation student ID column. Emails not registered in `student` cannot
+  submit ordinary reservations; global administrators can maintain mappings
+  through the `/student/*` API. Fresh databases need only
+  `sql/001_schema.sql`.
 
 Set `TASK_PULL_SECRET` and `TASK_EXECUTE_SECRET` in the PHP root `.env` and as
 Cloudflare Worker secrets. The production Worker consumes queue `uc`; its `dev`

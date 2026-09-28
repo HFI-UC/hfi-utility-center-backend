@@ -8,6 +8,7 @@ use Hfiuc\Analytics\AnalyticsService;
 use Hfiuc\Announcement\AnnouncementService;
 use Hfiuc\Auth\AuthService;
 use Hfiuc\Catalog\CatalogService;
+use Hfiuc\Catalog\StudentService;
 use Hfiuc\Config;
 use Hfiuc\Database;
 use Hfiuc\Http\Input;
@@ -30,6 +31,7 @@ final class Application
     {
         $auth = new AuthService($db, $config, $logger);
         $catalog = new CatalogService($db, $auth, $logger);
+        $students = new StudentService($db, $auth, $logger);
         $queue = new CloudflareQueue($config, $logger);
         $outbox = new Outbox($db, $queue, $logger);
         $reservations = new ReservationService($db, $auth, $config, $logger, $outbox);
@@ -49,6 +51,13 @@ final class Application
             if (!$config->debug) {
                 throw new HttpException(404, 'Not found.');
             }
+            $admin = $auth->requireAdmin($request);
+            if ($admin['role'] !== 'global') {
+                throw new HttpException(403, 'Global administrator required.');
+            }
+            $logger->setAdminId($admin['id']);
+            $logger->audit('debug.secrets.read', 'debug', null);
+
             return Responder::data($response, [
                 'QUEUE_PROCESS_SECRET' => $config->queueProcessSecret,
                 'TASK_PULL_SECRET' => $config->taskPullSecret,
@@ -75,6 +84,22 @@ final class Application
         });
         $app->get('/campus/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->campuses($request)));
         $app->get('/class/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->classes($request)));
+        $app->get('/student/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $students->list($request)));
+        $app->post('/student/create', function (ServerRequestInterface $request, ResponseInterface $response) use ($students): ResponseInterface {
+            $students->create($request);
+
+            return Responder::message($response, 'Student created successfully.');
+        });
+        $app->post('/student/edit', function (ServerRequestInterface $request, ResponseInterface $response) use ($students): ResponseInterface {
+            $students->edit($request);
+
+            return Responder::message($response, 'Student updated successfully.');
+        });
+        $app->post('/student/delete', function (ServerRequestInterface $request, ResponseInterface $response) use ($students): ResponseInterface {
+            $students->delete($request);
+
+            return Responder::message($response, 'Student deleted successfully.');
+        });
         $app->get('/room/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->rooms($request)));
         $app->post('/campus/create', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {
             $catalog->createCampus($request);
@@ -157,6 +182,7 @@ final class Application
             return Responder::message($response, 'Policy deleted successfully.');
         });
         $app->get('/reservation/availability', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $reservations->availability($request)));
+        $app->get('/reservation/preflight', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $reservations->preflight($request))->withHeader('Cache-Control', 'private, no-store'));
         $app->post('/reservation/create', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $reservations->create($request)));
         $app->get('/reservation/get', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $reservations->list($request)));
         $app->get('/reservation/future', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $reservations->future($request)));

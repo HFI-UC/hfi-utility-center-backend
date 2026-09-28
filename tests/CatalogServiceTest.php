@@ -312,4 +312,34 @@ final class CatalogServiceTest extends DatabaseTestCase
         $this->catalog->restoreRoom($this->asAdmin('admin@example.com', ['id' => $roomId]));
         self::assertCount(1, $this->catalog->rooms($this->request('GET', '/room/list')));
     }
+
+    public function testChildFacilitiesCannotBeRestoredBeforeTheirCampus(): void
+    {
+        $this->insertAdmin('admin@example.com', 'Admin');
+        $campusId = $this->insertCampus('Knowledge City');
+        $classId = $this->insertClass('A1', $campusId);
+        $roomId = $this->insertRoom('505', $campusId);
+        $this->catalog->deleteClass($this->asAdmin('admin@example.com', ['id' => $classId]));
+        $this->catalog->deleteRoom($this->asAdmin('admin@example.com', ['id' => $roomId]));
+        $this->catalog->deleteCampus($this->asAdmin('admin@example.com', ['id' => $campusId]));
+
+        $this->expectHttp(
+            fn () => $this->catalog->restoreClass($this->asAdmin('admin@example.com', ['id' => $classId])),
+            409,
+            'Restore the campus before restoring this class.',
+        );
+        $this->expectHttp(
+            fn () => $this->catalog->restoreRoom($this->asAdmin('admin@example.com', ['id' => $roomId])),
+            409,
+            'Restore the campus before restoring this room.',
+        );
+        self::assertNotNull($this->db->fetch('SELECT deletedAt FROM class WHERE id = ?', [$classId])['deletedAt']);
+        self::assertNotNull($this->db->fetch('SELECT deletedAt FROM room WHERE id = ?', [$roomId])['deletedAt']);
+
+        $this->catalog->restoreCampus($this->asAdmin('admin@example.com', ['id' => $campusId]));
+        $this->catalog->restoreClass($this->asAdmin('admin@example.com', ['id' => $classId]));
+        $this->catalog->restoreRoom($this->asAdmin('admin@example.com', ['id' => $roomId]));
+        self::assertNull($this->db->fetch('SELECT deletedAt FROM class WHERE id = ?', [$classId])['deletedAt']);
+        self::assertNull($this->db->fetch('SELECT deletedAt FROM room WHERE id = ?', [$roomId])['deletedAt']);
+    }
 }

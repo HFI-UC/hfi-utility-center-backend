@@ -158,6 +158,106 @@ paths:
       responses:
         '200':
           description: Cached class list
+  /student/list:
+    get:
+      summary: List student email mappings
+      description: Global administrators only. Includes mappings pointing to archived classes so they can be repaired.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: Student mappings in email order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StudentProfileWithEmail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /student/create:
+    post:
+      summary: Register a student email mapping
+      description: Global administrators only. Name and class are used as the authoritative identity for future reservations.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/StudentBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /student/edit:
+    post:
+      summary: Update a student mapping by email
+      description: Global administrators only. To change an email address, delete and create its mapping; past reservation snapshots remain unchanged.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        $ref: '#/components/requestBodies/StudentBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /student/delete:
+    post:
+      summary: Delete a student email mapping
+      description: Global administrators only. Existing reservation snapshots are retained, but the email cannot make future ordinary reservations until re-registered.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
   /room/list:
     get:
       summary: List rooms and policies
@@ -216,10 +316,6 @@ paths:
           csrf: []
       requestBody:
         $ref: '#/components/requestBodies/IdBody'
-      requestBody:
-        $ref: '#/components/requestBodies/CampusBody'
-      requestBody:
-        $ref: '#/components/requestBodies/IdBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
@@ -253,20 +349,19 @@ paths:
   /class/restore:
     post:
       summary: Restore an archived class
+      description: The parent campus must be active; otherwise the request returns 409.
       security:
         - session: []
           csrf: []
       requestBody:
         $ref: '#/components/requestBodies/IdBody'
-      requestBody:
-        $ref: '#/components/requestBodies/ClassEditBody'
-      requestBody:
-        $ref: '#/components/requestBodies/ClassBody'
-      requestBody:
-        $ref: '#/components/requestBodies/IdBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
   /room/create:
     post:
       summary: Create a room
@@ -297,20 +392,19 @@ paths:
   /room/restore:
     post:
       summary: Restore an archived room
+      description: The parent campus must be active; otherwise the request returns 409.
       security:
         - session: []
           csrf: []
       requestBody:
         $ref: '#/components/requestBodies/IdBody'
-      requestBody:
-        $ref: '#/components/requestBodies/RoomEditBody'
-      requestBody:
-        $ref: '#/components/requestBodies/RoomBody'
-      requestBody:
-        $ref: '#/components/requestBodies/IdBody'
       responses:
         '200':
           $ref: '#/components/responses/Message'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
   /policy/create:
     post:
       summary: Create a room policy
@@ -430,10 +524,51 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
+  /reservation/preflight:
+    get:
+      summary: Look up an email profile and reservations on a selected date
+      description: Public lookup. Date boundaries use Asia/Shanghai; reservations overlapping the date are returned in start-time order, including cancelled and rejected history. The email is normalized to lowercase. An administrator email uses admin.name, null class fields, and priority mode. An unregistered non-admin email returns 422 with validation.code=student_not_registered and cannot create a reservation.
+      parameters:
+        - in: query
+          name: email
+          required: true
+          schema:
+            type: string
+            format: email
+        - in: query
+          name: date
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Student profile and selected-day reservations
+          headers:
+            Cache-Control:
+              description: Prevents caches from storing email-specific reservation results.
+              schema:
+                type: string
+                enum: ['private, no-store']
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/ReservationPreflight'
+        '400':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
   /reservation/create:
     post:
       summary: Create a reservation
-      description: With preview=true, validates the request without creating a reservation and returns a priority or normal preview. Administrator email addresses (case-insensitive, surrounding whitespace ignored) trigger priority mode. The final priority request requires confirmPriority=true and expectedConflictIds equal to the current overlapping active reservation IDs; a change returns 409 and requires a fresh preview. Priority creation cancels overlapping pending, ai_reviewing and approved reservations. Priority still requires a parseable range with startTime before endTime; ordinary requests retain their duration, date, policy, conflict and daily limits.
+      description: Only an email is supplied for user identity. The server resolves the current name and optional class from student; unregistered ordinary email addresses receive 422 with validation.code=student_not_registered. Administrator email addresses instead use admin.name and null class, and trigger priority mode. With preview=true, validates the request without creating a reservation and returns a priority or normal preview. The final priority request requires confirmPriority=true and expectedConflictIds equal to the current overlapping active reservation IDs; a change returns 409 and requires a fresh preview. Priority creation cancels overlapping pending, ai_reviewing and approved reservations. Priority still requires a parseable range with startTime before endTime; ordinary requests retain their duration, date, policy, conflict and daily limits.
       parameters:
         - $ref: '#/components/parameters/Csrf'
       requestBody:
@@ -470,7 +605,7 @@ paths:
   /reservation/get:
     get:
       summary: List reservations
-      description: Public results include the existing name, reason, room, time and status fields, but omit email and student ID. Status is pending, ai_reviewing, approved, rejected or cancelled. Room administrators see only granted rooms; global administrators see all rooms.
+      description: Public results include the existing name, reason, room, time and status fields, but omit email. Status is pending, ai_reviewing, approved, rejected or cancelled. Room administrators see only granted rooms; global administrators see all rooms.
       parameters:
         - in: query
           name: keyword
@@ -1060,6 +1195,24 @@ components:
       schema:
         type: string
   requestBodies:
+    StudentBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, name]
+            properties:
+              email:
+                type: string
+                format: email
+                maxLength: 191
+              name:
+                type: string
+                maxLength: 191
+              classId:
+                type: integer
+                nullable: true
     IdBody:
       required: true
       content:
@@ -1244,6 +1397,66 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
   schemas:
+    StudentProfile:
+      type: object
+      required: [name, classId, className]
+      properties:
+        name:
+          type: string
+        classId:
+          type: integer
+          nullable: true
+        className:
+          type: string
+          nullable: true
+    StudentProfileWithEmail:
+      allOf:
+        - $ref: '#/components/schemas/StudentProfile'
+        - type: object
+          required: [email]
+          properties:
+            email:
+              type: string
+              format: email
+    ReservationPreflight:
+      type: object
+      required: [email, date, mode, student, reservations]
+      properties:
+        email:
+          type: string
+          format: email
+        date:
+          type: string
+          format: date
+        mode:
+          type: string
+          enum: [normal, priority]
+        student:
+          $ref: '#/components/schemas/StudentProfile'
+        reservations:
+          type: array
+          items:
+            type: object
+            required: [id, roomId, roomName, startTime, endTime, status, purposeType]
+            properties:
+              id:
+                type: integer
+              roomId:
+                type: integer
+                nullable: true
+              roomName:
+                type: string
+                nullable: true
+              startTime:
+                type: string
+                format: date-time
+              endTime:
+                type: string
+                format: date-time
+              status:
+                $ref: '#/components/schemas/ReservationStatus'
+              purposeType:
+                $ref: '#/components/schemas/PurposeType'
     MessageEnvelope:
       type: object
       required: [success, message]
@@ -1335,7 +1548,7 @@ components:
           minimum: 0
     Reservation:
       type: object
-      required: [id, roomId, startTime, endTime, studentName, studentId, email, reason, status, createdAt, roomName, className, campusName, purposeType, needsMultimedia, editCount]
+      required: [id, roomId, startTime, endTime, studentName, email, reason, status, createdAt, roomName, className, campusName, purposeType, needsMultimedia, editCount]
       properties:
         id:
           type: integer
@@ -1350,9 +1563,6 @@ components:
           format: date-time
         studentName:
           type: string
-        studentId:
-          type: string
-          nullable: true
         email:
           type: string
           nullable: true
@@ -1432,8 +1642,8 @@ components:
           type: string
     ReservationCreate:
       type: object
-      description: For ordinary email addresses, the reason, purpose type, student ID, room policy, room availability, daily count, enabled flag, and date and duration limits apply. Administrator email addresses bypass these business restrictions. The classId remains optional.
-      required: [room, startTime, endTime, studentName, email, reason, studentId]
+      description: For ordinary email addresses, the reason, purpose type, room policy, room availability, daily count, enabled flag, and date and duration limits apply. Administrator email addresses bypass these business restrictions. Name and class are resolved by the server from the student or administrator table; client-supplied identity fields are ignored.
+      required: [room, startTime, endTime, email, reason]
       properties:
         room:
           type: integer
@@ -1442,15 +1652,9 @@ components:
           description: Unix seconds
         endTime:
           type: integer
-        studentName:
-          type: string
         email:
           type: string
         reason:
-          type: string
-        classId:
-          type: integer
-        studentId:
           type: string
         purposeType:
           type: string

@@ -24,7 +24,7 @@ final class ReservationServiceTest extends DatabaseTestCase
             ['past', 400, 'Start time must be in the future.'],
             ['far', 400, 'Start time must be within 30 days.'],
             ['purpose', 400, 'Invalid purpose type.'],
-            ['student', 400, 'Invalid student ID format.'],
+            ['missing-mapping', 422, 'Student email is not registered.'],
             ['missing-room', 422, 'Invalid request body.'],
             ['unknown-room', 404, 'Room not found.'],
             ['disabled', 400, 'Room not found or disabled.'],
@@ -70,8 +70,8 @@ final class ReservationServiceTest extends DatabaseTestCase
             case 'purpose':
                 $body['purposeType'] = 'party';
                 break;
-            case 'student':
-                $body['studentId'] = 'bad';
+            case 'missing-mapping':
+                $this->db->execute('DELETE FROM student WHERE email = ?', [$body['email']]);
                 break;
             case 'missing-room':
                 unset($body['room']);
@@ -83,7 +83,7 @@ final class ReservationServiceTest extends DatabaseTestCase
                 $body['room'] = $rooms['disabledRoom'];
                 break;
             case 'class':
-                $body['classId'] = 999999;
+                $this->db->execute('UPDATE class SET deletedAt = NOW() WHERE id = ?', [$rooms['classId']]);
                 break;
             case 'policy':
                 [$late, $lateEnd] = $this->slot(3, 22);
@@ -122,12 +122,13 @@ final class ReservationServiceTest extends DatabaseTestCase
             ['x-csrf-token' => $this->csrf()],
         );
 
-        $row = $this->db->fetch('SELECT status, purposeType, needsMultimedia, studentId, roomId FROM reservation WHERE id = ?', [$created['reservationId']]);
+        $row = $this->db->fetch('SELECT status, purposeType, needsMultimedia, studentName, classId, roomId FROM reservation WHERE id = ?', [$created['reservationId']]);
         self::assertNotNull($row);
         self::assertSame('pending', $row['status']);
         self::assertSame('club', $row['purposeType']);
         self::assertSame(1, (int) $row['needsMultimedia']);
-        self::assertSame('GJ20240001', $row['studentId']);
+        self::assertSame('Li Lei', $row['studentName']);
+        self::assertSame($rooms['classId'], (int) $row['classId']);
         self::assertSame($rooms['roomA'], (int) $row['roomId']);
 
         $createdJobs = $this->jobPayloads('reservation_created');
@@ -156,6 +157,65 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertNotNull($audit);
         self::assertSame('reservation', $audit['entity']);
         self::assertSame((string) $created['reservationId'], $audit['entityId']);
+    }
+
+    public function testPreflightReturnsMappedProfileAndAllSelectedDayReservations(): void
+    {
+        $rooms = $this->rooms();
+        [$start, $end] = $this->slot(3, 10);
+        $body = $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId']);
+        $first = $this->insertReservation($rooms['roomA'], $start, $end, 'student@example.com', 'pending', $rooms['classId']);
+        $later = $this->insertReservation($rooms['roomB'], $start->modify('+2 hours'), $end->modify('+2 hours'), 'STUDENT@example.com', 'cancelled', $rooms['classId']);
+        $this->insertReservation($rooms['roomA'], $start->modify('+1 day'), $end->modify('+1 day'), 'student@example.com', 'approved', $rooms['classId']);
+
+        $result = $this->reservations->preflight($this->request('GET', '/reservation/preflight', [], [
+            'email' => ' STUDENT@EXAMPLE.COM ',
+            'date' => $start->format('Y-m-d'),
+        ]));
+        self::assertSame('student@example.com', $result['email']);
+        self::assertSame('normal', $result['mode']);
+        self::assertSame(['name' => 'Li Lei', 'classId' => $rooms['classId'], 'className' => 'A1'], $result['student']);
+        self::assertSame([$first, $later], array_column($result['reservations'], 'id'));
+        self::assertSame('cancelled', $result['reservations'][1]['status']);
+        self::assertSame(Clock::api($start), $result['reservations'][0]['startTime']);
+
+        $this->db->execute('DELETE FROM student WHERE email = ?', [$body['email']]);
+        $this->expectHttp(
+            fn () => $this->reservations->preflight($this->request('GET', '/reservation/preflight', [], ['email' => $body['email'], 'date' => $start->format('Y-m-d')])),
+            422,
+            'Student email is not registered.',
+        );
+        $this->expectHttp(
+            fn () => $this->createReservation($body, ['x-csrf-token' => $this->csrf()]),
+            422,
+            'Student email is not registered.',
+        );
+    }
+
+    public function testCreateUsesStoredNameAndClassInsteadOfSubmittedIdentity(): void
+    {
+        $rooms = $this->rooms();
+        [$start, $end] = $this->slot(3, 10);
+        $body = $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId']);
+        $body['studentName'] = 'Forged';
+        $body['classId'] = null;
+        $created = $this->createReservation($body, ['x-csrf-token' => $this->csrf()]);
+        $row = $this->db->fetch('SELECT studentName, classId FROM reservation WHERE id = ?', [$created['reservationId']]);
+        self::assertSame('Li Lei', $row['studentName']);
+        self::assertSame($rooms['classId'], (int) $row['classId']);
+    }
+
+    public function testAdministratorEmailPreflightUsesAdministratorNameWithoutStudentMapping(): void
+    {
+        $this->insertAdmin('admin@example.com', 'Administrator');
+        [$start] = $this->slot(3, 10);
+        $result = $this->reservations->preflight($this->request('GET', '/reservation/preflight', [], [
+            'email' => 'ADMIN@EXAMPLE.COM',
+            'date' => $start->format('Y-m-d'),
+        ]));
+        self::assertSame('priority', $result['mode']);
+        self::assertSame(['name' => 'Administrator', 'classId' => null, 'className' => null], $result['student']);
+        self::assertSame([], $result['reservations']);
     }
 
     public function testNullEnabledRoomCanBeBooked(): void
@@ -242,7 +302,6 @@ final class ReservationServiceTest extends DatabaseTestCase
         $otherRoom = $this->insertReservation($rooms['roomB'], $pastStart, $pastEnd, 'other-room@example.com', 'pending', $rooms['classId']);
         $body = $this->reservationBody($rooms['disabledRoom'], $pastStart, $pastEnd, $rooms['classId'], [
             'email' => ' ADMIN@EXAMPLE.COM ',
-            'studentId' => 'not-a-student',
             'purposeType' => 'unsupported',
             'reason' => '   ',
             'endTime' => $pastStart->modify('+3 hours')->getTimestamp(),
@@ -265,13 +324,14 @@ final class ReservationServiceTest extends DatabaseTestCase
         );
         $created = $this->createReservation($body + ['confirmPriority' => true, 'expectedConflictIds' => [$pending, $approved]], ['x-csrf-token' => $this->csrf()]);
         self::assertSame(2, $created['cancelledCount']);
-        $row = $this->db->fetch('SELECT status, studentId, latestExecutorId, roomId, email FROM reservation WHERE id = ?', [$created['reservationId']]);
+        $row = $this->db->fetch('SELECT status, studentName, classId, latestExecutorId, roomId, email FROM reservation WHERE id = ?', [$created['reservationId']]);
         self::assertNotNull($row);
         self::assertSame('approved', $row['status']);
-        self::assertSame('not-a-student', $row['studentId']);
+        self::assertSame('Administrator', $row['studentName']);
+        self::assertNull($row['classId']);
         self::assertSame($adminId, (int) $row['latestExecutorId']);
         self::assertSame($rooms['disabledRoom'], (int) $row['roomId']);
-        self::assertSame(' ADMIN@EXAMPLE.COM ', $row['email']);
+        self::assertSame('admin@example.com', $row['email']);
         self::assertSame('approved', $this->jobPayloads('reservation_status_changed')[0]['status']);
         self::assertSame([], $this->jobPayloads('admin_reservation_notification'));
         self::assertSame([], $this->jobPayloads('ai_approval'));
@@ -391,7 +451,7 @@ final class ReservationServiceTest extends DatabaseTestCase
             'You do not manage this room.',
         );
         $second = $this->createReservation(
-            $this->reservationBody($rooms['roomA'], $otherStart, $otherEnd, $rooms['classId'], ['email' => 'second@example.com', 'studentId' => 'GJ20240002']),
+            $this->reservationBody($rooms['roomA'], $otherStart, $otherEnd, $rooms['classId'], ['email' => 'second@example.com']),
             ['x-csrf-token' => $this->csrf()],
         );
         $this->expectHttp(
@@ -428,11 +488,11 @@ final class ReservationServiceTest extends DatabaseTestCase
         $public = $this->reservations->list($this->request('GET', '/reservation/list'));
         $publicRow = $this->byId($public['reservations'])[$id];
         self::assertNull($publicRow['email']);
-        self::assertNull($publicRow['studentId']);
+        self::assertArrayNotHasKey('studentId', $publicRow);
         self::assertSame('approved', $publicRow['status']);
         $adminRow = $this->byId($this->reservations->list($this->asAdminRead('super@example.com'))['reservations'])[$id];
         self::assertSame('student@example.com', $adminRow['email']);
-        self::assertSame('GJ20240001', $adminRow['studentId']);
+        self::assertArrayNotHasKey('studentId', $adminRow);
 
         $pastId = $this->insertReservation(
             $rooms['roomA'],
@@ -501,7 +561,7 @@ final class ReservationServiceTest extends DatabaseTestCase
 
         [$pendingStart, $pendingEnd] = $this->slot(5, 15);
         $pending = $this->createReservation(
-            $this->reservationBody($rooms['roomA'], $pendingStart, $pendingEnd, $rooms['classId'], ['email' => 'other@example.com', 'studentId' => 'GJ20240008']),
+            $this->reservationBody($rooms['roomA'], $pendingStart, $pendingEnd, $rooms['classId'], ['email' => 'other@example.com']),
             ['x-csrf-token' => $this->csrf()],
         )['reservationId'];
         $pendingTimes = $this->slot(5, 15);
@@ -559,7 +619,7 @@ final class ReservationServiceTest extends DatabaseTestCase
 
         [$freshStart, $freshEnd] = $this->slot(6, 16);
         $other = $this->createReservation(
-            $this->reservationBody($rooms['roomA'], $freshStart, $freshEnd, $rooms['classId'], ['email' => 'other@example.com', 'studentId' => 'GJ20240003']),
+            $this->reservationBody($rooms['roomA'], $freshStart, $freshEnd, $rooms['classId'], ['email' => 'other@example.com']),
             ['x-csrf-token' => $this->csrf()],
         );
         $otherToken = (string) $this->jobPayloads('reservation_created')[1]['cancelToken'];
@@ -588,7 +648,7 @@ final class ReservationServiceTest extends DatabaseTestCase
 
         [$approvedStart, $approvedEnd] = $this->slot(6, 18);
         $approved = $this->createReservation(
-            $this->reservationBody($rooms['roomA'], $approvedStart, $approvedEnd, $rooms['classId'], ['email' => 'approved@example.com', 'studentId' => 'GJ20240004']),
+            $this->reservationBody($rooms['roomA'], $approvedStart, $approvedEnd, $rooms['classId'], ['email' => 'approved@example.com']),
             ['x-csrf-token' => $this->csrf()],
         );
         $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $approved['reservationId'], 'approved' => true]));
@@ -627,7 +687,7 @@ final class ReservationServiceTest extends DatabaseTestCase
 
         [$rejectStart, $rejectEnd] = $this->slot(3, 13);
         $rejected = $this->createReservation(
-            $this->reservationBody($rooms['roomA'], $rejectStart, $rejectEnd, $rooms['classId'], ['email' => 'reject@example.com', 'studentId' => 'GJ20240005']),
+            $this->reservationBody($rooms['roomA'], $rejectStart, $rejectEnd, $rooms['classId'], ['email' => 'reject@example.com']),
             ['x-csrf-token' => $this->csrf()],
         );
         $rejectToken = (string) $this->jobPayloads('reservation_created')[1]['cancelToken'];
@@ -681,7 +741,7 @@ final class ReservationServiceTest extends DatabaseTestCase
             ['x-csrf-token' => $this->csrf()],
         )['reservationId'];
         [$hiddenStart, $hiddenEnd] = $this->slot(5, 10);
-        $hidden = $this->insertReservation($rooms['roomB'], $hiddenStart, $hiddenEnd, 'other@example.com', 'pending', $rooms['classId'], 'GJ20240002', 'Han Meimei', 'Other room');
+        $hidden = $this->insertReservation($rooms['roomB'], $hiddenStart, $hiddenEnd, 'other@example.com', 'pending', $rooms['classId'], 'Han Meimei', 'Other room');
         $this->insertReservation($rooms['roomA'], $start->modify('+2 hours'), $end->modify('+2 hours'), 'cancelled@example.com', 'cancelled', $rooms['classId']);
         $this->insertReservation($rooms['roomA'], $start->modify('+4 hours'), $end->modify('+4 hours'), 'rejected@example.com', 'rejected', $rooms['classId']);
 
@@ -729,7 +789,7 @@ final class ReservationServiceTest extends DatabaseTestCase
 
         for ($index = 0; $index < 20; $index++) {
             [$pageStart, $pageEnd] = $this->slot(8, 10);
-            $this->insertReservation($rooms['roomB'], $pageStart, $pageEnd, 'page-' . $index . '@example.com', 'pending', $rooms['classId'], 'GJ202411' . str_pad((string) $index, 2, '0', STR_PAD_LEFT));
+            $this->insertReservation($rooms['roomB'], $pageStart, $pageEnd, 'page-' . $index . '@example.com', 'pending', $rooms['classId']);
         }
         $page = $this->reservations->list($this->asAdminRead('super@example.com', ['page' => '1']));
         self::assertSame(24, $page['total']);
@@ -813,15 +873,20 @@ final class ReservationServiceTest extends DatabaseTestCase
     /** @return array<string, mixed> */
     private function reservationBody(int $roomId, \DateTimeImmutable $start, \DateTimeImmutable $end, ?int $classId, array $overrides = []): array
     {
+        $email = strtolower(trim((string) ($overrides['email'] ?? 'student@example.com')));
+        $name = (string) ($overrides['studentName'] ?? 'Li Lei');
+        $mappedClassId = $overrides['classId'] ?? $classId;
+        if ($this->db->fetch('SELECT id FROM admin WHERE email = ?', [$email]) === null) {
+            $this->db->execute('INSERT INTO student (email, name, classId) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), classId = VALUES(classId)', [$email, $name, $mappedClassId]);
+        }
+        unset($overrides['studentName'], $overrides['classId']);
+
         return array_merge([
             'room' => $roomId,
             'startTime' => $start->getTimestamp(),
             'endTime' => $end->getTimestamp(),
-            'studentName' => 'Li Lei',
             'email' => 'student@example.com',
             'reason' => 'Club meeting',
-            'classId' => $classId,
-            'studentId' => 'GJ20240001',
             'purposeType' => 'club',
             'needsMultimedia' => true,
         ], $overrides);

@@ -81,7 +81,7 @@ final class ReservationPolicy
         $dayStart = $start->setTime(0, 0, 0);
         $dayEnd = $dayStart->modify('+1 day');
         $daily = $this->count(
-            'SELECT COUNT(*) AS total FROM reservation WHERE LOWER(email) = LOWER(?) AND startTime >= ? AND endTime <= ? AND status <> \'cancelled\'',
+            'SELECT COUNT(*) AS total FROM reservation WHERE LOWER(TRIM(email)) = LOWER(?) AND startTime >= ? AND endTime <= ? AND status <> \'cancelled\'',
             [$email, Clock::sql($dayStart), Clock::sql($dayEnd)],
         );
         if ($daily >= 2) {

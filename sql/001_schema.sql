@@ -82,6 +82,15 @@ CREATE TABLE IF NOT EXISTS adminlogin (
   KEY adminlogin_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS student (
+  email VARCHAR(191) NOT NULL,
+  name VARCHAR(191) NOT NULL,
+  classId INT NULL,
+  PRIMARY KEY (email),
+  KEY student_class (classId),
+  CONSTRAINT student_class_fk FOREIGN KEY (classId) REFERENCES class (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS tempadminlogin (
   id INT NOT NULL AUTO_INCREMENT,
   token VARCHAR(191) NOT NULL,
@@ -98,7 +107,6 @@ CREATE TABLE IF NOT EXISTS reservation (
   startTime DATETIME NOT NULL,
   endTime DATETIME NOT NULL,
   studentName VARCHAR(191) NOT NULL,
-  studentId VARCHAR(32) NULL,
   email VARCHAR(191) NOT NULL,
   reason TEXT NOT NULL,
   status VARCHAR(16) NOT NULL,

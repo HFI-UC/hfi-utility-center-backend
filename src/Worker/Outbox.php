@@ -29,7 +29,7 @@ final class Outbox
         if (in_array($kind, ['reservation_created', 'reservation_modified', 'reservation_cancelled', 'reservation_status_changed', 'admin_reservation_notification'], true)
             && isset($payload['reservationId'])) {
             $snapshot = $this->db->fetch(
-                'SELECT r.email, r.studentName, r.studentId, r.reason, r.status, r.startTime, r.endTime, r.purposeType, r.needsMultimedia, rm.name AS room_name, c.name AS class_name, cp.name AS campus_name FROM reservation r LEFT JOIN room rm ON rm.id = r.roomId LEFT JOIN class c ON c.id = r.classId LEFT JOIN campus cp ON cp.id = rm.campusId WHERE r.id = ?',
+                'SELECT r.email, r.studentName, r.reason, r.status, r.startTime, r.endTime, r.purposeType, r.needsMultimedia, rm.name AS room_name, c.name AS class_name, cp.name AS campus_name FROM reservation r LEFT JOIN room rm ON rm.id = r.roomId LEFT JOIN class c ON c.id = r.classId LEFT JOIN campus cp ON cp.id = rm.campusId WHERE r.id = ?',
                 [(int) $payload['reservationId']],
             );
             if ($snapshot !== null) {

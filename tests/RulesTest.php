@@ -22,13 +22,6 @@ final class RulesTest extends TestCase
         self::assertSame('2027-01-15T16:00:00', Clock::api($local));
     }
 
-    public function testStudentIdShape(): void
-    {
-        self::assertTrue(Rules::validStudentId('GJ20999999'));
-        self::assertFalse(Rules::validStudentId('GJ2099999'));
-        self::assertFalse(Rules::validStudentId('gj20999999'));
-    }
-
     public function testPolicyWindow(): void
     {
         self::assertTrue(Rules::policyAllows([1, 3], [8, 0], [21, 30], 1, 8 * 60, 10 * 60));
@@ -80,7 +73,6 @@ final class RulesTest extends TestCase
             'Your reservation has been created',
             'We received your reservation request. You can review the details below.',
             'A & B',
-            'GJ20280001',
             'G1',
             '505',
             'Knowledge City Campus',

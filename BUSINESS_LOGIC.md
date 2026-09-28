@@ -83,15 +83,16 @@ flowchart LR
 
 所有申请都先检查：邮箱格式、时间可解析、`startTime < endTime`。`preview=true` 只校验并返回预约模式及冲突，不创建预约。随后按提交邮箱是否命中 `admin.email` 分成两条规则。
 
+前端只提交邮箱作为申请人资料；服务端用管理员记录或 `student(email, name, classId)` 映射补全姓名、班级，并在预约中保留快照。普通邮箱未注册映射时返回 422（`validation.code=student_not_registered`），不能自助录入。全局管理员可用 `/student/list`、`/student/create`、`/student/edit`、`/student/delete` 管理映射。`GET /reservation/preflight?email=...&date=YYYY-MM-DD` 返回该邮箱在所选日期交叠的全部预约及映射资料，响应禁止缓存。
+
 #### 普通申请人
 
 - 原因不能为空。
 - 时长最多 2 小时。
 - 开始时间必须晚于当前时间，且不超过未来 30 天。
-- `studentId` 必须是 10 位、以 `GJ` 开头、后 8 位为数字。
 - `purposeType` 只能是 `personal`、`class`、`club` 或空值。
 - 房间必须存在且启用。
-- 可选 `classId` 必须存在。
+- 映射中的可选班级必须仍存在且未归档。
 - 时间必须落在房间启用策略内。
 - 同房间不能与 `pending`、`ai_reviewing` 或 `approved` 预约重叠。
 - 同一邮箱在同一天的非取消预约最多 2 条。
@@ -102,19 +103,20 @@ flowchart LR
 管理员通过邮箱大小写不敏感匹配识别。管理员申请：
 
 - 直接创建为 `approved`。
-- 跳过普通申请人的原因、时长、未来 30 天、学生证号、用途、房间启用、策略、冲突和每日次数限制。
-- 仍要求邮箱可用、时间可解析且开始时间早于结束时间；房间和可选班级仍需存在。
-- 保留提交的学生证号和其他字段，`latestExecutorId` 记录对应管理员。
+- 跳过普通申请人的原因、时长、未来 30 天、用途、房间启用、策略、冲突和每日次数限制。
+- 仍要求邮箱可用、时间可解析且开始时间早于结束时间；房间必须存在。姓名取自管理员记录，班级为空，无需 `student` 映射。
+- `latestExecutorId` 记录对应管理员。
 - 预览返回重叠预约列表；最终请求须提交 `confirmPriority=true` 和预览中的 `expectedConflictIds`。若冲突列表已变化则返回 409，要求重新预览。
 - 确认后取消同一房间内重叠的 `pending`、`ai_reviewing` 或 `approved` 预约，并为被取消预约写操作日志、发送通知。
 
 ### 4.2 查询和可见性
 
 - `/reservation/availability` 返回某房间某天所有未被拒绝或取消的占用时段。
+- `/reservation/preflight` 按邮箱和所选日期返回已有预约和预填的姓名/班级，包括拒绝或取消记录。
 - `/reservation/get` 支持校区、房间、状态、用途、设备需求、时间范围、关键词、分页和按时间排序。
 - `/reservation/future` 只对管理员开放，返回当前管理员可管理房间中尚未结束的预约。
 - `/reservation/export` 只对管理员开放，导出其权限范围内的 XLSX；无数据返回 404。
-- 访客预约列表仍可看到预约的公共字段（姓名、原因、时间、房间、状态等），但 `studentId` 和 `email` 被置空；管理员可看到完整字段。
+- 访客预约列表仍可看到预约的公共字段（姓名、原因、时间、房间、状态等），但 `email` 被置空；管理员可看到邮箱。
 
 ### 4.3 申请人取消和修改
 
@@ -183,4 +185,5 @@ AI 开启且配置 URL 时，普通创建和申请人修改会写入 15 分钟�
 2. `/analytics/overview` 和 `/analytics/weekly` 仍为公开读取；CSV 导出要求管理员。
 3. Queue 采用至少一次投递。任务 ID、租约和状态更新可避免重复执行已完成任务，但 SMTP 已接受邮件而数据库尚未记为完成时，仍存在重复邮件的极小窗口。
 4. 生产数据库升级前运行 `sql/003_roles_archive_preflight.sql`，修复孤儿关联，再执行迁移；迁移不会自动抹去历史关联。
+5. 切换邮箱映射前先运行 `sql/004_student_email_mapping_preflight.sql`，人工处理同邮箱多姓名/班级或空姓名，再运行 `sql/004_student_email_mapping.sql`；迁移只自动导入无歧义映射并删除学号列。
 5. `analytics` 表目前由导出读取，实时 overview/weekly 主要直接聚合 `reservation`。

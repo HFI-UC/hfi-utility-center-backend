@@ -19,7 +19,7 @@ use Psr\Http\Message\ServerRequestInterface;
 
 final class ReservationService
 {
-    private const SELECT_ROW = 'r.id, r.roomId, r.startTime, r.endTime, r.studentName, r.studentId, r.email, r.reason, r.status, r.createdAt, rm.name AS room_name, c.name AS class_name, cp.name AS campus_name, r.purposeType, r.needsMultimedia, r.editCount';
+    private const SELECT_ROW = 'r.id, r.roomId, r.startTime, r.endTime, r.studentName, r.email, r.reason, r.status, r.createdAt, rm.name AS room_name, c.name AS class_name, cp.name AS campus_name, r.purposeType, r.needsMultimedia, r.editCount';
 
     private const FROM_ROW = ' FROM reservation r LEFT JOIN room rm ON rm.id = r.roomId LEFT JOIN class c ON c.id = r.classId LEFT JOIN campus cp ON cp.id = rm.campusId ';
 
@@ -69,6 +69,45 @@ final class ReservationService
     }
 
     /** @return array<string, mixed> */
+    public function preflight(ServerRequestInterface $request): array
+    {
+        $query = new QueryInput($request->getQueryParams());
+        $email = strtolower(trim($query->requireString('email')));
+        $date = $query->requireString('date');
+        if (!str_contains($email, '@')) {
+            throw new HttpException(400, 'Invalid email format.', ['field' => 'email']);
+        }
+        $day = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, Clock::zone());
+        $errors = \DateTimeImmutable::getLastErrors();
+        if ($day === false || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
+            throw new HttpException(400, 'Invalid date.', ['field' => 'date']);
+        }
+        $profile = $this->profileForEmail($email);
+        $start = Clock::sql($day->setTime(0, 0, 0));
+        $end = Clock::sql($day->setTime(0, 0, 0)->modify('+1 day'));
+        $rows = $this->db->fetchAll(
+            'SELECT r.id, r.roomId, rm.name AS roomName, r.startTime, r.endTime, r.status, r.purposeType FROM reservation r LEFT JOIN room rm ON rm.id = r.roomId WHERE LOWER(TRIM(r.email)) = ? AND r.startTime < ? AND r.endTime > ? ORDER BY r.startTime, r.id',
+            [$email, $end, $start],
+        );
+
+        return [
+            'email' => $email,
+            'date' => $date,
+            'mode' => $profile['administratorId'] === null ? 'normal' : 'priority',
+            'student' => ['name' => $profile['name'], 'classId' => $profile['classId'], 'className' => $profile['className']],
+            'reservations' => array_map(static fn (array $row): array => [
+                'id' => (int) $row['id'],
+                'roomId' => $row['roomId'] === null ? null : (int) $row['roomId'],
+                'roomName' => $row['roomName'] === null ? null : (string) $row['roomName'],
+                'startTime' => Clock::fromSql((string) $row['startTime']),
+                'endTime' => Clock::fromSql((string) $row['endTime']),
+                'status' => (string) $row['status'],
+                'purposeType' => $row['purposeType'] === null ? null : (string) $row['purposeType'],
+            ], $rows),
+        ];
+    }
+
+    /** @return array<string, mixed> */
     public function create(ServerRequestInterface $request): array
     {
         $this->auth->consumeCsrf($request);
@@ -76,11 +115,8 @@ final class ReservationService
         $roomId = $input->int('room');
         $startEpoch = $input->int('startTime');
         $endEpoch = $input->int('endTime');
-        $studentName = (string) $input->string('studentName');
-        $email = (string) $input->string('email');
+        $email = strtolower(trim((string) $input->string('email')));
         $reason = (string) $input->string('reason');
-        $classId = $input->int('classId', false);
-        $studentId = (string) $input->string('studentId');
         $purpose = $input->string('purposeType', false);
         $needsMultimedia = $input->bool('needsMultimedia', false);
         $preview = $input->bool('preview', false);
@@ -97,15 +133,17 @@ final class ReservationService
             throw new HttpException(400, 'Invalid end time.', ['field' => 'endTime']);
         }
         $this->policy->assertCreateRange($start, $end);
-        $administratorId = $this->authorization->administratorIdForEmail($email);
-        if ($administratorId === null) {
-            if (trim($reason) === '') {
-                throw new HttpException(400, 'Reservation reason is required.', ['field' => 'reason']);
-            }
-            $this->policy->assertOrdinaryCreateTimeAndPurpose($start, $end, $purpose);
-        }
-
-        $result = $this->db->transaction(function () use ($roomId, $start, $end, $studentName, $email, $reason, $classId, $studentId, $purpose, $needsMultimedia, $administratorId, $preview, $confirmPriority, $input): array {
+        $result = $this->db->transaction(function () use ($roomId, $start, $end, $email, $reason, $purpose, $needsMultimedia, $preview, $confirmPriority, $input): array {
+                $profile = $this->profileForEmail($email, true);
+                $studentName = $profile['name'];
+                $classId = $profile['classId'];
+                $administratorId = $profile['administratorId'];
+                if ($administratorId === null) {
+                    if (trim($reason) === '') {
+                        throw new HttpException(400, 'Reservation reason is required.', ['field' => 'reason']);
+                    }
+                    $this->policy->assertOrdinaryCreateTimeAndPurpose($start, $end, $purpose);
+                }
                 $this->lockRooms([$roomId]);
                 $room = $this->db->fetch('SELECT rm.id, rm.name, rm.enabled, rm.deletedAt, cp.deletedAt AS campusDeletedAt FROM room rm LEFT JOIN campus cp ON cp.id = rm.campusId WHERE rm.id = ?', [$roomId]);
                 if ($room === null || $room['deletedAt'] !== null || $room['campusDeletedAt'] !== null) {
@@ -131,9 +169,6 @@ final class ReservationService
                     }
                     $this->policy->assertPriorityConfirmation($input->intList('expectedConflictIds'), $conflicts);
                 }
-                if ($administratorId === null && !Rules::validStudentId($studentId)) {
-                    throw new HttpException(400, 'Invalid student ID format.', ['field' => 'studentId']);
-                }
                 if ($administratorId === null) {
                     $this->policy->assertOrdinaryCreateAvailability($roomId, $start, $end, $email);
                     if ($preview) {
@@ -142,7 +177,7 @@ final class ReservationService
                 }
                 $status = $administratorId === null ? 'pending' : 'approved';
                 $this->db->execute(
-                    'INSERT INTO reservation (roomId, startTime, endTime, studentName, email, reason, classId, studentId, status, purposeType, needsMultimedia, latestExecutorId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO reservation (roomId, startTime, endTime, studentName, email, reason, classId, status, purposeType, needsMultimedia, latestExecutorId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [
                         $roomId,
                         Clock::sql($start),
@@ -151,7 +186,6 @@ final class ReservationService
                         $email,
                         trim($reason),
                         $classId,
-                        $studentId,
                         $status,
                         $purpose,
                         $needsMultimedia ? 1 : 0,
@@ -246,7 +280,7 @@ final class ReservationService
             throw new HttpException(400, 'Invalid time range.');
         }
         [$scope, $params] = $this->authorization->scope($admin['id']);
-        $sql = 'SELECT r.id, r.startTime, r.endTime, r.studentName, r.studentId, r.email, r.reason, r.status, rm.name AS room, c.name AS class, cp.name AS campus, r.purposeType, r.needsMultimedia'
+        $sql = 'SELECT r.id, r.startTime, r.endTime, r.studentName, r.email, r.reason, r.status, rm.name AS room, c.name AS class, cp.name AS campus, r.purposeType, r.needsMultimedia'
             . self::FROM_ROW . 'WHERE 1=1' . $scope;
         if ($startLocal !== null) {
             $sql .= ' AND r.startTime >= ?';
@@ -266,7 +300,7 @@ final class ReservationService
             $mode = 'by-room';
         }
         $body = SimpleXlsx::build(
-            ['ID', 'Campus', 'Room', 'Class', 'Start', 'End', 'Name', 'Student ID', 'Email', 'Reason', 'Status', 'Purpose', 'Multimedia'],
+            ['ID', 'Campus', 'Room', 'Class', 'Start', 'End', 'Name', 'Email', 'Reason', 'Status', 'Purpose', 'Multimedia'],
             array_map(fn (array $row): array => [
                 (string) $row['id'],
                 (string) ($row['campus'] ?? ''),
@@ -275,7 +309,6 @@ final class ReservationService
                 (string) Clock::fromSql((string) $row['startTime']),
                 (string) Clock::fromSql((string) $row['endTime']),
                 (string) $row['studentName'],
-                (string) ($row['studentId'] ?? ''),
                 (string) $row['email'],
                 (string) $row['reason'],
                 (string) $row['status'],
@@ -668,7 +701,6 @@ final class ReservationService
             'startTime' => Clock::fromSql((string) $row['startTime']),
             'endTime' => Clock::fromSql((string) $row['endTime']),
             'studentName' => (string) $row['studentName'],
-            'studentId' => $admin ? ($row['studentId'] === null ? null : (string) $row['studentId']) : null,
             'email' => $admin ? (string) $row['email'] : null,
             'reason' => (string) $row['reason'],
             'status' => (string) $row['status'],
@@ -701,6 +733,30 @@ final class ReservationService
             'SELECT id FROM room WHERE id IN (' . $placeholders . ') ORDER BY id FOR UPDATE',
             $ids,
         );
+    }
+
+    /** @return array{name: string, classId: ?int, className: ?string, administratorId: ?int} */
+    private function profileForEmail(string $email, bool $lock = false): array
+    {
+        $suffix = $lock ? ' FOR UPDATE' : '';
+        $admin = $this->db->fetch('SELECT id, name FROM admin WHERE email = ? LIMIT 1' . $suffix, [$email]);
+        if ($admin !== null) {
+            return ['name' => (string) $admin['name'], 'classId' => null, 'className' => null, 'administratorId' => (int) $admin['id']];
+        }
+        $student = $this->db->fetch(
+            'SELECT s.name, s.classId, c.name AS className FROM student s LEFT JOIN class c ON c.id = s.classId WHERE s.email = ? LIMIT 1' . $suffix,
+            [$email],
+        );
+        if ($student === null) {
+            throw new HttpException(422, 'Student email is not registered.', ['field' => 'email', 'code' => 'student_not_registered']);
+        }
+
+        return [
+            'name' => (string) $student['name'],
+            'classId' => $student['classId'] === null ? null : (int) $student['classId'],
+            'className' => $student['className'] === null ? null : (string) $student['className'],
+            'administratorId' => null,
+        ];
     }
 
     /** @param list<mixed> $params */

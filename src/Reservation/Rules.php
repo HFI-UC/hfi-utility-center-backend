@@ -8,13 +8,6 @@ use Hfiuc\Support\Clock;
 
 final class Rules
 {
-    public static function validStudentId(string $studentId): bool
-    {
-        return strlen($studentId) === 10
-            && str_starts_with($studentId, 'GJ')
-            && ctype_digit(substr($studentId, 2));
-    }
-
     public static function validPurpose(?string $purpose): bool
     {
         return $purpose === null || in_array($purpose, ['personal', 'class', 'club'], true);

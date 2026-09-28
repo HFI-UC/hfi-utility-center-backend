@@ -280,7 +280,10 @@ final class CatalogService
     {
         $this->auth->requireAdminWrite($request);
         $id = (new Input($this->json($request)))->int('id');
-        if ($this->db->execute('UPDATE class SET deletedAt = NULL, deletedBy = NULL WHERE id = ? AND deletedAt IS NOT NULL', [$id]) === 0) {
+        if ($this->db->execute('UPDATE class c LEFT JOIN campus cp ON cp.id = c.campusId SET c.deletedAt = NULL, c.deletedBy = NULL WHERE c.id = ? AND c.deletedAt IS NOT NULL AND (c.campusId IS NULL OR cp.deletedAt IS NULL)', [$id]) === 0) {
+            if ($this->db->fetch('SELECT c.id FROM class c JOIN campus cp ON cp.id = c.campusId WHERE c.id = ? AND c.deletedAt IS NOT NULL AND cp.deletedAt IS NOT NULL', [$id]) !== null) {
+                throw new HttpException(409, 'Restore the campus before restoring this class.');
+            }
             throw new HttpException(404, 'Archived class not found.');
         }
         $this->invalidate();
@@ -349,7 +352,10 @@ final class CatalogService
     {
         $this->auth->requireAdminWrite($request);
         $id = (new Input($this->json($request)))->int('id');
-        if ($this->db->execute('UPDATE room SET deletedAt = NULL, deletedBy = NULL WHERE id = ? AND deletedAt IS NOT NULL', [$id]) === 0) {
+        if ($this->db->execute('UPDATE room rm LEFT JOIN campus cp ON cp.id = rm.campusId SET rm.deletedAt = NULL, rm.deletedBy = NULL WHERE rm.id = ? AND rm.deletedAt IS NOT NULL AND (rm.campusId IS NULL OR cp.deletedAt IS NULL)', [$id]) === 0) {
+            if ($this->db->fetch('SELECT rm.id FROM room rm JOIN campus cp ON cp.id = rm.campusId WHERE rm.id = ? AND rm.deletedAt IS NOT NULL AND cp.deletedAt IS NOT NULL', [$id]) !== null) {
+                throw new HttpException(409, 'Restore the campus before restoring this room.');
+            }
             throw new HttpException(404, 'Archived room not found.');
         }
         $this->invalidate();

@@ -27,6 +27,7 @@ abstract class DatabaseTestCase extends TestCase
         'reservationoperationlog',
         'reservationcanceltoken',
         'reservation',
+        'student',
         'roomapprover',
         'roompolicy',
         'adminlogin',
@@ -270,7 +271,6 @@ abstract class DatabaseTestCase extends TestCase
         string $email,
         string $status = 'pending',
         ?int $classId = null,
-        string $studentId = 'GJ20240001',
         string $name = 'Li Lei',
         string $reason = 'Study group',
         ?string $purpose = 'personal',
@@ -280,14 +280,13 @@ abstract class DatabaseTestCase extends TestCase
         int $editCount = 0,
     ): int {
         $this->db->execute(
-            'INSERT INTO reservation (roomId, classId, startTime, endTime, studentName, studentId, email, reason, status, purposeType, needsMultimedia, editCount, latestExecutorId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO reservation (roomId, classId, startTime, endTime, studentName, email, reason, status, purposeType, needsMultimedia, editCount, latestExecutorId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 $roomId,
                 $classId,
                 Clock::sql($start),
                 Clock::sql($end),
                 $name,
-                $studentId,
                 $email,
                 $reason,
                 $status,
@@ -394,6 +393,16 @@ abstract class DatabaseTestCase extends TestCase
         }
         if ($pdo->query("SHOW COLUMNS FROM admin LIKE 'role'")->fetchColumn() === false) {
             $migration = (string) file_get_contents(dirname(__DIR__, 2) . '/sql/003_roles_archive.sql');
+            $stripped = preg_replace('/^--.*$/m', '', $migration);
+            foreach (explode(';', $stripped ?? $migration) as $statement) {
+                $statement = trim($statement);
+                if ($statement !== '') {
+                    $pdo->exec($statement);
+                }
+            }
+        }
+        if ($pdo->query("SHOW COLUMNS FROM reservation LIKE 'studentId'")->fetchColumn() !== false) {
+            $migration = (string) file_get_contents(dirname(__DIR__, 2) . '/sql/004_student_email_mapping.sql');
             $stripped = preg_replace('/^--.*$/m', '', $migration);
             foreach (explode(';', $stripped ?? $migration) as $statement) {
                 $statement = trim($statement);
