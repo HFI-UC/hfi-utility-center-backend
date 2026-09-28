@@ -75,6 +75,14 @@ final class StudentServiceTest extends DatabaseTestCase
         $classId = $this->insertClass('A1', $campusId);
         $this->insertAdmin('admin@example.com', 'Global Admin');
         $service = new StudentService($this->db, $this->auth, $this->logger);
+        $this->expectHttp(
+            fn () => $service->create($this->asAdmin('admin@example.com', [
+                'email' => 'long-name@example.com',
+                'name' => str_repeat('A', 190) . "\nB",
+            ])),
+            400,
+            'Invalid student name.',
+        );
         $service->create($this->asAdmin('admin@example.com', ['email' => 'student@example.com', 'name' => 'Li Lei', 'classId' => $classId]));
         $this->expectHttp(
             fn () => $service->create($this->asAdmin('admin@example.com', ['email' => 'STUDENT@example.com', 'name' => 'Li Ming'])),

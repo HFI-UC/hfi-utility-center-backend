@@ -87,7 +87,7 @@ final class StudentService
         $email = $this->validEmail((string) $input->string('email'));
         $name = trim((string) $input->string('name'));
         $classId = $input->int('classId', false);
-        $nameLength = preg_match_all('/./u', $name);
+        $nameLength = preg_match_all('/[\s\S]/u', $name);
         if ($name === '' || $nameLength === false || $nameLength > 191) {
             throw new HttpException(400, 'Invalid student name.', ['field' => 'name']);
         }
