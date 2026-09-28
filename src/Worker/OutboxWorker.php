@@ -372,7 +372,7 @@ PROMPT;
             CURLOPT_POSTFIELDS => $request,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-goog-api-key: ' . $this->config->aiApiKey],
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 15,
+            CURLOPT_TIMEOUT => 10,
         ]);
         $raw = curl_exec($handle);
         $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
