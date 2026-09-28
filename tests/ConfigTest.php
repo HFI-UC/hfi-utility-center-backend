@@ -94,6 +94,22 @@ final class ConfigTest extends TestCase
         self::assertSame('', $blocked->getHeaderLine('Access-Control-Allow-Origin'));
     }
 
+    public function testAiApprovalUsesDirectGeminiConfiguration(): void
+    {
+        $this->setRequiredDatabaseEnv();
+        $this->clear('GEMINI_API_BASE_URL');
+        $this->set('GEMINI_MODEL', 'gemini-3.7-flash');
+        $this->set('GEMINI_API_KEY', 'test-gemini-key');
+
+        $config = Config::fromEnv();
+        self::assertSame(
+            'https://generativelanguage.googleapis.com/v1beta/models',
+            $config->aiApiBaseUrl,
+        );
+        self::assertSame('gemini-3.7-flash', $config->aiModel);
+        self::assertSame('test-gemini-key', $config->aiApiKey);
+    }
+
     private function setRequiredDatabaseEnv(): void
     {
         $this->set('DB_HOST', '127.0.0.1');

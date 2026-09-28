@@ -13,6 +13,10 @@ final class OutboxWorkerTest extends DatabaseTestCase
     /** @var resource|null */
     private $server = null;
 
+    private ?string $aiRequestFile = null;
+
+    private ?string $aiRouterFile = null;
+
     protected function tearDown(): void
     {
         if (is_resource($this->server)) {
@@ -20,6 +24,13 @@ final class OutboxWorkerTest extends DatabaseTestCase
             proc_close($this->server);
             $this->server = null;
         }
+        foreach ([$this->aiRequestFile, $this->aiRouterFile, $this->aiRouterFile === null ? null : $this->aiRouterFile . '.log'] as $path) {
+            if ($path !== null && is_file($path)) {
+                @unlink($path);
+            }
+        }
+        $this->aiRequestFile = null;
+        $this->aiRouterFile = null;
         parent::tearDown();
     }
 
@@ -87,7 +98,15 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertSame(1, $this->countTokens($reservationId));
         self::assertSame('approved', $this->jobPayloads('reservation_status_changed')[0]['status']);
         self::assertNotSame('', (string) $this->jobPayloads('reservation_status_changed')[0]['cancelToken']);
-        self::assertSame('ok', $this->db->fetch('SELECT reason FROM reservationoperationlog WHERE reservationId = ? AND operation = \'approved\'', [$reservationId])['reason']);
+        self::assertNull($this->db->fetch('SELECT reason FROM reservationoperationlog WHERE reservationId = ? AND operation = \'approved\'', [$reservationId])['reason']);
+        self::assertNotNull($this->aiRequestFile);
+        $aiRequest = json_decode((string) file_get_contents((string) $this->aiRequestFile), true);
+        self::assertIsArray($aiRequest);
+        self::assertSame('/gemini-3.7-flash:generateContent', $aiRequest['path'] ?? null);
+        self::assertStringContainsString('Chess Club meeting - weekly practice', (string) ($aiRequest['body']['systemInstruction']['parts'][0]['text'] ?? ''));
+        self::assertSame([['role' => 'user', 'parts' => [['text' => 'Study group']]]], $aiRequest['body']['contents'] ?? null);
+        self::assertSame(['approved', 'rejected', 'pending'], $aiRequest['body']['generationConfig']['responseSchema']['properties']['status']['enum'] ?? null);
+        self::assertStringNotContainsString('test-secret', (string) file_get_contents((string) $this->aiRequestFile));
 
         $pendingId = $this->reservation();
         $pendingJob = $this->insertJob('ai_approval', ['reservationId' => $pendingId]);
@@ -106,12 +125,24 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertSame('rejected', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$rejectedId])['status']);
         self::assertSame(0, $this->countTokens($rejectedId));
         self::assertNull($this->jobPayloads('reservation_status_changed')[1]['cancelToken']);
+        self::assertSame(
+            'Game-related activities are not permitted.',
+            $this->db->fetch("SELECT reason FROM reservationoperationlog WHERE reservationId = ? AND operation = 'rejected'", [$rejectedId])['reason'],
+        );
 
         $settledId = $this->reservation('approved');
         $settledJob = $this->insertJob('ai_approval', ['reservationId' => $settledId]);
         $this->workerFor($base . '?want=approved', $adminId)->processQueuedJob($settledJob);
         self::assertSame('completed', $this->jobStatus($settledJob));
         self::assertSame(0, $this->countTokens($settledId));
+
+        $supersededId = $this->reservation();
+        $supersededJob = $this->insertJob('ai_approval', ['reservationId' => $supersededId, 'reviewVersion' => 0]);
+        $this->db->execute('UPDATE reservation SET reviewVersion = 1 WHERE id = ?', [$supersededId]);
+        $this->workerFor($base . '?want=approved', $adminId)->processQueuedJob($supersededJob);
+        self::assertSame('completed', $this->jobStatus($supersededJob));
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$supersededId])['status']);
+        self::assertSame(0, $this->countTokens($supersededId));
 
         $failedId = $this->reservation();
         $failedJob = $this->insertJob('ai_approval', ['reservationId' => $failedId]);
@@ -142,6 +173,45 @@ final class OutboxWorkerTest extends DatabaseTestCase
             'Outbox job failed.',
         );
         self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$unsupportedId])['status']);
+
+        $invalidMessageId = $this->reservation();
+        $invalidMessageJob = $this->insertJob('ai_approval', ['reservationId' => $invalidMessageId]);
+        $this->expectHttp(
+            fn () => $this->workerFor($base . '?want=bad-message', $adminId)->processQueuedJob($invalidMessageJob),
+            500,
+            'Outbox job failed.',
+        );
+        self::assertSame('pending', $this->jobStatus($invalidMessageJob));
+        self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$invalidMessageId])['status']);
+
+        $unfinishedId = $this->reservation();
+        $unfinishedJob = $this->insertJob('ai_approval', ['reservationId' => $unfinishedId]);
+        $this->expectHttp(
+            fn () => $this->workerFor($base . '?want=not-stop', $adminId)->processQueuedJob($unfinishedJob),
+            500,
+            'Outbox job failed.',
+        );
+        self::assertSame('pending', $this->jobStatus($unfinishedJob));
+        self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$unfinishedId])['status']);
+        self::assertSame(0, $this->countTokens($unfinishedId));
+        self::assertStringContainsString('SAFETY', (string) $this->db->fetch('SELECT lastError FROM outboxjob WHERE id = ?', [$unfinishedJob])['lastError']);
+    }
+
+    public function testAiTransportFailureRecordsDiagnosticWithoutCredentials(): void
+    {
+        $reservationId = $this->reservation();
+        $jobId = $this->insertJob('ai_approval', ['reservationId' => $reservationId]);
+
+        $this->expectHttp(
+            fn () => $this->workerFor('http://127.0.0.1:1/', 0)->processQueuedJob($jobId),
+            500,
+            'Outbox job failed.',
+        );
+
+        $error = (string) $this->db->fetch('SELECT lastError FROM outboxjob WHERE id = ?', [$jobId])['lastError'];
+        self::assertMatchesRegularExpression('/^Gemini cURL [1-9][0-9]*: /', $error);
+        self::assertStringNotContainsString('test-secret', $error);
+        self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$reservationId])['status']);
     }
 
     public function testDispatchTokenRejectsStaleQueueDeliveryAndDuplicateCompletion(): void
@@ -211,32 +281,51 @@ final class OutboxWorkerTest extends DatabaseTestCase
 
     private function aiServer(): string
     {
-        $router = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'hfiuc-ai-router.php';
-        file_put_contents($router, <<<'PHP'
+        $router = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'hfiuc-ai-router-' . bin2hex(random_bytes(6)) . '.php';
+        $this->aiRouterFile = $router;
+        $this->aiRequestFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'hfiuc-ai-request-' . bin2hex(random_bytes(6)) . '.json';
+        $script = <<<'PHP'
 <?php
 header('Content-Type: application/json');
-if ($_SERVER['REQUEST_METHOD'] !== 'POST' || ($_SERVER['HTTP_AUTHORIZATION'] ?? '') !== 'Bearer test-secret') {
-    http_response_code(405);
-    echo '{"error":"POST with Bearer token required"}';
+$path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+if ($_SERVER['REQUEST_METHOD'] !== 'POST'
+    || $path !== '/gemini-3.7-flash:generateContent'
+    || ($_SERVER['HTTP_X_GOOG_API_KEY'] ?? '') !== 'test-secret') {
+    http_response_code(401);
+    echo '{"error":"POST to configured model with Gemini API key required"}';
     return;
 }
 $input = json_decode((string) file_get_contents('php://input'), true);
-if (!is_array($input) || !isset($input['reason']) || !is_string($input['reason'])) {
+if (!is_array($input)
+    || !is_string($input['systemInstruction']['parts'][0]['text'] ?? null)
+    || !is_string($input['contents'][0]['parts'][0]['text'] ?? null)
+    || count($input['contents'] ?? []) !== 1
+    || count($input['contents'][0]['parts'] ?? []) !== 1
+    || ($input['generationConfig']['responseMimeType'] ?? null) !== 'application/json') {
     http_response_code(400);
-    echo '{"error":"reason required"}';
+    echo '{"error":"Gemini request required"}';
     return;
 }
+file_put_contents(__REQUEST_FILE__, json_encode(['path' => $path, 'body' => $input]));
+$want = $_GET['want'] ?? 'approved';
+$decision = [
+    'status' => $want === 'bad-message' ? 'rejected' : ($want === 'not-stop' ? 'approved' : $want),
+    'message' => $want === 'rejected' ? 'Game-related activities are not permitted.' : ($want === 'bad-message' ? 'Invented rejection.' : null),
+];
 echo json_encode([
-    'status' => $_GET['want'] ?? 'approved',
-    'message' => 'ok',
+    'candidates' => [
+        ['finishReason' => $want === 'not-stop' ? 'SAFETY' : 'STOP', 'content' => ['parts' => [['text' => json_encode($decision)]]]],
+    ],
 ]);
-PHP);
+PHP;
+        file_put_contents($router, str_replace('__REQUEST_FILE__', var_export($this->aiRequestFile, true), $script));
+        $lastResponse = '';
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $port = random_int(20000, 45000);
             $pipes = [];
             $process = proc_open(
                 [PHP_BINARY, '-S', '127.0.0.1:' . $port, $router],
-                [0 => ['pipe', 'r'], 1 => ['file', 'NUL', 'w'], 2 => ['file', 'NUL', 'w']],
+                [0 => ['pipe', 'r'], 1 => ['file', 'NUL', 'w'], 2 => ['file', $router . '.log', 'a']],
                 $pipes,
             );
             if (!is_resource($process)) {
@@ -246,14 +335,19 @@ PHP);
             for ($wait = 0; $wait < 30; $wait++) {
                 $socket = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
                 if (is_resource($socket)) {
-                    $body = '{"reason":"probe"}';
-                    fwrite($socket, "POST /?want=approved HTTP/1.0\r\nHost: 127.0.0.1\r\nAuthorization: Bearer test-secret\r\nContent-Type: application/json\r\nContent-Length: " . strlen($body) . "\r\nConnection: close\r\n\r\n" . $body);
+                    $body = (string) json_encode([
+                        'systemInstruction' => ['parts' => [['text' => 'probe prompt']]],
+                        'contents' => [['role' => 'user', 'parts' => [['text' => 'probe']]]],
+                        'generationConfig' => ['responseMimeType' => 'application/json'],
+                    ]);
+                    fwrite($socket, "POST /gemini-3.7-flash:generateContent?want=approved HTTP/1.0\r\nHost: 127.0.0.1\r\nx-goog-api-key: test-secret\r\nContent-Type: application/json\r\nContent-Length: " . strlen($body) . "\r\nConnection: close\r\n\r\n" . $body);
                     $response = stream_get_contents($socket);
                     fclose($socket);
-                    if (is_string($response) && str_contains($response, '"status":"approved"')) {
+                    if (is_string($response) && str_contains($response, '"candidates"')) {
                         $ready = true;
                         break;
                     }
+                    $lastResponse = is_string($response) ? substr($response, 0, 500) : 'Unable to read probe response';
                 }
                 usleep(100000);
             }
@@ -268,6 +362,9 @@ PHP);
             proc_terminate($process);
             proc_close($process);
         }
-        self::markTestSkipped('Unable to start a local AI approval server.');
+        if ($lastResponse !== '') {
+            self::fail('Local Gemini mock returned an invalid response: ' . $lastResponse . ' Log: ' . substr((string) @file_get_contents($router . '.log'), 0, 1000));
+        }
+        self::markTestSkipped('Unable to start a local Gemini mock server.');
     }
 }
