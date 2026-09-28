@@ -259,7 +259,7 @@ PROMPT;
     /** @param array<string, mixed> $payload */
     private function aiApproval(array $payload): void
     {
-        if (!$this->config->aiEnabled) {
+        if (!$this->config->aiEnabled || $this->config->aiApiKey === '') {
             return;
         }
         $id = (int) ($payload['reservationId'] ?? 0);
