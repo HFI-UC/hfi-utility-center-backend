@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Hfiuc\Worker;
 
+use Hfiuc\Support\Clock;
+
 final class MailTemplate
 {
     private const LOGO = 'https://s21.ax1x.com/2025/09/25/pV5T6mt.png';
@@ -99,7 +101,9 @@ final class MailTemplate
             . $body
             . '<div style="line-height:25px;font-size:1px;">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;"><tr><td style="background-color:#F97316;border-radius:12px;"><p style="'
             . $text
-            . 'line-height:70px;font-weight:400;font-size:16px;color:#FFFFFF;text-align:center;">Copyright © 2025 MAKERs&#39;.</p></td></tr></table></td></tr></table></td></tr></table></body></html>';
+            . 'line-height:70px;font-weight:400;font-size:16px;color:#FFFFFF;text-align:center;">Copyright © '
+            . Clock::now()->format('Y')
+            . ' MAKERs&#39;.</p></td></tr></table></td></tr></table></td></tr></table></body></html>';
     }
 
     public static function escape(string $value): string

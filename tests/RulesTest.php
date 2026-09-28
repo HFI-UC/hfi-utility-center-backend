@@ -90,7 +90,7 @@ final class RulesTest extends TestCase
         self::assertStringContainsString('Manage reservation', $html);
         self::assertStringContainsString('Multimedia equipment required', $html);
         self::assertStringContainsString('https://www.hfiuc.org/reservation/cancel?token=abc', $html);
-        self::assertStringContainsString('Copyright © 2025 MAKERs&#39;.', $html);
+        self::assertStringContainsString('Copyright © ' . Clock::now()->format('Y') . ' MAKERs&#39;.', $html);
         self::assertStringContainsString('#F97316', $html);
         self::assertStringContainsString('https://s21.ax1x.com/2025/09/25/pV5T6mt.png', $html);
     }
