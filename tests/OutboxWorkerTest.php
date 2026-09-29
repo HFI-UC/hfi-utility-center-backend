@@ -102,10 +102,13 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertNotNull($this->aiRequestFile);
         $aiRequest = json_decode((string) file_get_contents((string) $this->aiRequestFile), true);
         self::assertIsArray($aiRequest);
-        self::assertSame('/gemini-3.7-flash:generateContent', $aiRequest['path'] ?? null);
-        self::assertStringContainsString('Chess Club meeting - weekly practice', (string) ($aiRequest['body']['systemInstruction']['parts'][0]['text'] ?? ''));
-        self::assertSame([['role' => 'user', 'parts' => [['text' => 'Study group']]]], $aiRequest['body']['contents'] ?? null);
-        self::assertSame(['approved', 'rejected', 'pending'], $aiRequest['body']['generationConfig']['responseSchema']['properties']['status']['enum'] ?? null);
+        self::assertSame('/chat/completions', $aiRequest['path'] ?? null);
+        self::assertStringContainsString('Chess Club meeting - weekly practice', (string) ($aiRequest['body']['messages'][0]['content'] ?? ''));
+        self::assertSame([
+            ['role' => 'system', 'content' => $aiRequest['body']['messages'][0]['content'] ?? null],
+            ['role' => 'user', 'content' => 'Study group'],
+        ], $aiRequest['body']['messages'] ?? null);
+        self::assertSame(['type' => 'json_object'], $aiRequest['body']['response_format'] ?? null);
         self::assertStringNotContainsString('test-secret', (string) file_get_contents((string) $this->aiRequestFile));
 
         $pendingId = $this->reservation();
@@ -209,12 +212,12 @@ final class OutboxWorkerTest extends DatabaseTestCase
         );
 
         $error = (string) $this->db->fetch('SELECT lastError FROM outboxjob WHERE id = ?', [$jobId])['lastError'];
-        self::assertMatchesRegularExpression('/^Gemini cURL [1-9][0-9]*: /', $error);
+        self::assertMatchesRegularExpression('/^OpenAI cURL [1-9][0-9]*: /', $error);
         self::assertStringNotContainsString('test-secret', $error);
         self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$reservationId])['status']);
     }
 
-    public function testMissingGeminiKeyCompletesAiJobsWithoutCallingGeminiOrChangingOtherReservations(): void
+    public function testMissingOpenAiKeyCompletesAiJobsWithoutCallingOpenAiOrChangingOtherReservations(): void
     {
         $base = $this->aiServer();
         self::assertNotNull($this->aiRequestFile);
@@ -268,7 +271,7 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertSame(0, $this->countTokens($approvedId));
     }
 
-    public function testWrongGeminiKeyReturnsReviewingReservationToHumanQueueWithoutRetry(): void
+    public function testWrongOpenAiKeyReturnsReviewingReservationToHumanQueueWithoutRetry(): void
     {
         $base = $this->aiServer();
         $worker = new OutboxWorker(
@@ -303,7 +306,7 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertSame(1, (int) $this->db->fetch('SELECT attempts FROM outboxjob WHERE id = ?', [$jobId])['attempts']);
     }
 
-    public function testGeminiHttpErrorLogsProviderReasonWithoutCredentialsOrReservationText(): void
+    public function testOpenAiHttpErrorLogsProviderReasonWithoutCredentialsOrReservationText(): void
     {
         $base = $this->aiServer();
         $reservationId = $this->reservation();
@@ -311,13 +314,13 @@ final class OutboxWorkerTest extends DatabaseTestCase
 
         $this->workerFor($base . '?want=provider-error', 0)->processQueuedJob($jobId);
 
-        $row = $this->db->fetch("SELECT context FROM errorlog WHERE message = 'Gemini rejected AI approval configuration' ORDER BY id DESC LIMIT 1");
+        $row = $this->db->fetch("SELECT context FROM errorlog WHERE message = 'OpenAI rejected AI approval configuration' ORDER BY id DESC LIMIT 1");
         self::assertNotNull($row);
         $context = json_decode((string) $row['context'], true);
         self::assertIsArray($context);
         self::assertSame(400, $context['httpStatus'] ?? null);
-        self::assertStringContainsString('INVALID_ARGUMENT', (string) ($context['providerError'] ?? ''));
-        self::assertStringContainsString('thinkingLevel', (string) ($context['providerError'] ?? ''));
+        self::assertStringContainsString('invalid_request_error', (string) ($context['providerError'] ?? ''));
+        self::assertStringContainsString('response_format', (string) ($context['providerError'] ?? ''));
         foreach (['test-secret', 'Study group', 'student@example.com'] as $sensitive) {
             self::assertStringNotContainsString($sensitive, (string) $row['context']);
         }
@@ -400,36 +403,37 @@ final class OutboxWorkerTest extends DatabaseTestCase
 header('Content-Type: application/json');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 if ($_SERVER['REQUEST_METHOD'] !== 'POST'
-    || $path !== '/gemini-3.7-flash:generateContent'
-    || ($_SERVER['HTTP_X_GOOG_API_KEY'] ?? '') !== 'test-secret') {
+    || $path !== '/chat/completions'
+    || ($_SERVER['HTTP_AUTHORIZATION'] ?? '') !== 'Bearer test-secret') {
     http_response_code(401);
-    echo '{"error":"POST to configured model with Gemini API key required"}';
+    echo '{"error":{"type":"authentication_error","message":"POST to configured model with OpenAI API key required"}}';
     return;
 }
 $input = json_decode((string) file_get_contents('php://input'), true);
 if (!is_array($input)
-    || !is_string($input['systemInstruction']['parts'][0]['text'] ?? null)
-    || !is_string($input['contents'][0]['parts'][0]['text'] ?? null)
-    || count($input['contents'] ?? []) !== 1
-    || count($input['contents'][0]['parts'] ?? []) !== 1
-    || ($input['generationConfig']['responseMimeType'] ?? null) !== 'application/json') {
+    || !is_string($input['messages'][0]['content'] ?? null)
+    || !is_string($input['messages'][1]['content'] ?? null)
+    || ($input['messages'][0]['role'] ?? null) !== 'system'
+    || ($input['messages'][1]['role'] ?? null) !== 'user'
+    || ($input['response_format']['type'] ?? null) !== 'json_object') {
     http_response_code(400);
-    echo '{"error":"Gemini request required"}';
+    echo '{"error":{"type":"invalid_request_error","message":"OpenAI request required"}}';
     return;
 }
 file_put_contents(__REQUEST_FILE__, json_encode(['path' => $path, 'body' => $input]));
 $want = $_GET['want'] ?? 'approved';
 if ($want === 'unavailable') {
     http_response_code(503);
-    echo '{"error":"unavailable"}';
+    echo '{"error":{"type":"server_error","message":"unavailable"}}';
     return;
 }
 if ($want === 'provider-error') {
     http_response_code(400);
     echo json_encode(['error' => [
         'code' => 400,
-        'status' => 'INVALID_ARGUMENT',
-        'message' => 'Unknown name "thinkingLevel" at generation_config.thinking_config; test-secret Study group student@example.com',
+        'type' => 'invalid_request_error',
+        'param' => 'response_format',
+        'message' => 'Unsupported response_format; test-secret Study group student@example.com',
     ]]);
     return;
 }
@@ -438,8 +442,11 @@ $decision = [
     'message' => $want === 'rejected' ? 'Game-related activities are not permitted.' : ($want === 'bad-message' ? 'Invented rejection.' : null),
 ];
 echo json_encode([
-    'candidates' => [
-        ['finishReason' => $want === 'not-stop' ? 'SAFETY' : 'STOP', 'content' => ['parts' => [['text' => json_encode($decision)]]]],
+    'choices' => [
+        [
+            'finish_reason' => $want === 'not-stop' ? 'length' : 'stop',
+            'message' => ['role' => 'assistant', 'content' => json_encode($decision)],
+        ],
     ],
 ]);
 PHP;
@@ -461,14 +468,17 @@ PHP;
                 $socket = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
                 if (is_resource($socket)) {
                     $body = (string) json_encode([
-                        'systemInstruction' => ['parts' => [['text' => 'probe prompt']]],
-                        'contents' => [['role' => 'user', 'parts' => [['text' => 'probe']]]],
-                        'generationConfig' => ['responseMimeType' => 'application/json'],
+                        'model' => 'gpt-4o-mini',
+                        'messages' => [
+                            ['role' => 'system', 'content' => 'probe prompt'],
+                            ['role' => 'user', 'content' => 'probe'],
+                        ],
+                        'response_format' => ['type' => 'json_object'],
                     ]);
-                    fwrite($socket, "POST /gemini-3.7-flash:generateContent?want=approved HTTP/1.0\r\nHost: 127.0.0.1\r\nx-goog-api-key: test-secret\r\nContent-Type: application/json\r\nContent-Length: " . strlen($body) . "\r\nConnection: close\r\n\r\n" . $body);
+                    fwrite($socket, "POST /chat/completions?want=approved HTTP/1.0\r\nHost: 127.0.0.1\r\nAuthorization: Bearer test-secret\r\nContent-Type: application/json\r\nContent-Length: " . strlen($body) . "\r\nConnection: close\r\n\r\n" . $body);
                     $response = stream_get_contents($socket);
                     fclose($socket);
-                    if (is_string($response) && str_contains($response, '"candidates"')) {
+                    if (is_string($response) && str_contains($response, '"choices"')) {
                         $ready = true;
                         break;
                     }
@@ -488,8 +498,8 @@ PHP;
             proc_close($process);
         }
         if ($lastResponse !== '') {
-            self::fail('Local Gemini mock returned an invalid response: ' . $lastResponse . ' Log: ' . substr((string) @file_get_contents($router . '.log'), 0, 1000));
+            self::fail('Local OpenAI mock returned an invalid response: ' . $lastResponse . ' Log: ' . substr((string) @file_get_contents($router . '.log'), 0, 1000));
         }
-        self::markTestSkipped('Unable to start a local Gemini mock server.');
+        self::markTestSkipped('Unable to start a local OpenAI mock server.');
     }
 }

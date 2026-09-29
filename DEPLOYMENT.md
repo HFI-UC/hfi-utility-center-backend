@@ -9,7 +9,7 @@
 3. 对生产库执行只读 `sql/003_roles_archive_preflight.sql` 和 `sql/004_student_email_mapping_preflight.sql`。先修复孤儿关联，并核对同邮箱姓名/班级冲突及空姓名；这些邮箱不会被自动推断为单一映射。
 4. 在维护窗口停止预约写入，按顺序执行未应用的 `sql/002_drop_campus_is_privileged.sql`、`sql/003_roles_archive.sql`、`sql/004_student_email_mapping.sql`。新库直接使用 `sql/001_schema.sql`。004 会删除预约学号列，务必在完整备份后执行。
 5. 核对 `student` 映射；为 004 预检中有歧义或缺失映射的邮箱由全局管理员补录。普通邮箱无映射会收到 422 且无法预约；管理员邮箱优先预约继续使用 `admin.name`。
-6. PHP 根目录 `.env` 配置 `CORS_ALLOWED_ORIGINS`（逗号分隔的完整源域，至少包含当前前端域名）、`TASK_PULL_SECRET`、`TASK_EXECUTE_SECRET`、Cloudflare Queue 凭据及现有生产依赖；启用 AI 审批时还需配置 `GEMINI_API_KEY`、`GEMINI_MODEL`。`GEMINI_VERIFY_SSL` 默认是 `true`；只有预览环境确认 CA 证书问题时才暂时设为 `false`，修复 PHP-FPM 的 CA 证书后恢复为 `true`。缺失或无效的 Gemini 配置会跳过 AI 任务；Gemini 返回永久性 4xx 时也会回退人工审批。未配置 CORS 列表时浏览器跨域请求不会被放行。两项新 task secret 分别在对应 Worker 环境中配置为 Cloudflare Secrets。不要写进 `wrangler.jsonc`。
+6. PHP 根目录 `.env` 配置 `CORS_ALLOWED_ORIGINS`（逗号分隔的完整源域，至少包含当前前端域名）、`TASK_PULL_SECRET`、`TASK_EXECUTE_SECRET`、Cloudflare Queue 凭据及现有生产依赖；启用 AI 审批时还需配置 `OPENAI_API_KEY`、`OPENAI_MODEL` 和 `OPENAI_API_BASE_URL`。`AI_VERIFY_SSL` 默认是 `true`；只有预览环境确认 CA 证书问题时才暂时设为 `false`，修复 PHP-FPM 的 CA 证书后恢复为 `true`。缺失或无效的 OpenAI 配置会跳过 AI 任务；OpenAI 返回永久性 4xx 时也会回退人工审批。未配置 CORS 列表时浏览器跨域请求不会被放行。两项新 task secret 分别在对应 Worker 环境中配置为 Cloudflare Secrets。不要写进 `wrangler.jsonc`。
 7. dev Worker 使用独立 `uc-dev` Queue 和预览 PHP API；生产 PHP API 切换前保持生产 Worker 调度关闭。
 
 ## 切换顺序

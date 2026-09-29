@@ -52,20 +52,20 @@ final class ConfigTest extends TestCase
         self::assertFalse(Config::fromEnv()->turnstileVerifySsl);
     }
 
-    public function testGeminiVerifySslDefaultsToTrue(): void
+    public function testAiVerifySslDefaultsToTrue(): void
     {
         $this->setRequiredDatabaseEnv();
-        $this->clear('GEMINI_VERIFY_SSL');
+        $this->clear('AI_VERIFY_SSL');
 
-        self::assertTrue(Config::fromEnv()->geminiVerifySsl);
+        self::assertTrue(Config::fromEnv()->aiVerifySsl);
     }
 
-    public function testGeminiVerifySslCanBeDisabled(): void
+    public function testAiVerifySslCanBeDisabled(): void
     {
         $this->setRequiredDatabaseEnv();
-        $this->set('GEMINI_VERIFY_SSL', 'false');
+        $this->set('AI_VERIFY_SSL', 'false');
 
-        self::assertFalse(Config::fromEnv()->geminiVerifySsl);
+        self::assertFalse(Config::fromEnv()->aiVerifySsl);
     }
 
     public function testCorsOriginsComeOnlyFromEnvironment(): void
@@ -110,52 +110,52 @@ final class ConfigTest extends TestCase
         self::assertSame('', $blocked->getHeaderLine('Access-Control-Allow-Origin'));
     }
 
-    public function testAiApprovalUsesDirectGeminiConfiguration(): void
+    public function testAiApprovalUsesOpenAiConfiguration(): void
     {
         $this->setRequiredDatabaseEnv();
-        $this->clear('GEMINI_API_BASE_URL');
-        $this->set('GEMINI_MODEL', 'gemini-3.7-flash');
-        $this->set('GEMINI_API_KEY', 'test-gemini-key');
+        $this->clear('OPENAI_API_BASE_URL');
+        $this->set('OPENAI_MODEL', 'gpt-4o-mini');
+        $this->set('OPENAI_API_KEY', 'test-openai-key');
 
         $config = Config::fromEnv();
         self::assertSame(
-            'https://generativelanguage.googleapis.com/v1beta/models',
+            'https://api.openai.com/v1',
             $config->aiApiBaseUrl,
         );
-        self::assertSame('gemini-3.7-flash', $config->aiModel);
-        self::assertSame('test-gemini-key', $config->aiApiKey);
+        self::assertSame('gpt-4o-mini', $config->aiModel);
+        self::assertSame('test-openai-key', $config->aiApiKey);
     }
 
-    public function testGeminiModelDefaultsToValidatedFlashVersion(): void
+    public function testOpenAiModelDefaultsToValidatedFlashVersion(): void
     {
         $this->setRequiredDatabaseEnv();
-        $this->clear('GEMINI_MODEL');
+        $this->clear('OPENAI_MODEL');
 
-        self::assertSame('gemini-3.6-flash', Config::fromEnv()->aiModel);
+        self::assertSame('gpt-4o-mini', Config::fromEnv()->aiModel);
     }
 
-    public function testAiApprovalIsReadyOnlyWithEnabledAndValidGeminiConfiguration(): void
+    public function testAiApprovalIsReadyOnlyWithEnabledAndValidOpenAiConfiguration(): void
     {
         $this->setRequiredDatabaseEnv();
         $this->set('AI_APPROVAL_ENABLED', 'true');
-        $this->set('GEMINI_API_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/models');
-        $this->set('GEMINI_MODEL', 'gemini-3.7-flash');
-        $this->set('GEMINI_API_KEY', 'test-gemini-key');
+        $this->set('OPENAI_API_BASE_URL', 'https://api.openai.com/v1');
+        $this->set('OPENAI_MODEL', 'gpt-4o-mini');
+        $this->set('OPENAI_API_KEY', 'test-openai-key');
 
         self::assertTrue(Config::fromEnv()->aiApprovalReady());
 
-        $this->clear('GEMINI_API_KEY');
+        $this->clear('OPENAI_API_KEY');
         self::assertFalse(Config::fromEnv()->aiApprovalReady());
 
-        $this->set('GEMINI_API_KEY', 'test-gemini-key');
-        $this->set('GEMINI_API_BASE_URL', 'not-a-url');
+        $this->set('OPENAI_API_KEY', 'test-openai-key');
+        $this->set('OPENAI_API_BASE_URL', 'not-a-url');
         self::assertFalse(Config::fromEnv()->aiApprovalReady());
 
-        $this->set('GEMINI_API_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/models');
-        $this->set('GEMINI_MODEL', 'gemini/invalid');
+        $this->set('OPENAI_API_BASE_URL', 'https://api.openai.com/v1');
+        $this->set('OPENAI_MODEL', 'model with space');
         self::assertFalse(Config::fromEnv()->aiApprovalReady());
 
-        $this->set('GEMINI_MODEL', 'gemini-3.7-flash');
+        $this->set('OPENAI_MODEL', 'gpt-4o-mini');
         $this->set('AI_APPROVAL_ENABLED', 'false');
         self::assertFalse(Config::fromEnv()->aiApprovalReady());
     }

@@ -20,7 +20,7 @@ final class Config
         public readonly string $smtpPassword,
         public readonly string $cloudflareSecret,
         public readonly bool $turnstileVerifySsl,
-        public readonly bool $geminiVerifySsl,
+        public readonly bool $aiVerifySsl,
         public readonly bool $aiEnabled,
         public readonly string $aiApiBaseUrl,
         public readonly string $aiModel,
@@ -66,11 +66,11 @@ final class Config
             self::string('SMTP_PASSWORD', ''),
             self::string('CLOUDFLARE_SECRET', ''),
             self::bool('TURNSTILE_VERIFY_SSL', true),
-            self::bool('GEMINI_VERIFY_SSL', true),
+            self::bool('AI_VERIFY_SSL', true),
             self::bool('AI_APPROVAL_ENABLED', false),
-            self::string('GEMINI_API_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/models'),
-            self::string('GEMINI_MODEL', 'gemini-3.6-flash'),
-            self::string('GEMINI_API_KEY', ''),
+            self::string('OPENAI_API_BASE_URL', 'https://api.openai.com/v1'),
+            self::string('OPENAI_MODEL', 'gpt-4o-mini'),
+            self::string('OPENAI_API_KEY', ''),
             self::int('AI_APPROVAL_ADMIN_ID', 0),
             self::bool('COOKIE_SECURE', true),
             $origins,
@@ -87,7 +87,7 @@ final class Config
     public function aiApprovalReady(): bool
     {
         if (!$this->aiEnabled || preg_match('/^[\x21-\x7E]+$/D', $this->aiApiKey) !== 1
-            || preg_match('/^[A-Za-z0-9._-]+$/D', $this->aiModel) !== 1) {
+            || preg_match('/^[A-Za-z0-9._:\/-]+$/D', $this->aiModel) !== 1) {
             return false;
         }
 

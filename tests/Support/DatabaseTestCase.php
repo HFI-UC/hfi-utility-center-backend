@@ -360,7 +360,7 @@ abstract class DatabaseTestCase extends TestCase
             true,
             $aiEnabled,
             $aiApiBaseUrl,
-            'gemini-3.7-flash',
+            'gpt-4o-mini',
             $aiApiKey,
             $aiAdminId,
             false,

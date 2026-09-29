@@ -361,7 +361,7 @@ final class ReservationServiceTest extends DatabaseTestCase
     {
         $rooms = $this->rooms();
         [$start, $end] = $this->slot(3, 10);
-        $service = new ReservationService($this->db, $this->auth, $this->makeConfig(true, 'https://generativelanguage.googleapis.com/v1beta/models'), $this->logger, $this->outbox);
+        $service = new ReservationService($this->db, $this->auth, $this->makeConfig(true, 'https://api.openai.com/v1'), $this->logger, $this->outbox);
         $created = $service->create($this->request(
             'POST',
             '/reservation/create',
@@ -392,14 +392,14 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertNotContains('ai_approval', array_column($this->queue->messages, 'kind'));
     }
 
-    public function testMissingGeminiKeyLeavesNewReservationPendingWithoutAiJob(): void
+    public function testMissingOpenAiKeyLeavesNewReservationPendingWithoutAiJob(): void
     {
         $rooms = $this->rooms();
         [$start, $end] = $this->slot(3, 10);
         $service = new ReservationService(
             $this->db,
             $this->auth,
-            $this->makeConfig(true, 'https://generativelanguage.googleapis.com/v1beta/models', 0, false, ''),
+            $this->makeConfig(true, 'https://api.openai.com/v1', 0, false, ''),
             $this->logger,
             $this->outbox,
         );

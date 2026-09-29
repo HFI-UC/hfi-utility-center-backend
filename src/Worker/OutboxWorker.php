@@ -292,7 +292,7 @@ PROMPT;
         } catch (\RuntimeException $error) {
             $status = $error->getCode();
             if ($status >= 400 && $status < 500 && !in_array($status, [408, 429], true)) {
-                $this->logger->error('Gemini rejected AI approval configuration', [
+                $this->logger->error('OpenAI rejected AI approval configuration', [
                     'reservationId' => $id,
                     'httpStatus' => $status,
                     'providerError' => $error->getMessage(),
@@ -369,85 +369,78 @@ PROMPT;
         $baseUrl = $this->config->aiApiBaseUrl;
         $model = $this->config->aiModel;
         if ($this->config->aiApiKey === '') {
-            throw new \RuntimeException('Gemini API key is not configured');
+            throw new \RuntimeException('OpenAI API key is not configured');
         }
-        if ($model === '' || preg_match('/^[A-Za-z0-9._-]+$/D', $model) !== 1) {
-            throw new \RuntimeException('Gemini model is invalid');
+        if ($model === '' || preg_match('/^[A-Za-z0-9._:\/-]+$/D', $model) !== 1) {
+            throw new \RuntimeException('OpenAI model is invalid');
         }
         $parts = parse_url($baseUrl);
         if ($parts === false || !isset($parts['scheme'], $parts['host']) || !in_array($parts['scheme'], ['http', 'https'], true)) {
-            throw new \RuntimeException('Gemini API URL is invalid');
+            throw new \RuntimeException('OpenAI API URL is invalid');
         }
         if ($parts['scheme'] !== 'https' && !in_array($parts['host'], ['127.0.0.1', 'localhost'], true)) {
-            throw new \RuntimeException('Gemini API URL must use HTTPS');
+            throw new \RuntimeException('OpenAI API URL must use HTTPS');
         }
         $query = isset($parts['query']) ? '?' . $parts['query'] : '';
         $basePath = $query === '' ? $baseUrl : substr($baseUrl, 0, -strlen($query));
-        $url = rtrim($basePath, '/') . '/' . rawurlencode($model) . ':generateContent' . $query;
+        $url = rtrim($basePath, '/') . '/chat/completions' . $query;
         $request = json_encode([
-            'systemInstruction' => ['parts' => [['text' => self::AI_APPROVAL_PROMPT]]],
-            'contents' => [['role' => 'user', 'parts' => [['text' => $reason]]]],
-            'generationConfig' => [
-                'responseMimeType' => 'application/json',
-                'thinkingConfig' => ['thinkingLevel' => 'low'],
-                'responseSchema' => [
-                    'type' => 'OBJECT',
-                    'properties' => [
-                        'status' => ['type' => 'STRING', 'enum' => ['approved', 'rejected', 'pending']],
-                        'message' => ['type' => 'STRING', 'nullable' => true],
-                    ],
-                    'required' => ['status', 'message'],
-                ],
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => self::AI_APPROVAL_PROMPT],
+                ['role' => 'user', 'content' => $reason],
             ],
+            'response_format' => ['type' => 'json_object'],
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($request === false) {
-            throw new \RuntimeException('Unable to encode Gemini request');
+            throw new \RuntimeException('Unable to encode OpenAI request');
         }
         $handle = curl_init($url);
         if ($handle === false) {
-            throw new \RuntimeException('Unable to open Gemini request');
+            throw new \RuntimeException('Unable to open OpenAI request');
         }
         curl_setopt_array($handle, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $request,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-goog-api-key: ' . $this->config->aiApiKey],
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $this->config->aiApiKey,
+            ],
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => $this->config->geminiVerifySsl,
-            CURLOPT_SSL_VERIFYHOST => $this->config->geminiVerifySsl ? 2 : 0,
+            CURLOPT_SSL_VERIFYPEER => $this->config->aiVerifySsl,
+            CURLOPT_SSL_VERIFYHOST => $this->config->aiVerifySsl ? 2 : 0,
         ]);
         $raw = curl_exec($handle);
         $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
         $curlError = curl_errno($handle);
         curl_close($handle);
         if ($curlError !== 0) {
-            throw new \RuntimeException('Gemini cURL ' . $curlError . ': ' . curl_strerror($curlError));
+            throw new \RuntimeException('OpenAI cURL ' . $curlError . ': ' . curl_strerror($curlError));
         }
         if (!is_string($raw) || $status < 200 || $status >= 300) {
-            $summary = $this->geminiErrorSummary($raw, $reason);
-            throw new \RuntimeException('Gemini API returned HTTP ' . $status . ($summary === null ? '' : ': ' . $summary), $status);
+            $summary = $this->aiErrorSummary($raw, $reason);
+            throw new \RuntimeException('OpenAI API returned HTTP ' . $status . ($summary === null ? '' : ': ' . $summary), $status);
         }
         $decoded = json_decode($raw, true);
         if (!is_array($decoded)) {
-            throw new \RuntimeException('Gemini API returned invalid JSON');
+            throw new \RuntimeException('OpenAI API returned invalid JSON');
         }
-        $finishReason = $decoded['candidates'][0]['finishReason'] ?? null;
-        if ($finishReason !== 'STOP') {
-            throw new \RuntimeException('Gemini API did not finish normally: ' . (is_string($finishReason) ? $finishReason : 'missing'));
+        $choice = $decoded['choices'][0] ?? null;
+        if (!is_array($choice)) {
+            throw new \RuntimeException('OpenAI API returned no choice');
         }
-        $parts = $decoded['candidates'][0]['content']['parts'] ?? null;
-        if (!is_array($parts)) {
-            throw new \RuntimeException('Gemini API returned no candidate text');
+        $finishReason = $choice['finish_reason'] ?? null;
+        if ($finishReason !== 'stop') {
+            throw new \RuntimeException('OpenAI API did not finish normally: ' . (is_string($finishReason) ? $finishReason : 'missing'));
         }
-        $text = '';
-        foreach ($parts as $part) {
-            if (is_array($part) && isset($part['text']) && is_string($part['text'])) {
-                $text .= $part['text'];
-            }
+        $text = $choice['message']['content'] ?? null;
+        if (!is_string($text)) {
+            throw new \RuntimeException('OpenAI API returned no message text');
         }
         $decision = json_decode($text, true);
         if (!is_array($decision) || !array_key_exists('status', $decision) || !array_key_exists('message', $decision)) {
-            throw new \RuntimeException('Gemini API returned invalid decision');
+            throw new \RuntimeException('OpenAI API returned invalid decision');
         }
         $decisionStatus = $decision['status'];
         $message = $decision['message'];
@@ -460,10 +453,10 @@ PROMPT;
         if ($decisionStatus === 'rejected' && is_string($message) && in_array($message, self::AI_REJECTION_MESSAGES, true)) {
             return ['status' => 'rejected', 'message' => $message];
         }
-        throw new \RuntimeException('Gemini API returned invalid decision');
+        throw new \RuntimeException('OpenAI API returned invalid decision');
     }
 
-    private function geminiErrorSummary(string|false $raw, string $reason): ?string
+    private function aiErrorSummary(string|false $raw, string $reason): ?string
     {
         if (!is_string($raw) || strlen($raw) > 16384) {
             return null;
@@ -474,11 +467,21 @@ PROMPT;
             return null;
         }
 
-        $status = $error['status'] ?? null;
-        $status = is_string($status) && preg_match('/^[A-Z_]{1,64}$/D', $status) === 1 ? $status : null;
+        $type = $error['type'] ?? null;
+        $type = is_string($type) && preg_match('/^[A-Za-z0-9_.-]{1,64}$/D', $type) === 1 ? $type : null;
+        $code = $error['code'] ?? null;
+        $code = is_string($code) && preg_match('/^[A-Za-z0-9_.-]{1,64}$/D', $code) === 1 ? $code : (is_int($code) ? (string) $code : null);
+        $param = $error['param'] ?? null;
+        $param = is_string($param) && preg_match('/^[A-Za-z0-9_.-]{1,64}$/D', $param) === 1 ? $param : null;
         $message = $error['message'] ?? null;
         if (!is_string($message) || $message === '') {
-            return $status;
+            $summary = implode(', ', array_filter([
+                $type === null ? null : 'type=' . $type,
+                $code === null ? null : 'code=' . $code,
+                $param === null ? null : 'param=' . $param,
+            ]));
+
+            return $summary === '' ? null : $summary;
         }
 
         foreach ([$this->config->aiApiKey, $reason] as $sensitive) {
@@ -487,13 +490,18 @@ PROMPT;
             }
         }
         $message = preg_replace('/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i', '[redacted-email]', $message) ?? '';
-        $message = preg_replace('/\b(?:AIza[A-Za-z0-9_-]{15,}|AQ\.[A-Za-z0-9_-]{15,})\b/', '[redacted-key]', $message) ?? '';
+        $message = preg_replace('/\b(?:sk|rk)-[A-Za-z0-9_-]{16,}\b/i', '[redacted-key]', $message) ?? '';
         $message = trim(preg_replace('/[\x00-\x1F\x7F]+/', ' ', $message) ?? '');
         if (preg_match('/\A.{0,1000}/us', $message, $match) === 1) {
             $message = $match[0];
         }
 
-        return trim(($status === null ? '' : $status . ': ') . $message) ?: null;
+        return trim(implode(', ', array_filter([
+            $type === null ? null : 'type=' . $type,
+            $code === null ? null : 'code=' . $code,
+            $param === null ? null : 'param=' . $param,
+            $message,
+        ]))) ?: null;
     }
 
     private function send(string $to, string $subject, string $html): void
