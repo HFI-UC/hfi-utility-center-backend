@@ -13,6 +13,7 @@ use Hfiuc\Config;
 use Hfiuc\Database;
 use Hfiuc\Http\Input;
 use Hfiuc\Log\Logger;
+use Hfiuc\Log\LogService;
 use Hfiuc\Reservation\ReservationService;
 use Hfiuc\Worker\CloudflareQueue;
 use Hfiuc\Worker\Outbox;
@@ -38,6 +39,7 @@ final class Application
         $jobs = new OutboxWorker($db, $config, $logger, $outbox);
         $announcements = new AnnouncementService($db, $auth, $logger);
         $analytics = new AnalyticsService($db, $auth);
+        $logs = new LogService($db, $auth);
         $app = SlimFactory::create();
 
         $app->get('/health', function (ServerRequestInterface $request, ResponseInterface $response): ResponseInterface {
@@ -224,6 +226,11 @@ final class Application
             return self::cookies(Responder::message($response, 'Logout successful.'), $auth);
         });
         $app->get('/admin/check-login', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $auth->check($request)));
+        $app->get('/admin/logs/{kind}', function (ServerRequestInterface $request, ResponseInterface $response, array $args) use ($logs): ResponseInterface {
+            return Responder::data($response, $logs->list($request, (string) $args['kind']))
+                ->withHeader('Cache-Control', 'private, no-store')
+                ->withHeader('Pragma', 'no-cache');
+        });
         $app->get('/admin/list', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->admins($request)));
         $app->get('/admin/permissions', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $catalog->permissions($request)));
         $app->post('/admin/permissions/update', function (ServerRequestInterface $request, ResponseInterface $response) use ($catalog): ResponseInterface {

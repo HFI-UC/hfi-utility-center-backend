@@ -923,6 +923,74 @@ paths:
           description: Email and name
         '400':
           $ref: '#/components/responses/Error'
+  /admin/logs/{kind}:
+    get:
+      summary: Read system logs
+      description: Global administrators only. Reads errorlog, auditlog, reservationoperationlog, or outboxjob in descending ID order. Outbox payloads and dispatch/lock tokens are never returned; only reservationId and reviewVersion are extracted from the payload. Error context, audit detail, rejection reasons, and task errors may contain sensitive operational data.
+      security:
+        - session: []
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [errors, audit, reservations, outbox]
+        - name: limit
+          in: query
+          description: Page size, default 50 and maximum 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: beforeId
+          in: query
+          description: Return records with IDs lower than this cursor.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: One page of log records. Item fields depend on kind.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: ['private, no-store']
+            Pragma:
+              schema:
+                type: string
+                enum: [no-cache]
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    type: object
+                    required: [items, nextBeforeId]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: true
+                      nextBeforeId:
+                        type: integer
+                        nullable: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Error'
   /admin/list:
     get:
       summary: List administrators
