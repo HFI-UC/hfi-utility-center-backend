@@ -409,6 +409,8 @@ PROMPT;
             CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-goog-api-key: ' . $this->config->aiApiKey],
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => $this->config->geminiVerifySsl,
+            CURLOPT_SSL_VERIFYHOST => $this->config->geminiVerifySsl ? 2 : 0,
         ]);
         $raw = curl_exec($handle);
         $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);

@@ -52,6 +52,22 @@ final class ConfigTest extends TestCase
         self::assertFalse(Config::fromEnv()->turnstileVerifySsl);
     }
 
+    public function testGeminiVerifySslDefaultsToTrue(): void
+    {
+        $this->setRequiredDatabaseEnv();
+        $this->clear('GEMINI_VERIFY_SSL');
+
+        self::assertTrue(Config::fromEnv()->geminiVerifySsl);
+    }
+
+    public function testGeminiVerifySslCanBeDisabled(): void
+    {
+        $this->setRequiredDatabaseEnv();
+        $this->set('GEMINI_VERIFY_SSL', 'false');
+
+        self::assertFalse(Config::fromEnv()->geminiVerifySsl);
+    }
+
     public function testCorsOriginsComeOnlyFromEnvironment(): void
     {
         $this->setRequiredDatabaseEnv();

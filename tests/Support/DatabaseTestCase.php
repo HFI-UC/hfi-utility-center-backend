@@ -357,6 +357,7 @@ abstract class DatabaseTestCase extends TestCase
             '',
             '',
             true,
+            true,
             $aiEnabled,
             $aiApiBaseUrl,
             'gemini-3.7-flash',
