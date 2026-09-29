@@ -190,6 +190,9 @@ PROMPT;
             str_replace(' ', 'T', $start),
             str_replace(' ', 'T', $end),
             $action,
+            $kind === 'reservation_status_changed' && in_array($status, ['rejected', 'pending'], true)
+                ? $this->statusReason($payload)
+                : null,
         );
         $this->send((string) $reservation['email'], '[HFI-UC] ' . $subject, $html);
     }
@@ -215,10 +218,28 @@ PROMPT;
             return ['Reservation Approved', 'Your reservation has been approved', 'Your reservation request was approved. Please arrive on time and follow the room rules.'];
         }
         if ($status === 'rejected') {
-            return ['Reservation Rejected', 'Your reservation was not approved', 'Your reservation request was reviewed but could not be approved.'];
+            return ['Reservation Rejected', 'Your reservation was not approved', 'Your reservation request was reviewed but could not be approved. See the decision reason below.'];
+        }
+        if ($status === 'pending' && $this->statusReason($payload) !== null) {
+            return [
+                'Reservation Returned to Review',
+                'Your reservation was returned to manual review',
+                'Your reservation requires manual review again. See the decision reason below.',
+            ];
         }
 
         return ['Reservation Updated', 'Your reservation has been updated', 'The status of your reservation changed. The latest details are shown below.'];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function statusReason(array $payload): ?string
+    {
+        if (!isset($payload['reason']) || !is_string($payload['reason'])) {
+            return null;
+        }
+        $reason = trim($payload['reason']);
+
+        return $reason === '' ? null : $reason;
     }
 
     /** @param array<string, mixed> $payload */
@@ -333,6 +354,9 @@ PROMPT;
             $this->outbox->enqueue('reservation_status_changed', [
                 'reservationId' => $id,
                 'status' => $status,
+                'reason' => $status === 'rejected' && isset($body['message']) && is_string($body['message'])
+                    ? trim($body['message'])
+                    : null,
                 'cancelToken' => $raw,
             ]);
             $this->db->execute(
@@ -354,6 +378,12 @@ PROMPT;
                     "INSERT INTO reservationoperationlog (reservationId, operation, reason) VALUES (?, 'ai_unavailable', ?)",
                     [$id, $reason],
                 );
+                $this->outbox->enqueue('reservation_status_changed', [
+                    'reservationId' => $id,
+                    'status' => 'pending',
+                    'reason' => $reason,
+                    'cancelToken' => null,
+                ]);
             }
 
             return $changed === 1;

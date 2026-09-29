@@ -512,7 +512,8 @@ final class ReservationService
         $id = $input->int('id');
         $approved = $input->bool('approved');
         $reason = $input->string('reason', false);
-        if (!$approved && trim((string) $reason) === '') {
+        $reason = $reason === null ? null : trim($reason);
+        if (!$approved && $reason === '') {
             throw new HttpException(400, 'Reason is required for rejection.');
         }
         $status = $approved ? 'approved' : 'rejected';
@@ -547,6 +548,7 @@ final class ReservationService
             $this->enqueue('reservation_status_changed', [
                 'reservationId' => $id,
                 'status' => $status,
+                'reason' => $reason,
                 'cancelToken' => $rawToken,
             ]);
         });
@@ -582,6 +584,12 @@ final class ReservationService
                 'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'ai_unlocked\', ?)',
                 [$admin['id'], $id, $reason],
             );
+            $this->enqueue('reservation_status_changed', [
+                'reservationId' => $id,
+                'status' => 'pending',
+                'reason' => $reason,
+                'cancelToken' => null,
+            ]);
             $this->scheduleAiApproval($id, $version);
         });
         $this->logger->audit('reservation.ai_unlock', 'reservation', $id, ['reason' => $reason]);

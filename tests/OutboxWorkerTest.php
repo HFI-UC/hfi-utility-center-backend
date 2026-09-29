@@ -132,6 +132,11 @@ final class OutboxWorkerTest extends DatabaseTestCase
             'Game-related activities are not permitted.',
             $this->db->fetch("SELECT reason FROM reservationoperationlog WHERE reservationId = ? AND operation = 'rejected'", [$rejectedId])['reason'],
         );
+        $rejectionMail = array_values(array_filter(
+            $this->jobPayloads('reservation_status_changed'),
+            static fn (array $payload): bool => (int) ($payload['reservationId'] ?? 0) === $rejectedId,
+        ));
+        self::assertSame('Game-related activities are not permitted.', $rejectionMail[0]['reason'] ?? null);
 
         $settledId = $this->reservation('approved');
         $settledJob = $this->insertJob('ai_approval', ['reservationId' => $settledId]);
@@ -197,7 +202,7 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertSame('pending', $this->jobStatus($unfinishedJob));
         self::assertSame('ai_reviewing', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$unfinishedId])['status']);
         self::assertSame(0, $this->countTokens($unfinishedId));
-        self::assertStringContainsString('SAFETY', (string) $this->db->fetch('SELECT lastError FROM outboxjob WHERE id = ?', [$unfinishedJob])['lastError']);
+        self::assertStringContainsString('length', (string) $this->db->fetch('SELECT lastError FROM outboxjob WHERE id = ?', [$unfinishedJob])['lastError']);
     }
 
     public function testAiTransportFailureRecordsDiagnosticWithoutCredentials(): void
@@ -264,7 +269,11 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$approvedId])['status']);
 
         self::assertFileDoesNotExist($this->aiRequestFile);
-        self::assertSame([], $this->jobPayloads('reservation_status_changed'));
+        $returned = array_values(array_filter(
+            $this->jobPayloads('reservation_status_changed'),
+            static fn (array $payload): bool => (int) ($payload['reservationId'] ?? 0) === $reviewingId,
+        ));
+        self::assertSame('AI configuration unavailable; returned to pending', $returned[0]['reason'] ?? null);
         self::assertSame(0, $this->countTokens($reviewingId));
         self::assertSame(0, $this->countTokens($pendingId));
         self::assertSame(0, $this->countTokens($staleId));
@@ -299,7 +308,11 @@ final class OutboxWorkerTest extends DatabaseTestCase
         );
         self::assertNotNull($audit);
         self::assertStringNotContainsString('wrong-secret', (string) $audit['detail']);
-        self::assertSame([], $this->jobPayloads('reservation_status_changed'));
+        $returned = array_values(array_filter(
+            $this->jobPayloads('reservation_status_changed'),
+            static fn (array $payload): bool => (int) ($payload['reservationId'] ?? 0) === $reservationId,
+        ));
+        self::assertSame('AI provider rejected configuration; returned to pending', $returned[0]['reason'] ?? null);
         self::assertSame(0, $this->countTokens($reservationId));
 
         $worker->processQueuedJob($jobId);

@@ -8,6 +8,7 @@ use Hfiuc\Http\Responder;
 use Hfiuc\Reservation\Rules;
 use Hfiuc\Support\Clock;
 use Hfiuc\Worker\MailTemplate;
+use Hfiuc\Worker\OutboxWorker;
 use Hfiuc\Xlsx\SimpleXlsx;
 use PHPUnit\Framework\TestCase;
 use Slim\Psr7\Response;
@@ -93,6 +94,36 @@ final class RulesTest extends TestCase
         self::assertStringContainsString('Copyright © ' . Clock::now()->format('Y') . ' MAKERs&#39;.', $html);
         self::assertStringContainsString('#F97316', $html);
         self::assertStringContainsString('https://s21.ax1x.com/2025/09/25/pV5T6mt.png', $html);
+
+        $rejected = MailTemplate::html(
+            'Reservation Rejected',
+            'See the decision reason below.',
+            'A & B',
+            'G1',
+            '505',
+            'Knowledge City Campus',
+            'Club meeting',
+            'club',
+            false,
+            '2026-09-17T08:00:00',
+            '2026-09-17T09:00:00',
+            null,
+            'Room <reserved> for exams.',
+        );
+        self::assertStringContainsString('Decision Reason', $rejected);
+        self::assertStringContainsString('Room &lt;reserved&gt; for exams.', $rejected);
+    }
+
+    public function testDecisionMailCopyIncludesRejectionAndReturnReasons(): void
+    {
+        $worker = (new \ReflectionClass(OutboxWorker::class))->newInstanceWithoutConstructor();
+        $copy = new \ReflectionMethod(OutboxWorker::class, 'copy');
+
+        $rejected = $copy->invoke($worker, 'reservation_status_changed', ['reason' => 'Room is reserved for exams.'], 'rejected');
+        self::assertStringContainsString('decision reason below', $rejected[2]);
+
+        $returned = $copy->invoke($worker, 'reservation_status_changed', ['reason' => 'AI review timed out.'], 'pending');
+        self::assertStringContainsString('decision reason below', $returned[2]);
     }
 
     public function testXlsxContainsHeader(): void

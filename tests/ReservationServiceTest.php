@@ -464,6 +464,12 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertSame('pending', $row['status']);
         self::assertSame(1, (int) $row['reviewVersion']);
         self::assertSame('AI timeout', $this->db->fetch("SELECT reason FROM reservationoperationlog WHERE reservationId = ? AND operation = 'ai_unlocked'", [$id])['reason']);
+        $returnMail = array_values(array_filter(
+            $this->jobPayloads('reservation_status_changed'),
+            static fn (array $payload): bool => (int) ($payload['reservationId'] ?? 0) === $id
+                && ($payload['status'] ?? null) === 'pending',
+        ));
+        self::assertSame('AI timeout', $returnMail[0]['reason'] ?? null);
     }
 
     public function testEveryManagerStillSeesAnApprovedReservation(): void
@@ -497,6 +503,11 @@ final class ReservationServiceTest extends DatabaseTestCase
             'reason' => 'Room is reserved for exams.',
         ]));
         self::assertSame('rejected', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$second['reservationId']])['status']);
+        $rejectionMail = array_values(array_filter(
+            $this->jobPayloads('reservation_status_changed'),
+            static fn (array $payload): bool => (int) ($payload['reservationId'] ?? 0) === $second['reservationId'],
+        ));
+        self::assertSame('Room is reserved for exams.', $rejectionMail[0]['reason'] ?? null);
 
         $this->reservations->approve($this->asAdmin('quiet-a@example.com', ['id' => $id, 'approved' => true, 'reason' => 'Approved.']));
         self::assertSame('approved', $this->db->fetch('SELECT status, latestExecutorId FROM reservation WHERE id = ?', [$id])['status']);

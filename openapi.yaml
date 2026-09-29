@@ -814,6 +814,7 @@ paths:
   /reservation/approval:
     post:
       summary: Approve or reject a pending reservation
+      description: Set approved=false with a non-empty reason to reject the reservation; the reason is stored in the operation log and included in the applicant notification email.
       security:
         - session: []
           csrf: []
@@ -831,6 +832,7 @@ paths:
                   type: boolean
                 reason:
                   type: string
+                  description: Required and non-empty when approved is false; may be a predefined rule or administrator-entered text. Included in the applicant's rejection email.
       responses:
         '200':
           $ref: '#/components/responses/Message'
