@@ -292,7 +292,11 @@ PROMPT;
         } catch (\RuntimeException $error) {
             $status = $error->getCode();
             if ($status >= 400 && $status < 500 && !in_array($status, [408, 429], true)) {
-                $this->logger->error('Gemini rejected AI approval configuration', ['reservationId' => $id, 'httpStatus' => $status]);
+                $this->logger->error('Gemini rejected AI approval configuration', [
+                    'reservationId' => $id,
+                    'httpStatus' => $status,
+                    'providerError' => $error->getMessage(),
+                ]);
                 $this->releaseAiToHumanReview($id, $version, 'AI provider rejected configuration; returned to pending', 'ai.provider_unavailable');
 
                 return;
@@ -420,7 +424,8 @@ PROMPT;
             throw new \RuntimeException('Gemini cURL ' . $curlError . ': ' . curl_strerror($curlError));
         }
         if (!is_string($raw) || $status < 200 || $status >= 300) {
-            throw new \RuntimeException('Gemini API returned HTTP ' . $status, $status);
+            $summary = $this->geminiErrorSummary($raw, $reason);
+            throw new \RuntimeException('Gemini API returned HTTP ' . $status . ($summary === null ? '' : ': ' . $summary), $status);
         }
         $decoded = json_decode($raw, true);
         if (!is_array($decoded)) {
@@ -456,6 +461,39 @@ PROMPT;
             return ['status' => 'rejected', 'message' => $message];
         }
         throw new \RuntimeException('Gemini API returned invalid decision');
+    }
+
+    private function geminiErrorSummary(string|false $raw, string $reason): ?string
+    {
+        if (!is_string($raw) || strlen($raw) > 16384) {
+            return null;
+        }
+        $body = json_decode($raw, true);
+        $error = is_array($body) ? ($body['error'] ?? null) : null;
+        if (!is_array($error)) {
+            return null;
+        }
+
+        $status = $error['status'] ?? null;
+        $status = is_string($status) && preg_match('/^[A-Z_]{1,64}$/D', $status) === 1 ? $status : null;
+        $message = $error['message'] ?? null;
+        if (!is_string($message) || $message === '') {
+            return $status;
+        }
+
+        foreach ([$this->config->aiApiKey, $reason] as $sensitive) {
+            if ($sensitive !== '') {
+                $message = str_replace($sensitive, '[redacted]', $message);
+            }
+        }
+        $message = preg_replace('/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i', '[redacted-email]', $message) ?? '';
+        $message = preg_replace('/\b(?:AIza[A-Za-z0-9_-]{15,}|AQ\.[A-Za-z0-9_-]{15,})\b/', '[redacted-key]', $message) ?? '';
+        $message = trim(preg_replace('/[\x00-\x1F\x7F]+/', ' ', $message) ?? '');
+        if (preg_match('/\A.{0,1000}/us', $message, $match) === 1) {
+            $message = $match[0];
+        }
+
+        return trim(($status === null ? '' : $status . ': ') . $message) ?: null;
     }
 
     private function send(string $to, string $subject, string $html): void

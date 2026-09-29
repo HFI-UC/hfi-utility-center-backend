@@ -303,6 +303,28 @@ final class OutboxWorkerTest extends DatabaseTestCase
         self::assertSame(1, (int) $this->db->fetch('SELECT attempts FROM outboxjob WHERE id = ?', [$jobId])['attempts']);
     }
 
+    public function testGeminiHttpErrorLogsProviderReasonWithoutCredentialsOrReservationText(): void
+    {
+        $base = $this->aiServer();
+        $reservationId = $this->reservation();
+        $jobId = $this->insertJob('ai_approval', ['reservationId' => $reservationId, 'reviewVersion' => 0]);
+
+        $this->workerFor($base . '?want=provider-error', 0)->processQueuedJob($jobId);
+
+        $row = $this->db->fetch("SELECT context FROM errorlog WHERE message = 'Gemini rejected AI approval configuration' ORDER BY id DESC LIMIT 1");
+        self::assertNotNull($row);
+        $context = json_decode((string) $row['context'], true);
+        self::assertIsArray($context);
+        self::assertSame(400, $context['httpStatus'] ?? null);
+        self::assertStringContainsString('INVALID_ARGUMENT', (string) ($context['providerError'] ?? ''));
+        self::assertStringContainsString('thinkingLevel', (string) ($context['providerError'] ?? ''));
+        foreach (['test-secret', 'Study group', 'student@example.com'] as $sensitive) {
+            self::assertStringNotContainsString($sensitive, (string) $row['context']);
+        }
+        self::assertSame('completed', $this->jobStatus($jobId));
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$reservationId])['status']);
+    }
+
     public function testDispatchTokenRejectsStaleQueueDeliveryAndDuplicateCompletion(): void
     {
         $reservationId = $this->reservation();
@@ -400,6 +422,15 @@ $want = $_GET['want'] ?? 'approved';
 if ($want === 'unavailable') {
     http_response_code(503);
     echo '{"error":"unavailable"}';
+    return;
+}
+if ($want === 'provider-error') {
+    http_response_code(400);
+    echo json_encode(['error' => [
+        'code' => 400,
+        'status' => 'INVALID_ARGUMENT',
+        'message' => 'Unknown name "thinkingLevel" at generation_config.thinking_config; test-secret Study group student@example.com',
+    ]]);
     return;
 }
 $decision = [
