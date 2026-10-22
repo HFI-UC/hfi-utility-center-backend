@@ -811,6 +811,42 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
+  /reservation/admin-cancel:
+    post:
+      summary: Administrator cancels an approved reservation
+      description: Requires a global administrator or an administrator assigned to the room, plus CSRF. Only approved reservations whose start time is in the future may be cancelled. Atomically records the administrator and reason, invalidates management tokens, releases the time slot and queues a cancellation email containing the supplied reason. Repeated cancellation returns 409 without another email. Existing requester and priority cancellation flows are unchanged.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, reason]
+              properties:
+                id:
+                  type: integer
+                reason:
+                  type: string
+                  minLength: 1
+                  description: Required non-whitespace cancellation reason entered by the administrator. Included in the applicant's cancellation email.
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
   /reservation/approval:
     post:
       summary: Approve or reject a pending reservation

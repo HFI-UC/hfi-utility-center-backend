@@ -199,6 +199,11 @@ final class Application
         });
         $app->get('/reservation/cancel/preview', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $reservations->cancelPreview($request)));
         $app->post('/reservation/cancel', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::message($response, $reservations->cancel($request)));
+        $app->post('/reservation/admin-cancel', function (ServerRequestInterface $request, ResponseInterface $response) use ($reservations): ResponseInterface {
+            $reservations->adminCancel($request);
+
+            return Responder::message($response, 'Reservation cancelled successfully.');
+        });
         $app->post('/reservation/modify', fn (ServerRequestInterface $request, ResponseInterface $response) => Responder::data($response, $reservations->modify($request)));
         $app->post('/reservation/admin-edit', function (ServerRequestInterface $request, ResponseInterface $response) use ($reservations): ResponseInterface {
             $reservations->adminEdit($request);

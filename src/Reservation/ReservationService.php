@@ -394,6 +394,46 @@ final class ReservationService
         return $result;
     }
 
+    public function adminCancel(ServerRequestInterface $request): void
+    {
+        $admin = $this->auth->requireAdminWrite($request);
+        $input = new Input($this->json($request));
+        $id = $input->int('id');
+        $reason = trim($input->string('reason') ?? '');
+        if ($reason === '') {
+            throw new HttpException(400, 'Reason is required for cancellation.');
+        }
+        $this->db->transaction(function () use ($admin, $id, $reason): void {
+            $row = $this->db->fetch('SELECT roomId, status, startTime FROM reservation WHERE id = ? FOR UPDATE', [$id]);
+            if ($row === null) {
+                throw new HttpException(404, 'Reservation not found.');
+            }
+            $roomId = $row['roomId'] === null ? null : (int) $row['roomId'];
+            if (!$this->authorization->canManage($admin['id'], $roomId)) {
+                throw new HttpException(403, 'You do not manage this room.');
+            }
+            if ((string) $row['status'] !== 'approved' || Clock::parseSql((string) $row['startTime']) <= Clock::now()) {
+                throw new HttpException(409, 'Only approved reservations that have not started can be cancelled by an administrator.');
+            }
+            $this->db->execute(
+                'UPDATE reservation SET status = \'cancelled\', cancelledAt = NOW(), latestExecutorId = ?, reviewVersion = reviewVersion + 1 WHERE id = ?',
+                [$admin['id'], $id],
+            );
+            $this->db->execute('UPDATE reservationcanceltoken SET usedAt = NOW() WHERE reservationId = ? AND usedAt IS NULL', [$id]);
+            $this->db->execute(
+                'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'cancelled_by_admin\', ?)',
+                [$admin['id'], $id, $reason],
+            );
+            $this->enqueue('reservation_cancelled', [
+                'reservationId' => $id,
+                'status' => 'cancelled',
+                'cancelledBy' => 'admin',
+                'reason' => $reason,
+            ]);
+        });
+        $this->logger->audit('reservation.admin-cancel', 'reservation', $id, ['reason' => $reason]);
+    }
+
     /** @return array{reservationId: int, editCount: int, remainingEdits: int} */
     public function modify(ServerRequestInterface $request): array
     {

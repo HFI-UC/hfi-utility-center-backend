@@ -190,9 +190,11 @@ PROMPT;
             str_replace(' ', 'T', $start),
             str_replace(' ', 'T', $end),
             $action,
-            $kind === 'reservation_status_changed' && in_array($status, ['rejected', 'pending'], true)
+            ($kind === 'reservation_status_changed' && in_array($status, ['rejected', 'pending'], true))
+                || ($kind === 'reservation_cancelled' && ($payload['cancelledBy'] ?? null) === 'admin')
                 ? $this->statusReason($payload)
                 : null,
+            $kind === 'reservation_cancelled' ? 'Cancellation Reason' : 'Decision Reason',
         );
         $this->send((string) $reservation['email'], '[HFI-UC] ' . $subject, $html);
     }
@@ -208,8 +210,11 @@ PROMPT;
         if ($kind === 'reservation_modified') {
             return ['Reservation Modified', 'Your reservation has been updated', 'The reservation details were changed successfully. Please review the latest room and time below.'];
         }
-        if ($kind === 'reservation_cancelled' && ($payload['reason'] ?? null) === 'higher_priority') {
+        if ($kind === 'reservation_cancelled' && ($payload['reason'] ?? null) === 'higher_priority' && ($payload['cancelledBy'] ?? null) !== 'admin') {
             return ['Reservation Cancelled', 'Your reservation was cancelled', 'A higher-priority administrator reservation requires this room and time. Your original reservation has been cancelled automatically, and the time is no longer available.'];
+        }
+        if ($kind === 'reservation_cancelled' && ($payload['cancelledBy'] ?? null) === 'admin') {
+            return ['Reservation Cancelled', 'Your reservation was cancelled by an administrator', 'An administrator cancelled your reservation. See the cancellation reason below. This reservation is no longer active.'];
         }
         if ($kind === 'reservation_cancelled') {
             return ['Reservation Cancelled', 'Your reservation has been cancelled', 'This reservation is no longer active. The released time is available for booking again.'];
