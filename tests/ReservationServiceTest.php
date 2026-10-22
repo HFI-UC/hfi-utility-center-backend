@@ -232,7 +232,7 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertSame($rooms['openRoom'], (int) $row['roomId']);
 
         $this->insertAdmin('super@example.com', 'Super');
-        $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $created['reservationId'], 'approved' => true]));
+        $this->reservations->approval($this->asAdmin('super@example.com', ['id' => $created['reservationId'], 'approved' => true]));
         $this->reservations->adminEdit($this->asAdmin('super@example.com', $this->editBody($created['reservationId'], $rooms['openRoom'], $start, $end, 'Still bookable')));
         self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$created['reservationId']])['status']);
     }
@@ -440,12 +440,12 @@ final class ReservationServiceTest extends DatabaseTestCase
         $this->db->execute("UPDATE reservation SET status = 'ai_reviewing' WHERE id = ?", [$id]);
 
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('room@example.com', ['id' => $id, 'approved' => true])),
+            fn () => $this->reservations->approval($this->asAdmin('room@example.com', ['id' => $id, 'approved' => true])),
             409,
             'Reservation has already been processed or is no longer editable.',
         );
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $id, 'approved' => false, 'reason' => 'No'])),
+            fn () => $this->reservations->approval($this->asAdmin('super@example.com', ['id' => $id, 'approved' => false, 'reason' => 'No'])),
             409,
             'Reservation has already been processed or is no longer editable.',
         );
@@ -480,24 +480,24 @@ final class ReservationServiceTest extends DatabaseTestCase
         $id = $this->insertReservation($rooms['roomA'], $start, $end, 'student@example.com', 'approved', $rooms['classId']);
         $body = ['id' => $id, 'approved' => false, 'reason' => 'Room is needed for an exam.'];
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('room-b@example.com', $body)),
+            fn () => $this->reservations->approval($this->asAdmin('room-b@example.com', $body)),
             403,
             'You do not manage this room.',
         );
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('room-a@example.com', ['id' => $id, 'approved' => false, 'reason' => '   '])),
+            fn () => $this->reservations->approval($this->asAdmin('room-a@example.com', ['id' => $id, 'approved' => false, 'reason' => '   '])),
             400,
             'Reason is required for rejection.',
         );
         $pastStart = Clock::now()->modify('-1 hour');
         $pastId = $this->insertReservation($rooms['roomA'], $pastStart, $pastStart->modify('+1 hour'), 'past@example.com', 'approved', $rooms['classId']);
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $pastId, 'approved' => false, 'reason' => 'Already started'])),
+            fn () => $this->reservations->approval($this->asAdmin('super@example.com', ['id' => $pastId, 'approved' => false, 'reason' => 'Already started'])),
             409,
             'Reservation has already been processed or is no longer editable.',
         );
 
-        $this->reservations->approve($this->asAdmin('room-a@example.com', [
+        $this->reservations->approval($this->asAdmin('room-a@example.com', [
             'id' => $id,
             'approved' => false,
             'reason' => '  Room is needed for an exam.  ',
@@ -523,7 +523,7 @@ final class ReservationServiceTest extends DatabaseTestCase
         ]));
         self::assertSame([], $availability['occupied']);
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $id, 'approved' => false, 'reason' => 'Again'])),
+            fn () => $this->reservations->approval($this->asAdmin('super@example.com', ['id' => $id, 'approved' => false, 'reason' => 'Again'])),
             409,
             'Reservation has already been processed or is no longer editable.',
         );
@@ -543,7 +543,7 @@ final class ReservationServiceTest extends DatabaseTestCase
         );
         $id = $created['reservationId'];
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('room-b@example.com', ['id' => $id, 'approved' => true])),
+            fn () => $this->reservations->approval($this->asAdmin('room-b@example.com', ['id' => $id, 'approved' => true])),
             403,
             'You do not manage this room.',
         );
@@ -552,11 +552,11 @@ final class ReservationServiceTest extends DatabaseTestCase
             ['x-csrf-token' => $this->csrf()],
         );
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('room-a@example.com', ['id' => $second['reservationId'], 'approved' => false, 'reason' => ' '])),
+            fn () => $this->reservations->approval($this->asAdmin('room-a@example.com', ['id' => $second['reservationId'], 'approved' => false, 'reason' => ' '])),
             400,
             'Reason is required for rejection.',
         );
-        $this->reservations->approve($this->asAdmin('room-a@example.com', [
+        $this->reservations->approval($this->asAdmin('room-a@example.com', [
             'id' => $second['reservationId'],
             'approved' => false,
             'reason' => 'Room is reserved for exams.',
@@ -568,11 +568,11 @@ final class ReservationServiceTest extends DatabaseTestCase
         ));
         self::assertSame('Room is reserved for exams.', $rejectionMail[0]['reason'] ?? null);
 
-        $this->reservations->approve($this->asAdmin('quiet-a@example.com', ['id' => $id, 'approved' => true, 'reason' => 'Approved.']));
+        $this->reservations->approval($this->asAdmin('quiet-a@example.com', ['id' => $id, 'approved' => true, 'reason' => 'Approved.']));
         self::assertSame('approved', $this->db->fetch('SELECT status, latestExecutorId FROM reservation WHERE id = ?', [$id])['status']);
         self::assertSame($people['quietA'], (int) $this->db->fetch('SELECT latestExecutorId FROM reservation WHERE id = ?', [$id])['latestExecutorId']);
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('room-a@example.com', ['id' => $id, 'approved' => true])),
+            fn () => $this->reservations->approval($this->asAdmin('room-a@example.com', ['id' => $id, 'approved' => true])),
             409,
             'Reservation has already been processed or is no longer editable.',
         );
@@ -605,12 +605,12 @@ final class ReservationServiceTest extends DatabaseTestCase
             $rooms['classId'],
         );
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $pastId, 'approved' => true])),
+            fn () => $this->reservations->approval($this->asAdmin('super@example.com', ['id' => $pastId, 'approved' => true])),
             409,
             'Reservation has already been processed or is no longer editable.',
         );
         $this->expectHttp(
-            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['id' => 999999, 'approved' => true])),
+            fn () => $this->reservations->approval($this->asAdmin('super@example.com', ['id' => 999999, 'approved' => true])),
             404,
             'Reservation not found.',
         );
@@ -625,7 +625,7 @@ final class ReservationServiceTest extends DatabaseTestCase
             $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId']),
             ['x-csrf-token' => $this->csrf()],
         )['reservationId'];
-        $this->reservations->approve($this->asAdmin('room-a@example.com', ['id' => $id, 'approved' => true]));
+        $this->reservations->approval($this->asAdmin('room-a@example.com', ['id' => $id, 'approved' => true]));
 
         $outside = $this->editBody($id, $rooms['roomA'], ...$this->slot(5, 22));
         $this->expectHttp(
@@ -753,7 +753,7 @@ final class ReservationServiceTest extends DatabaseTestCase
             $this->reservationBody($rooms['roomA'], $approvedStart, $approvedEnd, $rooms['classId'], ['email' => 'approved@example.com']),
             ['x-csrf-token' => $this->csrf()],
         );
-        $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $approved['reservationId'], 'approved' => true]));
+        $this->reservations->approval($this->asAdmin('super@example.com', ['id' => $approved['reservationId'], 'approved' => true]));
         $approvedToken = (string) $this->jobPayloads('reservation_created')[2]['cancelToken'];
         [$movedStart, $movedEnd] = $this->slot(6, 19);
         $this->reservations->modify($this->request('POST', '/reservation/modify', $this->modifyBody($approvedToken, $rooms['roomA'], $movedStart, $movedEnd, 'Student changed an approved reservation')));
@@ -793,7 +793,7 @@ final class ReservationServiceTest extends DatabaseTestCase
             ['x-csrf-token' => $this->csrf()],
         );
         $rejectToken = (string) $this->jobPayloads('reservation_created')[1]['cancelToken'];
-        $this->reservations->approve($this->asAdmin('super@example.com', [
+        $this->reservations->approval($this->asAdmin('super@example.com', [
             'id' => $rejected['reservationId'],
             'approved' => false,
             'reason' => 'Not this week.',
