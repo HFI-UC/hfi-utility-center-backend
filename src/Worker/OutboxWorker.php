@@ -217,6 +217,9 @@ PROMPT;
         if ($status === 'approved') {
             return ['Reservation Approved', 'Your reservation has been approved', 'Your reservation request was approved. Please arrive on time and follow the room rules.'];
         }
+        if ($status === 'rejected' && ($payload['previousStatus'] ?? null) === 'approved') {
+            return ['Reservation Rejected', 'Your reservation was rejected', 'An administrator reviewed this approved reservation again and rejected it. The room is no longer reserved. See the decision reason below.'];
+        }
         if ($status === 'rejected') {
             return ['Reservation Rejected', 'Your reservation was not approved', 'Your reservation request was reviewed but could not be approved. See the decision reason below.'];
         }

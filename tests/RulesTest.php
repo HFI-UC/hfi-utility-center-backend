@@ -120,7 +120,16 @@ final class RulesTest extends TestCase
         $copy = new \ReflectionMethod(OutboxWorker::class, 'copy');
 
         $rejected = $copy->invoke($worker, 'reservation_status_changed', ['reason' => 'Room is reserved for exams.'], 'rejected');
+        self::assertStringContainsString('could not be approved', $rejected[2]);
         self::assertStringContainsString('decision reason below', $rejected[2]);
+
+        $withdrawn = $copy->invoke($worker, 'reservation_status_changed', [
+            'reason' => 'Room is needed for an exam.',
+            'previousStatus' => 'approved',
+        ], 'rejected');
+        self::assertSame('Your reservation was rejected', $withdrawn[1]);
+        self::assertStringContainsString('no longer reserved', $withdrawn[2]);
+        self::assertStringContainsString('decision reason below', $withdrawn[2]);
 
         $returned = $copy->invoke($worker, 'reservation_status_changed', ['reason' => 'AI review timed out.'], 'pending');
         self::assertStringContainsString('decision reason below', $returned[2]);

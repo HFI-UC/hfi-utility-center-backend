@@ -131,7 +131,7 @@ flowchart LR
 ### 4.4 管理员编辑和审批
 
 - `POST /reservation/admin-edit`：只能编辑尚未结束的 `approved` 预约；要求原房间和目标房间都有权限；目标时间必须启用、符合策略且无冲突；状态保持 `approved`。
-- `POST /reservation/approval`：只能处理尚未开始的 `pending` 预约；批准或拒绝都需要房间权限；拒绝必须填写原因；批准时生成新的管理 token。
+- `POST /reservation/approval`：可以批准或拒绝尚未开始的 `pending` 预约，也可以把尚未开始的 `approved` 预约重新拒绝；批准或拒绝都需要房间权限；拒绝必须填写原因；批准时生成新的管理 token。已拒绝的预约不再占用时段。
 - 进入 `ai_reviewing` 后人工审批不可执行；全局管理员可通过 `/reservation/ai-unlock` 填写原因后恢复为 `pending`，并重新开始 15 分钟计时。
 - 一个管理员批准后，其他有权限管理员仍能看到该预约；权限控制的是房间范围，不是“谁审批谁可见”。
 

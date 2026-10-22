@@ -472,6 +472,65 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertSame('AI timeout', $returnMail[0]['reason'] ?? null);
     }
 
+    public function testApprovedReservationCanBeRejectedBeforeItStarts(): void
+    {
+        $rooms = $this->rooms();
+        $people = $this->people($rooms['roomA'], $rooms['roomB']);
+        [$start, $end] = $this->slot(4, 10);
+        $id = $this->insertReservation($rooms['roomA'], $start, $end, 'student@example.com', 'approved', $rooms['classId']);
+        $body = ['id' => $id, 'approved' => false, 'reason' => 'Room is needed for an exam.'];
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('room-b@example.com', $body)),
+            403,
+            'You do not manage this room.',
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('room-a@example.com', ['id' => $id, 'approved' => false, 'reason' => '   '])),
+            400,
+            'Reason is required for rejection.',
+        );
+        $pastStart = Clock::now()->modify('-1 hour');
+        $pastId = $this->insertReservation($rooms['roomA'], $pastStart, $pastStart->modify('+1 hour'), 'past@example.com', 'approved', $rooms['classId']);
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $pastId, 'approved' => false, 'reason' => 'Already started'])),
+            409,
+            'Reservation has already been processed or is no longer editable.',
+        );
+
+        $this->reservations->approve($this->asAdmin('room-a@example.com', [
+            'id' => $id,
+            'approved' => false,
+            'reason' => '  Room is needed for an exam.  ',
+        ]));
+        $row = $this->db->fetch('SELECT status, latestExecutorId, reason FROM reservation WHERE id = ?', [$id]);
+        self::assertSame('rejected', $row['status']);
+        self::assertSame($people['approverA'], (int) $row['latestExecutorId']);
+        self::assertSame('Study group', $row['reason']);
+        $log = $this->db->fetch('SELECT adminId, operation, reason FROM reservationoperationlog WHERE reservationId = ?', [$id]);
+        self::assertSame('rejected', $log['operation']);
+        self::assertSame($people['approverA'], (int) $log['adminId']);
+        self::assertSame('Room is needed for an exam.', $log['reason']);
+        $mail = $this->jobPayloads('reservation_status_changed');
+        self::assertCount(1, $mail);
+        self::assertSame($id, $mail[0]['reservationId']);
+        self::assertSame('rejected', $mail[0]['status']);
+        self::assertSame('approved', $mail[0]['previousStatus']);
+        self::assertSame('Room is needed for an exam.', $mail[0]['reason']);
+        self::assertNull($mail[0]['cancelToken']);
+        $availability = $this->reservations->availability($this->request('GET', '/reservation/availability', [], [
+            'roomId' => (string) $rooms['roomA'],
+            'date' => $start->format('Y-m-d'),
+        ]));
+        self::assertSame([], $availability['occupied']);
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['id' => $id, 'approved' => false, 'reason' => 'Again'])),
+            409,
+            'Reservation has already been processed or is no longer editable.',
+        );
+        self::assertCount(1, $this->jobPayloads('reservation_status_changed'));
+        self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$pastId])['status']);
+    }
+
     public function testEveryManagerStillSeesAnApprovedReservation(): void
     {
         $rooms = $this->rooms();
