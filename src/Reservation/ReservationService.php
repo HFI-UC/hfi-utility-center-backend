@@ -513,7 +513,7 @@ final class ReservationService
         $approved = $input->bool('approved');
         $reason = $input->string('reason', false);
         $reason = $reason === null ? null : trim($reason);
-        if (!$approved && $reason === '') {
+        if (!$approved && ($reason === null || $reason === '')) {
             throw new HttpException(400, 'Reason is required for rejection.');
         }
         $status = $approved ? 'approved' : 'rejected';
