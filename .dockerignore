@@ -1,0 +1,10 @@
+target
+.git
+.env
+deploy/*.env
+backups
+secrets
+*.key
+*.pem
+id_*
+*_id_ed25519
