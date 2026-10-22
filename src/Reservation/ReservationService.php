@@ -394,46 +394,6 @@ final class ReservationService
         return $result;
     }
 
-    public function adminCancel(ServerRequestInterface $request): void
-    {
-        $admin = $this->auth->requireAdminWrite($request);
-        $input = new Input($this->json($request));
-        $id = $input->int('id');
-        $reason = trim($input->string('reason') ?? '');
-        if ($reason === '') {
-            throw new HttpException(400, 'Reason is required for cancellation.');
-        }
-        $this->db->transaction(function () use ($admin, $id, $reason): void {
-            $row = $this->db->fetch('SELECT roomId, status, startTime FROM reservation WHERE id = ? FOR UPDATE', [$id]);
-            if ($row === null) {
-                throw new HttpException(404, 'Reservation not found.');
-            }
-            $roomId = $row['roomId'] === null ? null : (int) $row['roomId'];
-            if (!$this->authorization->canManage($admin['id'], $roomId)) {
-                throw new HttpException(403, 'You do not manage this room.');
-            }
-            if ((string) $row['status'] !== 'approved' || Clock::parseSql((string) $row['startTime']) <= Clock::now()) {
-                throw new HttpException(409, 'Only approved reservations that have not started can be cancelled by an administrator.');
-            }
-            $this->db->execute(
-                'UPDATE reservation SET status = \'cancelled\', cancelledAt = NOW(), latestExecutorId = ?, reviewVersion = reviewVersion + 1 WHERE id = ?',
-                [$admin['id'], $id],
-            );
-            $this->db->execute('UPDATE reservationcanceltoken SET usedAt = NOW() WHERE reservationId = ? AND usedAt IS NULL', [$id]);
-            $this->db->execute(
-                'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'cancelled_by_admin\', ?)',
-                [$admin['id'], $id, $reason],
-            );
-            $this->enqueue('reservation_cancelled', [
-                'reservationId' => $id,
-                'status' => 'cancelled',
-                'cancelledBy' => 'admin',
-                'reason' => $reason,
-            ]);
-        });
-        $this->logger->audit('reservation.admin-cancel', 'reservation', $id, ['reason' => $reason]);
-    }
-
     /** @return array{reservationId: int, editCount: int, remainingEdits: int} */
     public function modify(ServerRequestInterface $request): array
     {
@@ -553,11 +513,10 @@ final class ReservationService
         $approved = $input->bool('approved');
         $reason = $input->string('reason', false);
         $reason = $reason === null ? null : trim($reason);
-        if (!$approved && $reason === '') {
+        if (!$approved && ($reason === null || $reason === '')) {
             throw new HttpException(400, 'Reason is required for rejection.');
         }
-        $status = $approved ? 'approved' : 'rejected';
-        $this->db->transaction(function () use ($admin, $id, $approved, $reason, $status): void {
+        $status = $this->db->transaction(function () use ($admin, $id, $approved, $reason): string {
             $row = $this->db->fetch('SELECT roomId, status, startTime FROM reservation WHERE id = ? FOR UPDATE', [$id]);
             if ($row === null) {
                 throw new HttpException(404, 'Reservation not found.');
@@ -566,9 +525,32 @@ final class ReservationService
             if (!$this->authorization->canManage($admin['id'], $roomId)) {
                 throw new HttpException(403, 'You do not manage this room.');
             }
-            if ((string) $row['status'] !== 'pending' || Clock::parseSql((string) $row['startTime']) <= Clock::now()) {
+            // The existing frontend sends approved=false for a decided reservation.
+            // Treat revoking an approval as cancellation, preserving its supplied reason.
+            $cancelling = !$approved && (string) $row['status'] === 'approved';
+            if (((string) $row['status'] !== 'pending' && !$cancelling) || Clock::parseSql((string) $row['startTime']) <= Clock::now()) {
                 throw new HttpException(409, 'Reservation has already been processed or is no longer editable.');
             }
+            if ($cancelling) {
+                $this->db->execute(
+                    'UPDATE reservation SET status = \'cancelled\', cancelledAt = NOW(), latestExecutorId = ?, reviewVersion = reviewVersion + 1 WHERE id = ?',
+                    [$admin['id'], $id],
+                );
+                $this->db->execute('UPDATE reservationcanceltoken SET usedAt = NOW() WHERE reservationId = ? AND usedAt IS NULL', [$id]);
+                $this->db->execute(
+                    'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'cancelled_by_admin\', ?)',
+                    [$admin['id'], $id, $reason],
+                );
+                $this->enqueue('reservation_cancelled', [
+                    'reservationId' => $id,
+                    'status' => 'cancelled',
+                    'cancelledBy' => 'admin',
+                    'reason' => $reason,
+                ]);
+
+                return 'cancelled';
+            }
+            $status = $approved ? 'approved' : 'rejected';
             $this->db->execute(
                 'UPDATE reservation SET status = ?, latestExecutorId = ? WHERE id = ? AND status = \'pending\'',
                 [$status, $admin['id'], $id],
@@ -591,8 +573,10 @@ final class ReservationService
                 'reason' => $reason,
                 'cancelToken' => $rawToken,
             ]);
+
+            return $status;
         });
-        $this->logger->audit('reservation.approval', 'reservation', $id, ['status' => $status]);
+        $this->logger->audit('reservation.approval', 'reservation', $id, ['status' => $status, 'reason' => $reason]);
     }
 
     public function unlockAiReview(ServerRequestInterface $request): void
