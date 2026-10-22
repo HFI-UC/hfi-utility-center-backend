@@ -557,6 +557,124 @@ final class ReservationServiceTest extends DatabaseTestCase
         );
     }
 
+    public function testApprovedReservationCanBeRejectedUntilItEnds(): void
+    {
+        $rooms = $this->rooms();
+        $people = $this->people($rooms['roomA'], $rooms['roomB']);
+        [$start, $end] = $this->slot(4, 10);
+        $created = $this->createReservation(
+            $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId']),
+            ['x-csrf-token' => $this->csrf()],
+        );
+        $id = $created['reservationId'];
+        $this->reservations->approve($this->asAdmin('room-a@example.com', ['id' => $id, 'approved' => true]));
+        $createdToken = (string) $this->jobPayloads('reservation_created')[0]['cancelToken'];
+        $approvalToken = (string) $this->jobPayloads('reservation_status_changed')[0]['cancelToken'];
+
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('room-b@example.com', [
+                'id' => $id,
+                'approved' => false,
+                'reason' => 'Wrong room',
+            ])),
+            403,
+            'You do not manage this room.',
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('room-a@example.com', [
+                'id' => $id,
+                'approved' => false,
+                'reason' => ' ',
+            ])),
+            400,
+            'Reason is required for rejection.',
+        );
+
+        $this->reservations->approve($this->asAdmin('quiet-a@example.com', [
+            'id' => $id,
+            'approved' => false,
+            'reason' => ' Room is needed for an exam. ',
+        ]));
+
+        $row = $this->db->fetch('SELECT status, latestExecutorId FROM reservation WHERE id = ?', [$id]);
+        self::assertSame('rejected', $row['status']);
+        self::assertSame($people['quietA'], (int) $row['latestExecutorId']);
+        self::assertSame(
+            'Room is needed for an exam.',
+            $this->db->fetch("SELECT reason FROM reservationoperationlog WHERE reservationId = ? AND operation = 'rejected'", [$id])['reason'],
+        );
+        $mail = array_values(array_filter(
+            $this->jobPayloads('reservation_status_changed'),
+            static fn (array $payload): bool => ($payload['status'] ?? null) === 'rejected',
+        ));
+        self::assertCount(1, $mail);
+        self::assertSame('Room is needed for an exam.', $mail[0]['reason']);
+        self::assertNull($mail[0]['cancelToken']);
+        self::assertSame('approved', $mail[0]['previousStatus']);
+        self::assertSame(
+            2,
+            (int) $this->db->fetch('SELECT COUNT(*) AS total FROM reservationcanceltoken WHERE reservationId = ? AND usedAt IS NOT NULL', [$id])['total'],
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->cancelPreview($this->request('GET', '/reservation/cancel-preview', [], ['token' => $createdToken])),
+            404,
+            'Cancellation link is invalid or expired.',
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->modify($this->request('POST', '/reservation/modify', $this->modifyBody($approvalToken, $rooms['roomA'], $start, $end, 'Too late'))),
+            410,
+            'Reservation management link is expired.',
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('super@example.com', [
+                'id' => $id,
+                'approved' => false,
+                'reason' => 'Again',
+            ])),
+            409,
+            'Reservation has already been processed or is no longer editable.',
+        );
+
+        $activeId = $this->insertReservation(
+            $rooms['roomA'],
+            Clock::now()->modify('-30 minutes'),
+            Clock::now()->modify('+30 minutes'),
+            'active@example.com',
+            'approved',
+            $rooms['classId'],
+        );
+        $this->reservations->approve($this->asAdmin('room-a@example.com', [
+            'id' => $activeId,
+            'approved' => false,
+            'reason' => 'Ended early',
+        ]));
+        self::assertSame('rejected', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$activeId])['status']);
+
+        $endedId = $this->insertReservation(
+            $rooms['roomA'],
+            Clock::now()->modify('-2 hours'),
+            Clock::now()->modify('-1 hour'),
+            'ended@example.com',
+            'approved',
+            $rooms['classId'],
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('super@example.com', [
+                'id' => $endedId,
+                'approved' => false,
+                'reason' => 'Too late',
+            ])),
+            409,
+            'Reservation has already been processed or is no longer editable.',
+        );
+
+        $replacement = $this->createReservation(
+            $this->reservationBody($rooms['roomA'], $start, $end, $rooms['classId'], ['email' => 'next@example.com']),
+            ['x-csrf-token' => $this->csrf()],
+        );
+        self::assertSame('pending', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$replacement['reservationId']])['status']);
+    }
+
     public function testMovingARoomRequiresRightsOnBothRooms(): void
     {
         $rooms = $this->rooms();
