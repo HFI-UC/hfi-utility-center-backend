@@ -10,6 +10,7 @@
       <file>tests/DebugErrorTest.php</file>
       <file>tests/InputTest.php</file>
       <file>tests/RulesTest.php</file>
+      <file>tests/MailTemplateTest.php</file>
     </testsuite>
   </testsuites>
 </phpunit>

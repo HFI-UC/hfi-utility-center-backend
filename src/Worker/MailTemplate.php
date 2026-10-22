@@ -24,6 +24,7 @@ final class MailTemplate
         string $end,
         ?string $actionUrl,
         ?string $decisionReason = null,
+        string $decisionReasonLabel = 'Decision Reason',
     ): string {
         $time = substr(str_replace('T', ' ', $start), 0, 16) . ' – ' . substr($end, 11, 5);
         $fields = [
@@ -37,7 +38,7 @@ final class MailTemplate
             ['Equipment', $needsMultimedia ? 'Multimedia equipment required' : 'No multimedia equipment'],
         ];
         if ($decisionReason !== null && trim($decisionReason) !== '') {
-            $fields[] = ['Decision Reason', trim($decisionReason)];
+            $fields[] = [$decisionReasonLabel, trim($decisionReason)];
         }
 
         return self::document($title, $details, self::grid($fields) . self::action($actionUrl));

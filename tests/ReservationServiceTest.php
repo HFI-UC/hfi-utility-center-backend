@@ -472,6 +472,71 @@ final class ReservationServiceTest extends DatabaseTestCase
         self::assertSame('AI timeout', $returnMail[0]['reason'] ?? null);
     }
 
+    public function testManagerCancelsApprovedReservationWithReasonAndOneEmail(): void
+    {
+        $rooms = $this->rooms();
+        $people = $this->people($rooms['roomA'], $rooms['roomB']);
+        [$start, $end] = $this->slot(4, 10);
+        $id = $this->insertReservation($rooms['roomA'], $start, $end, 'student@example.com', 'approved', $rooms['classId']);
+        $this->db->execute('INSERT INTO reservationcanceltoken (reservationId, tokenHash, expiresAt) VALUES (?, ?, ?)', [$id, Token::hash('old-link'), Clock::sql($start)]);
+        $reason = '教师会议需要使用教室 <会议> & 调整';
+        $this->reservations->approve($this->asAdmin('room-a@example.com', ['approved' => false, 'id' => $id, 'reason' => '  ' . $reason . '  ']));
+        $row = $this->db->fetch('SELECT status, cancelledAt, latestExecutorId, reason FROM reservation WHERE id = ?', [$id]);
+        self::assertSame('cancelled', $row['status']);
+        self::assertNotNull($row['cancelledAt']);
+        self::assertSame($people['approverA'], (int) $row['latestExecutorId']);
+        self::assertSame('Study group', $row['reason']);
+        self::assertNotNull($this->db->fetch('SELECT usedAt FROM reservationcanceltoken WHERE reservationId = ?', [$id])['usedAt']);
+        $log = $this->db->fetch('SELECT adminId, operation, reason FROM reservationoperationlog WHERE reservationId = ?', [$id]);
+        self::assertSame('cancelled_by_admin', $log['operation']);
+        self::assertSame($people['approverA'], (int) $log['adminId']);
+        self::assertSame($reason, $log['reason']);
+        self::assertSame([['reservationId' => $id, 'status' => 'cancelled', 'cancelledBy' => 'admin', 'reason' => $reason]], $this->jobPayloads('reservation_cancelled'));
+        $availability = $this->reservations->availability($this->request('GET', '/reservation/availability', [], ['roomId' => (string) $rooms['roomA'], 'date' => $start->format('Y-m-d')]));
+        self::assertSame([], $availability['occupied']);
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['approved' => false, 'id' => $id, 'reason' => 'Again'])),
+            409,
+            'Reservation has already been processed or is no longer editable.',
+        );
+        self::assertCount(1, $this->jobPayloads('reservation_cancelled'));
+    }
+
+    public function testAdminCancellationChecksAuthenticationScopeReasonAndState(): void
+    {
+        $rooms = $this->rooms();
+        $this->people($rooms['roomA'], $rooms['roomB']);
+        [$start, $end] = $this->slot(4, 10);
+        $id = $this->insertReservation($rooms['roomA'], $start, $end, 'student@example.com', 'approved', $rooms['classId']);
+        $body = ['approved' => false, 'id' => $id, 'reason' => 'Teacher meeting'];
+        $this->expectHttp(fn () => $this->reservations->approve($this->request('POST', '/reservation/approval', $body)), 401, 'User is not logged in.');
+        $this->expectHttp(fn () => $this->reservations->approve($this->asAdmin('room-a@example.com', $body, [], false)), 403, 'CSRF token missing or invalid.');
+        $this->expectHttp(fn () => $this->reservations->approve($this->asAdmin('room-b@example.com', $body)), 403, 'You do not manage this room.');
+        $this->expectHttp(fn () => $this->reservations->approve($this->asAdmin('room-a@example.com', ['approved' => false, 'id' => $id, 'reason' => '   '])), 400, 'Reason is required for rejection.');
+        $this->expectHttp(fn () => $this->reservations->approve($this->asAdmin('room-a@example.com', ['approved' => false, 'id' => $id, 'reason' => null])), 400, 'Reason is required for rejection.');
+        $this->expectHttp(fn () => $this->reservations->approve($this->asAdmin('room-a@example.com', ['approved' => false, 'id' => $id])), 400, 'Reason is required for rejection.');
+        $this->expectHttp(fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['approved' => false, 'id' => 999999, 'reason' => 'Missing'])), 404, 'Reservation not found.');
+        foreach (['ai_reviewing', 'rejected', 'cancelled'] as $status) {
+            $otherId = $this->insertReservation($rooms['roomA'], $start, $end, 'other@example.com', $status, $rooms['classId']);
+            $this->expectHttp(
+                fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['approved' => false, 'id' => $otherId, 'reason' => 'Invalid state'])),
+                409,
+                'Reservation has already been processed or is no longer editable.',
+            );
+        }
+        $pastStart = Clock::now()->modify('-1 hour');
+        $pastId = $this->insertReservation($rooms['roomA'], $pastStart, $pastStart->modify('+2 hours'), 'past@example.com', 'approved', $rooms['classId']);
+        $this->expectHttp(
+            fn () => $this->reservations->approve($this->asAdmin('super@example.com', ['approved' => false, 'id' => $pastId, 'reason' => 'Started'])),
+            409,
+            'Reservation has already been processed or is no longer editable.',
+        );
+        self::assertSame([], $this->jobPayloads('reservation_cancelled'));
+        self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$id])['status']);
+        $this->reservations->approve($this->asAdmin('super@example.com', $body));
+        self::assertSame('cancelled', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$id])['status']);
+    }
+
     public function testEveryManagerStillSeesAnApprovedReservation(): void
     {
         $rooms = $this->rooms();

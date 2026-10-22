@@ -813,8 +813,8 @@ paths:
           $ref: '#/components/responses/Error'
   /reservation/approval:
     post:
-      summary: Approve or reject a pending reservation
-      description: Set approved=false with a non-empty reason to reject the reservation; the reason is stored in the operation log and included in the applicant notification email.
+      summary: Approve or reject a pending reservation, or cancel an approved reservation
+      description: Uses the existing frontend request shape. For pending reservations, approved=true approves and approved=false rejects. For an approved reservation, approved=false cancels it and releases the slot. All operations require a future start time and a global administrator or an administrator assigned to the room. Cancellation records cancelledAt and the administrator, invalidates management tokens, and queues a cancellation email containing the supplied reason. Repeated cancellation returns 409 without another email. The reason is required for approved=false and stored in the operation log.
       security:
         - session: []
           csrf: []
@@ -832,7 +832,7 @@ paths:
                   type: boolean
                 reason:
                   type: string
-                  description: Required and non-empty when approved is false; may be a predefined rule or administrator-entered text. Included in the applicant's rejection email.
+                  description: Required and non-empty when approved is false; may be a predefined rule or administrator-entered text. Included in the applicant's rejection or cancellation email.
       responses:
         '200':
           $ref: '#/components/responses/Message'
