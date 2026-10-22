@@ -1,81 +1,79 @@
-# HFI Utility Center Rust Backend
+# HFI Utility Center PHP Backend
 
-<1>
-
-The Rust backend is the production API for HFI Utility Center. It preserves the
-legacy PostgreSQL data model while adding availability queries, reservation
-editing and cancellation, durable email jobs, AI approval, announcements, and
-analytics.
+The PHP API for HFI Utility Center. It keeps the reservation, approval, and
+notification rules while storing data in MySQL.
 
 ## Technology stack
 
-- Rust 2024, Tokio, Axum, and Tower HTTP
-- PostgreSQL 17 with SQLx migrations
-- Lettre over authenticated SMTP
-- Reqwest for Cloudflare Turnstile and AI approval
-- OpenResty for TLS termination and reverse proxying
-- systemd for the API and outbox worker
-- 1Panel for PostgreSQL, pgAdmin, OpenResty, certificates, and container health
+- PHP 8.4, Slim 4, and PHP-FPM
+- MySQL 5.6 with the schema in `sql/001_schema.sql`
+- Apache serving `public/index.php`
+- PHPMailer for reservation email
+- Cloudflare Queues for immediate outbox delivery; a Durable Object Alarm recovers missed or delayed tasks every 30 seconds
+- PHPUnit for business and database tests
 
-## Architecture
+## Layout
 
-- `src/app.rs`: routes, CORS, request IDs, tracing, and static assets.
-- `src/auth.rs`: CSRF tokens, administrator sessions, and Turnstile checks.
-- `src/catalog.rs`: campuses, classes, rooms, policies, and administrators.
-- `src/reservations.rs`: creation, availability, review, editing, cancellation,
-  historical null-safe reads, and XLSX export.
-- `src/worker.rs`: durable outbox processing for SMTP and AI approval.
-- `migrations/`: forward-only SQLx schema and data migrations.
-- `scripts/`: migration reports and the legacy-policy rollback procedure.
-- `deploy/`: systemd units, an optional Docker Compose deployment, and an
-  OpenResty example.
+- `public/index.php`: front controller.
+- `src/Http/Application.php`: routes, CORS, and error responses.
+- `src/Auth/`: CSRF tokens, administrator sessions, and Turnstile checks.
+- `src/Catalog/`: campuses, classes, rooms, policies, and administrators.
+- `src/Reservation/`: creation, availability, review, editing, cancellation, and XLSX export.
+- `src/Worker/`: transaction-safe outbox storage, immediate post-commit publishing, and PHP job execution.
+- `cloudflare/outbox-consumer/`: Queue consumer that calls `/tasks/{taskId}/execute`; a Durable Object Alarm claims due tasks from `GET /tasks` for recovery and delayed AI review.
+- `openapi.yaml`: HTTP contract.
+- `tests/`: PHPUnit suite. Database tests use the separate `uc_test` database configured in `tests/.env`.
 
-The HTTP API and worker are the same binary. `HFIUC_MODE=api` starts the server,
-`HFIUC_MODE=worker` processes outbox jobs, and `HFIUC_MODE=migrate` applies SQLx
-migrations.
+Secrets belong in the repository root `.env`. See `.env.example`.
+`CORS_ALLOWED_ORIGINS` is a comma-separated list of exact browser origins
+(scheme, host, and optional port). Set it in the root `.env` for each
+environment; an absent or empty value allows no cross-origin requests.
+`FRONTEND_URL` controls generated frontend links and does not grant CORS access.
 
-## Reservation compatibility
+Existing databases created before the removal of `campus.isPrivileged` must run
+`sql/002_drop_campus_is_privileged.sql` once before deploying this version. New
+databases use `sql/001_schema.sql` and do not need the migration.
 
-New reservations require a room, time range, name, student ID, email, and a
-non-empty detailed reason. `classId` and `purposeType` are optional. Historical
-rows with missing rooms, classes, or student IDs remain readable and exportable;
-the migration never fills them with invented values.
+Existing databases must also run the read-only `sql/003_roles_archive_preflight.sql`,
+repair any orphan reservation references it reports, then run
+`sql/003_roles_archive.sql` during the maintenance window. The migration adds
+explicit administrator roles, catalog archival, AI review versions, foreign keys,
+  and outbox dispatch leases. Back up the database before applying it.
 
-The Python backend stored unavailable room ranges. Migration `0008` snapshots
-those rows and replaces them with their available-time complement between
-08:00 and 21:30. The Rust API always treats `roompolicy` as available time.
+  Before deploying email-only reservations to an existing database, run the
+  read-only `sql/004_student_email_mapping_preflight.sql` and resolve any
+  reported emails with conflicting or incomplete historical name/class data.
+  Then run `sql/004_student_email_mapping.sql`, which adds the student email
+  mapping, imports only unambiguous historical profiles, and removes the
+  reservation student ID column. Emails not registered in `student` cannot
+  submit ordinary reservations; global administrators can maintain mappings
+  through the `/student/*` API. Fresh databases need only
+  `sql/001_schema.sql`.
 
-## Production deployment
-
-The Hong Kong production host runs the binary through the systemd units in
-`deploy/`. The API listens only on `127.0.0.1:8002`; 1Panel OpenResty serves
-`https://api.hfiuc.org`. PostgreSQL and pgAdmin remain managed by 1Panel. The
-legacy Python container stays stopped during the rollback window.
-
-Configuration is loaded from `/etc/hfiuc/backend.env` and
-`/etc/hfiuc/rust.env`. Required production values include `DATABASE_URL`, SMTP
-credentials, `FRONTEND_URL`, Cloudflare Turnstile settings, and the AI approval
-URL, secret, administrator ID, and enabled flag. Secrets must never be committed.
-
-Before a production migration:
-
-1. Run `scripts/preflight.sql` and create a custom-format `pg_dump`.
-2. Restore the dump to a temporary database and migrate that copy first.
-3. Compare reservation counts, maximum ID, and the reservation fingerprint.
-4. Verify converted room policies and the optional class/purpose contract.
-5. Stop legacy writes, create a new final backup, then migrate production.
-6. Start the API without the worker, run health and CORS checks, switch
-   OpenResty, and start the worker last.
-
-If cutover fails before Rust accepts new writes, run
-`scripts/rollback_roompolicy.sql`, restore the previous OpenResty upstream, and
-restart the Python container. The full database dump remains the authoritative
-rollback artifact.
+Set `TASK_PULL_SECRET` and `TASK_EXECUTE_SECRET` in the PHP root `.env` and as
+Cloudflare Worker secrets. The production Worker consumes queue `uc`; its `dev`
+environment uses an isolated `uc-dev` queue and requires a separate dev PHP API.
+When `AI_APPROVAL_ENABLED=true`, set `OPENAI_API_KEY` in the PHP root `.env`.
+PHP calls the OpenAI Chat Completions protocol using `OPENAI_API_BASE_URL` and
+`OPENAI_MODEL`; the default endpoint is `https://api.openai.com/v1` and the
+default model is `gpt-4o-mini`. OpenAI-compatible providers can use their own
+base URL and model. `AI_VERIFY_SSL` controls certificate and host verification
+for the AI request and defaults to `true`; only disable it temporarily for a
+diagnosed preview certificate problem, then restore verification.
+The key is sent in an HTTP header, never in a URL.
+Keep PHP-FPM's CA bundle current so TLS verification remains enabled.
 
 ## Local checks
 
 ```sh
-cargo fmt --check
-cargo test --locked
-cargo clippy --locked --all-targets -- -D warnings
+composer install
+composer test:fast
 ```
+
+`composer test:fast` runs the pure PHP tests and is intended for the inner
+development loop. `composer test:db:smoke` runs the critical remote MySQL
+integration files, and `composer test` remains the complete remote `uc_test`
+suite for release checks. All database commands use the dedicated remote
+`uc_test` database and never a local database. The full remote suite is a
+release gate; it is intentionally separate from the fast command because its
+feedback time depends on the remote MySQL host.
