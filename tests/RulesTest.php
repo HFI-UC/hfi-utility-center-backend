@@ -121,6 +121,11 @@ final class RulesTest extends TestCase
 
         $rejected = $copy->invoke($worker, 'reservation_status_changed', ['reason' => 'Room is reserved for exams.'], 'rejected');
         self::assertStringContainsString('decision reason below', $rejected[2]);
+        self::assertStringContainsString('could not be approved', $rejected[2]);
+
+        $revoked = $copy->invoke($worker, 'reservation_status_changed', ['reason' => 'Room is reserved for exams.', 'previousStatus' => 'approved'], 'rejected');
+        self::assertSame('Your approved reservation was rejected', $revoked[1]);
+        self::assertStringContainsString('after it had been approved', $revoked[2]);
 
         $returned = $copy->invoke($worker, 'reservation_status_changed', ['reason' => 'AI review timed out.'], 'pending');
         self::assertStringContainsString('decision reason below', $returned[2]);

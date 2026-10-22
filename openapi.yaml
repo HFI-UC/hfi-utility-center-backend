@@ -813,8 +813,8 @@ paths:
           $ref: '#/components/responses/Error'
   /reservation/approval:
     post:
-      summary: Approve or reject a pending reservation
-      description: Set approved=false with a non-empty reason to reject the reservation; the reason is stored in the operation log and included in the applicant notification email.
+      summary: Approve or reject a reservation
+      description: A pending reservation that has not started can be approved or rejected. An approved reservation that has not ended can be rejected again; unused management links are retired and the applicant email includes the decision reason. Set approved=false with a non-empty reason to reject. The reason is stored in the operation log.
       security:
         - session: []
           csrf: []
