@@ -505,7 +505,7 @@ final class ReservationService
         $this->logger->audit('reservation.admin_edit', 'reservation', $id, ['roomId' => $roomId]);
     }
 
-    public function approve(ServerRequestInterface $request): void
+    public function approval(ServerRequestInterface $request): void
     {
         $admin = $this->auth->requireAdminWrite($request);
         $input = new Input($this->json($request));
@@ -513,63 +513,112 @@ final class ReservationService
         $approved = $input->bool('approved');
         $reason = $input->string('reason', false);
         $reason = $reason === null ? null : trim($reason);
-        if (!$approved && ($reason === null || $reason === '')) {
-            throw new HttpException(400, 'Reason is required for rejection.');
-        }
-        $status = $approved ? 'approved' : 'rejected';
-        $this->db->transaction(function () use ($admin, $id, $approved, $reason, $status): void {
-            $row = $this->db->fetch('SELECT roomId, status, startTime, endTime FROM reservation WHERE id = ? FOR UPDATE', [$id]);
-            if ($row === null) {
-                throw new HttpException(404, 'Reservation not found.');
-            }
-            $roomId = $row['roomId'] === null ? null : (int) $row['roomId'];
-            if (!$this->authorization->canManage($admin['id'], $roomId)) {
-                throw new HttpException(403, 'You do not manage this room.');
-            }
-            $current = (string) $row['status'];
-            $now = Clock::now();
-            $pendingDecision = $current === 'pending' && Clock::parseSql((string) $row['startTime']) > $now;
-            $revokeApproval = !$approved && $current === 'approved' && Clock::parseSql((string) $row['endTime']) > $now;
-            if (!$pendingDecision && !$revokeApproval) {
-                throw new HttpException(409, 'Reservation has already been processed or is no longer editable.');
-            }
-            $changed = $this->db->execute(
-                'UPDATE reservation SET status = ?, latestExecutorId = ? WHERE id = ? AND status = ?',
-                [$status, $admin['id'], $id, $current],
-            );
-            if ($changed === 0) {
-                throw new HttpException(409, 'Reservation has already been processed or is no longer editable.');
-            }
-            $this->db->execute(
-                'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, ?, ?)',
-                [$admin['id'], $id, $status, $reason],
-            );
-            $rawToken = null;
+        $status = $this->db->transaction(function () use ($admin, $id, $approved, $reason): string {
+            $row = $this->reviewTarget($admin, $id);
             if ($approved) {
-                $rawToken = Token::random();
-                $this->db->execute(
-                    'INSERT INTO reservationcanceltoken (reservationId, tokenHash, expiresAt) VALUES (?, ?, ?)',
-                    [$id, Token::hash($rawToken), (string) $row['startTime']],
-                );
+                return $this->approve($admin, $row, $reason);
             }
-            if ($revokeApproval) {
-                $this->db->execute(
-                    'UPDATE reservationcanceltoken SET usedAt = NOW() WHERE reservationId = ? AND usedAt IS NULL',
-                    [$id],
-                );
-            }
-            $payload = [
-                'reservationId' => $id,
-                'status' => $status,
-                'reason' => $reason,
-                'cancelToken' => $rawToken,
-            ];
-            if ($revokeApproval) {
-                $payload['previousStatus'] = 'approved';
-            }
-            $this->enqueue('reservation_status_changed', $payload);
+
+            return $this->reject($admin, $row, $reason);
         });
         $this->logger->audit('reservation.approval', 'reservation', $id, ['status' => $status]);
+    }
+
+    /** @param array{id: int, email: string, name: string, password: string, role: string} $admin
+     * @return array<string, mixed>
+     */
+    private function reviewTarget(array $admin, int $id): array
+    {
+        $row = $this->db->fetch('SELECT id, roomId, status, startTime FROM reservation WHERE id = ? FOR UPDATE', [$id]);
+        if ($row === null) {
+            throw new HttpException(404, 'Reservation not found.');
+        }
+        $roomId = $row['roomId'] === null ? null : (int) $row['roomId'];
+        if (!$this->authorization->canManage($admin['id'], $roomId)) {
+            throw new HttpException(403, 'You do not manage this room.');
+        }
+        if (Clock::parseSql((string) $row['startTime']) <= Clock::now()) {
+            throw new HttpException(409, 'Reservation has already been processed or is no longer editable.');
+        }
+
+        return $row;
+    }
+
+    /** @param array{id: int, email: string, name: string, password: string, role: string} $admin
+     * @param array<string, mixed> $row
+     */
+    private function approve(array $admin, array $row, ?string $reason): string
+    {
+        $id = (int) $row['id'];
+        if ((string) $row['status'] !== 'pending') {
+            throw new HttpException(409, 'Reservation has already been processed or is no longer editable.');
+        }
+        $changed = $this->db->execute(
+            'UPDATE reservation SET status = \'approved\', latestExecutorId = ? WHERE id = ? AND status = \'pending\'',
+            [$admin['id'], $id],
+        );
+        if ($changed !== 1) {
+            throw new HttpException(409, 'Reservation has already been processed or is no longer editable.');
+        }
+        $this->db->execute(
+            'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'approved\', ?)',
+            [$admin['id'], $id, $reason],
+        );
+        $rawToken = Token::random();
+        $this->db->execute(
+            'INSERT INTO reservationcanceltoken (reservationId, tokenHash, expiresAt) VALUES (?, ?, ?)',
+            [$id, Token::hash($rawToken), (string) $row['startTime']],
+        );
+        $this->enqueue('reservation_status_changed', [
+            'reservationId' => $id,
+            'status' => 'approved',
+            'reason' => $reason,
+            'cancelToken' => $rawToken,
+        ]);
+
+        return 'approved';
+    }
+
+    /** @param array{id: int, email: string, name: string, password: string, role: string} $admin
+     * @param array<string, mixed> $row
+     */
+    private function reject(array $admin, array $row, ?string $reason): string
+    {
+        if ($reason === null || $reason === '') {
+            throw new HttpException(400, 'Reason is required for rejection.');
+        }
+        $id = (int) $row['id'];
+        $current = (string) $row['status'];
+        if (!in_array($current, ['pending', 'approved'], true)) {
+            throw new HttpException(409, 'Reservation has already been processed or is no longer editable.');
+        }
+        $changed = $this->db->execute(
+            'UPDATE reservation SET status = \'rejected\', latestExecutorId = ? WHERE id = ? AND status = ?',
+            [$admin['id'], $id, $current],
+        );
+        if ($changed !== 1) {
+            throw new HttpException(409, 'Reservation has already been processed or is no longer editable.');
+        }
+        $this->db->execute(
+            'INSERT INTO reservationoperationlog (adminId, reservationId, operation, reason) VALUES (?, ?, \'rejected\', ?)',
+            [$admin['id'], $id, $reason],
+        );
+        $payload = [
+            'reservationId' => $id,
+            'status' => 'rejected',
+            'reason' => $reason,
+            'cancelToken' => null,
+        ];
+        if ($current === 'approved') {
+            $this->db->execute(
+                'UPDATE reservationcanceltoken SET usedAt = NOW() WHERE reservationId = ? AND usedAt IS NULL',
+                [$id],
+            );
+            $payload['previousStatus'] = 'approved';
+        }
+        $this->enqueue('reservation_status_changed', $payload);
+
+        return 'rejected';
     }
 
     public function unlockAiReview(ServerRequestInterface $request): void

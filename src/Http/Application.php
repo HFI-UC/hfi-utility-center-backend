@@ -206,7 +206,7 @@ final class Application
             return Responder::message($response, 'Reservation updated successfully.');
         });
         $app->post('/reservation/approval', function (ServerRequestInterface $request, ResponseInterface $response) use ($reservations): ResponseInterface {
-            $reservations->approve($request);
+            $reservations->approval($request);
 
             return Responder::message($response, 'Reservation updated successfully.');
         });
