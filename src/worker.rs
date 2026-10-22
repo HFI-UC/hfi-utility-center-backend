@@ -232,6 +232,68 @@ async fn ai_approval(
     Err(std::io::Error::other("AI approval service returned an unsupported status").into())
 }
 
+fn reservation_email_copy(
+    kind: &str,
+    status: &str,
+    previous_status: Option<&str>,
+    cancellation_reason: Option<&str>,
+    review_reason: Option<&str>,
+) -> (&'static str, &'static str, String) {
+    match kind {
+        "reservation_created" => (
+            "Reservation Created",
+            "Your reservation has been created",
+            "We received your reservation request. You can review the details below.".to_string(),
+        ),
+        "reservation_modified" => (
+            "Reservation Modified",
+            "Your reservation has been updated",
+            "The reservation details were changed successfully. Please review the latest room and time below.".to_string(),
+        ),
+        "reservation_cancelled" if cancellation_reason == Some("higher_priority") => (
+            "Reservation Cancelled",
+            "Your reservation was cancelled",
+            "A higher-priority Office Teachers reservation requires this room and time. Your original reservation has been cancelled automatically, and the time is no longer available.".to_string(),
+        ),
+        "reservation_cancelled" => (
+            "Reservation Cancelled",
+            "Your reservation has been cancelled",
+            "This reservation is no longer active. The released time is available for booking again.".to_string(),
+        ),
+        _ if status == "approved" => (
+            "Reservation Approved",
+            "Your reservation has been approved",
+            "Your reservation request was approved. Please arrive on time and follow the room rules.".to_string(),
+        ),
+        _ if status == "rejected" && previous_status == Some("approved") => (
+            "Reservation Rejected",
+            "Your reservation was rejected",
+            withdrawn_approval_details(review_reason),
+        ),
+        _ if status == "rejected" => (
+            "Reservation Rejected",
+            "Your reservation was not approved",
+            "Your reservation request was reviewed but could not be approved.".to_string(),
+        ),
+        _ => (
+            "Reservation Updated",
+            "Your reservation has been updated",
+            "The status of your reservation changed. The latest details are shown below.".to_string(),
+        ),
+    }
+}
+
+fn withdrawn_approval_details(review_reason: Option<&str>) -> String {
+    let mut details = String::from(
+        "An administrator reviewed this approved reservation again and rejected it. The room is no longer reserved.",
+    );
+    if let Some(note) = review_reason.map(str::trim).filter(|note| !note.is_empty()) {
+        details.push_str(" Reviewer note: ");
+        details.push_str(note);
+    }
+    details
+}
+
 async fn send_job_email(
     state: &AppState,
     kind: &str,
@@ -263,47 +325,13 @@ async fn send_job_email(
         .get("status")
         .and_then(Value::as_str)
         .unwrap_or(&stored_status);
-    let (subject, title, details) = match kind {
-        "reservation_created" => (
-            "Reservation Created",
-            "Your reservation has been created",
-            "We received your reservation request. You can review the details below.",
-        ),
-        "reservation_modified" => (
-            "Reservation Modified",
-            "Your reservation has been updated",
-            "The reservation details were changed successfully. Please review the latest room and time below.",
-        ),
-        "reservation_cancelled"
-            if payload.get("reason").and_then(Value::as_str) == Some("higher_priority") =>
-        {
-            (
-                "Reservation Cancelled",
-                "Your reservation was cancelled",
-                "A higher-priority Office Teachers reservation requires this room and time. Your original reservation has been cancelled automatically, and the time is no longer available.",
-            )
-        }
-        "reservation_cancelled" => (
-            "Reservation Cancelled",
-            "Your reservation has been cancelled",
-            "This reservation is no longer active. The released time is available for booking again.",
-        ),
-        _ if status == "approved" => (
-            "Reservation Approved",
-            "Your reservation has been approved",
-            "Your reservation request was approved. Please arrive on time and follow the room rules.",
-        ),
-        _ if status == "rejected" => (
-            "Reservation Rejected",
-            "Your reservation was not approved",
-            "Your reservation request was reviewed but could not be approved.",
-        ),
-        _ => (
-            "Reservation Updated",
-            "Your reservation has been updated",
-            "The status of your reservation changed. The latest details are shown below.",
-        ),
-    };
+    let (subject, title, details) = reservation_email_copy(
+        kind,
+        status,
+        payload.get("previousStatus").and_then(Value::as_str),
+        payload.get("reason").and_then(Value::as_str),
+        payload.get("reviewReason").and_then(Value::as_str),
+    );
     let student_name: String = reservation.get("studentName");
     let student_id: Option<String> = reservation.get("studentId");
     let reason: String = reservation.get("reason");
@@ -326,7 +354,7 @@ async fn send_job_email(
         });
     let body = reservation_email_html(
         title,
-        details,
+        &details,
         &student_name,
         student_id.as_deref().unwrap_or("—"),
         room_name.as_deref().unwrap_or("—"),
@@ -518,5 +546,49 @@ mod tests {
         if let Ok(path) = std::env::var("HFIUC_APPROVAL_EMAIL_PREVIEW_PATH") {
             std::fs::write(path, &html).expect("write approval email preview");
         }
+    }
+
+    #[test]
+    fn withdrawing_an_approval_explains_the_rejection() {
+        let (_subject, title, details) = reservation_email_copy(
+            "reservation_status_changed",
+            "rejected",
+            Some("approved"),
+            None,
+            Some("  Room needed for an exam.  "),
+        );
+
+        assert_eq!(title, "Your reservation was rejected");
+        assert!(details.contains("no longer reserved"));
+        assert!(details.contains("Reviewer note: Room needed for an exam."));
+    }
+
+    #[test]
+    fn first_rejection_keeps_the_original_notice() {
+        let (_subject, title, details) = reservation_email_copy(
+            "reservation_status_changed",
+            "rejected",
+            Some("pending"),
+            None,
+            Some("Incomplete reason"),
+        );
+
+        assert_eq!(title, "Your reservation was not approved");
+        assert!(!details.contains("Reviewer note"));
+        assert!(!details.contains("Incomplete reason"));
+    }
+
+    #[test]
+    fn higher_priority_cancellation_copy_is_unchanged() {
+        let (subject, _title, details) = reservation_email_copy(
+            "reservation_cancelled",
+            "cancelled",
+            None,
+            Some("higher_priority"),
+            None,
+        );
+
+        assert_eq!(subject, "Reservation Cancelled");
+        assert!(details.contains("higher-priority"));
     }
 }

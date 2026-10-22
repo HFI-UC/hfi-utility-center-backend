@@ -839,6 +839,17 @@ pub(crate) async fn admin_edit_reservation(
     message("Reservation updated successfully.")
 }
 
+/// Pending reservations may be approved or rejected. An existing approval may
+/// be withdrawn by rejecting it before the reservation starts. Rejected and
+/// cancelled reservations stay closed, and an approval cannot be applied twice.
+fn review_decision(current_status: &str, approve: bool) -> Option<&'static str> {
+    match (current_status, approve) {
+        ("pending", true) => Some("approved"),
+        ("pending" | "approved", false) => Some("rejected"),
+        _ => None,
+    }
+}
+
 pub(crate) async fn approve_reservation(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -850,14 +861,15 @@ pub(crate) async fn approve_reservation(
     if !consume_csrf(&state, &headers).await {
         return fail(StatusCode::FORBIDDEN, "CSRF token missing or invalid.");
     }
-    let new_status = if payload.approved {
-        "approved"
-    } else {
-        "rejected"
-    };
     if !payload.approved && payload.reason.as_deref().unwrap_or("").trim().is_empty() {
         return fail(StatusCode::BAD_REQUEST, "Reason is required for rejection.");
     }
+    let review_reason = payload
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .map(ToOwned::to_owned);
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
         Err(_) => {
@@ -867,20 +879,76 @@ pub(crate) async fn approve_reservation(
             );
         }
     };
-    let changed = sqlx::query("UPDATE reservation SET status=$1,\"latestExecutorId\"=$2 WHERE id=$3 AND status='pending' AND \"startTime\" > now() RETURNING \"startTime\"").bind(new_status).bind(admin.id).bind(payload.id).fetch_optional(&mut *tx).await.ok().flatten();
-    let Some(changed) = changed else {
+    let current =
+        match sqlx::query("SELECT status,\"startTime\" FROM reservation WHERE id=$1 FOR UPDATE")
+            .bind(payload.id)
+            .fetch_optional(&mut *tx)
+            .await
+        {
+            Ok(row) => row,
+            Err(err) => {
+                error!(%err, "lock reservation for review");
+                return fail(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Unable to review reservation",
+                );
+            }
+        };
+    let Some(current) = current else {
         return fail(
             StatusCode::CONFLICT,
             "Reservation has already been processed or is no longer editable.",
         );
     };
+    let current_status: String = current.get("status");
+    let start_time: NaiveDateTime = current.get("startTime");
+    let now = Shanghai
+        .from_utc_datetime(&Utc::now().naive_utc())
+        .naive_local();
+    let Some(new_status) = review_decision(&current_status, payload.approved) else {
+        return fail(
+            StatusCode::CONFLICT,
+            "Reservation has already been processed or is no longer editable.",
+        );
+    };
+    if start_time <= now {
+        return fail(
+            StatusCode::CONFLICT,
+            "Reservation has already been processed or is no longer editable.",
+        );
+    }
+    let updated = match sqlx::query(
+        "UPDATE reservation SET status=$1,\"latestExecutorId\"=$2 WHERE id=$3 AND status=$4",
+    )
+    .bind(new_status)
+    .bind(admin.id)
+    .bind(payload.id)
+    .bind(&current_status)
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result,
+        Err(err) => {
+            error!(%err, "update reservation review status");
+            return fail(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Unable to review reservation",
+            );
+        }
+    };
+    if updated.rows_affected() != 1 {
+        return fail(
+            StatusCode::CONFLICT,
+            "Reservation has already been processed or is no longer editable.",
+        );
+    }
     let _ = sqlx::query("INSERT INTO reservationoperationlog (\"adminId\",\"reservationId\",operation,reason) VALUES ($1,$2,$3,$4)").bind(admin.id).bind(payload.id).bind(new_status).bind(payload.reason).execute(&mut *tx).await;
     let raw_token = if payload.approved {
         let raw = token();
         let inserted = sqlx::query("INSERT INTO reservationcanceltoken (\"reservationId\",\"tokenHash\",\"expiresAt\") VALUES ($1,$2,$3)")
             .bind(payload.id)
             .bind(token_hash(&raw))
-            .bind(changed.get::<NaiveDateTime, _>("startTime"))
+            .bind(start_time)
             .execute(&mut *tx)
             .await;
         if inserted.is_err() {
@@ -893,10 +961,25 @@ pub(crate) async fn approve_reservation(
     } else {
         None
     };
+    let job_payload = if current_status == "approved" && new_status == "rejected" {
+        json!({
+            "reservationId": payload.id,
+            "status": new_status,
+            "cancelToken": raw_token,
+            "previousStatus": "approved",
+            "reviewReason": review_reason,
+        })
+    } else {
+        json!({
+            "reservationId": payload.id,
+            "status": new_status,
+            "cancelToken": raw_token,
+        })
+    };
     let _ = sqlx::query(
         "INSERT INTO outboxjob (kind,payload) VALUES ('reservation_status_changed',$1)",
     )
-    .bind(json!({"reservationId":payload.id,"status":new_status,"cancelToken":raw_token}))
+    .bind(job_payload)
     .execute(&mut *tx)
     .await;
     if tx.commit().await.is_err() {
@@ -1022,4 +1105,29 @@ pub(crate) async fn reservation_export(
                 "Unable to create export.",
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::review_decision;
+
+    #[test]
+    fn pending_reservations_can_be_approved_or_rejected() {
+        assert_eq!(review_decision("pending", true), Some("approved"));
+        assert_eq!(review_decision("pending", false), Some("rejected"));
+    }
+
+    #[test]
+    fn approved_reservations_can_be_rejected() {
+        assert_eq!(review_decision("approved", false), Some("rejected"));
+    }
+
+    #[test]
+    fn closed_or_repeat_approvals_are_refused() {
+        assert_eq!(review_decision("approved", true), None);
+        assert_eq!(review_decision("rejected", true), None);
+        assert_eq!(review_decision("rejected", false), None);
+        assert_eq!(review_decision("cancelled", true), None);
+        assert_eq!(review_decision("cancelled", false), None);
+    }
 }
