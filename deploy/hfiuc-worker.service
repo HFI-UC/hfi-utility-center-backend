@@ -1,0 +1,34 @@
+[Unit]
+Description=HFI Utility Center Rust outbox worker
+After=network-online.target docker.service hfiuc-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hfiuc
+Group=hfiuc
+WorkingDirectory=/srv/hfiuc-rust/current
+EnvironmentFile=/etc/hfiuc/backend.env
+EnvironmentFile=/etc/hfiuc/rust.env
+ExecStart=/usr/bin/env HFIUC_MODE=worker PORT=8002 BIND_ADDRESS=127.0.0.1 /usr/local/bin/hfiuc-api
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
