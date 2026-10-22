@@ -1,3 +1,0 @@
-ALTER TABLE reservation
-  ALTER COLUMN "classId" DROP NOT NULL,
-  ALTER COLUMN "studentId" DROP NOT NULL;
