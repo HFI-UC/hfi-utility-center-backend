@@ -478,12 +478,18 @@ final class ReservationServiceTest extends DatabaseTestCase
         $people = $this->people($rooms['roomA'], $rooms['roomB']);
         [$start, $end] = $this->slot(4, 10);
         $id = $this->insertReservation($rooms['roomA'], $start, $end, 'student@example.com', 'approved', $rooms['classId']);
+        $token = 'approved-link';
+        $this->db->execute(
+            'INSERT INTO reservationcanceltoken (reservationId, tokenHash, expiresAt) VALUES (?, ?, ?)',
+            [$id, Token::hash($token), Clock::sql($start)],
+        );
         $body = ['id' => $id, 'approved' => false, 'reason' => 'Room is needed for an exam.'];
         $this->expectHttp(
             fn () => $this->reservations->approval($this->asAdmin('room-b@example.com', $body)),
             403,
             'You do not manage this room.',
         );
+        self::assertNull($this->db->fetch('SELECT usedAt FROM reservationcanceltoken WHERE reservationId = ?', [$id])['usedAt']);
         $this->expectHttp(
             fn () => $this->reservations->approval($this->asAdmin('room-a@example.com', ['id' => $id, 'approved' => false, 'reason' => '   '])),
             400,
@@ -529,6 +535,38 @@ final class ReservationServiceTest extends DatabaseTestCase
         );
         self::assertCount(1, $this->jobPayloads('reservation_status_changed'));
         self::assertSame('approved', $this->db->fetch('SELECT status FROM reservation WHERE id = ?', [$pastId])['status']);
+        self::assertNotNull($this->db->fetch('SELECT usedAt FROM reservationcanceltoken WHERE reservationId = ?', [$id])['usedAt']);
+        $this->expectHttp(
+            fn () => $this->reservations->cancelPreview($this->request('GET', '/reservation/cancel/preview', [], ['token' => $token])),
+            404,
+            'Cancellation link is invalid or expired.',
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->cancel($this->request('POST', '/reservation/cancel', ['token' => $token])),
+            410,
+            'Cancellation link is expired.',
+        );
+        $this->expectHttp(
+            fn () => $this->reservations->modify($this->request('POST', '/reservation/modify', $this->modifyBody($token, $rooms['roomA'], $start, $end, 'Too late'))),
+            410,
+            'Reservation management link is expired.',
+        );
+
+        [$secondStart, $secondEnd] = $this->slot(4, 12);
+        [$thirdStart, $thirdEnd] = $this->slot(4, 14);
+        $second = $this->createReservation(
+            $this->reservationBody($rooms['roomA'], $secondStart, $secondEnd, $rooms['classId']),
+            ['x-csrf-token' => $this->csrf()],
+        );
+        self::assertGreaterThan(0, $second['reservationId']);
+        $this->expectHttp(
+            fn () => $this->createReservation(
+                $this->reservationBody($rooms['roomA'], $thirdStart, $thirdEnd, $rooms['classId']),
+                ['x-csrf-token' => $this->csrf()],
+            ),
+            400,
+            'You have reached your limit on reservation requests on this day.',
+        );
     }
 
     public function testEveryManagerStillSeesAnApprovedReservation(): void

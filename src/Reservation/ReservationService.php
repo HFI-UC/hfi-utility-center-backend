@@ -610,6 +610,10 @@ final class ReservationService
             'cancelToken' => null,
         ];
         if ($current === 'approved') {
+            $this->db->execute(
+                'UPDATE reservationcanceltoken SET usedAt = NOW() WHERE reservationId = ? AND usedAt IS NULL',
+                [$id],
+            );
             $payload['previousStatus'] = 'approved';
         }
         $this->enqueue('reservation_status_changed', $payload);
